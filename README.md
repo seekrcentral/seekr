@@ -1,11 +1,13 @@
 seekr
 ==============================
 [//]: # (Badges)
-[![GitHub Actions Build Status](https://github.com/REPLACE_WITH_OWNER_ACCOUNT/seekr/workflows/CI/badge.svg)](https://github.com/REPLACE_WITH_OWNER_ACCOUNT/seekr/actions?query=workflow%3ACI)
-[![codecov](https://codecov.io/gh/REPLACE_WITH_OWNER_ACCOUNT/seekr/branch/main/graph/badge.svg)](https://codecov.io/gh/REPLACE_WITH_OWNER_ACCOUNT/seekr/branch/main)
+[![GitHub Actions Build Status](https://github.com/seekrcentral/seekr/workflows/CI/badge.svg)](https://github.com/seekrcentral/seekr/actions?query=workflow%3ACI)
+[![codecov](https://codecov.io/gh/seekrcentral/seekr/branch/main/graph/badge.svg)](https://codecov.io/gh/seekrcentral/seekr/branch/main)
 
 
 Simulation-Enabled Estimation of Kinetic Rates
+
+TODO: make a nice landing README like the more professional packages
 
 ### Copyright
 
