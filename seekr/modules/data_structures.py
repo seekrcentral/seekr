@@ -4,7 +4,7 @@ data_structures.py
 Contain data structure classes used for SEEKR inputs and models.
 """
 
-#from seekr import __version__
+from seekr import __version__
 
 # Idea list
 # - Within blocks, where the substructure is unclear, add an
