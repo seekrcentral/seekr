@@ -1,0 +1,89 @@
+"""
+prepare.py
+
+Accept an input file and other arguments and settings for creating a 
+SEEKR calculation. Generated files including the model file as well as 
+the entire filetree.
+"""
+
+import os
+import sys
+import argparse
+import logging
+import typing
+
+import seekr.modules.base as base
+import seekr.modules.data_structures as data_structures
+import seekr.modules.prepare_base as prepare_base
+import seekr.modules.engines.input as engines_input
+
+def prepare(
+        seekr_input: prepare_base.Seekr_input, 
+        force_overwrite: bool=False
+        ) -> typing.Tuple[data_structures.Seekr_model, str]:
+    """
+    Using the Input from the user, prepare the Model
+    object and the filetree. Then prepare all building files
+    for each anchor and structure the Model.
+    """
+    curdir = os.getcwd()
+    model: data_structures.Seekr_model = seekr_input.create_model()
+    directory = os.path.abspath(
+        os.path.expanduser(seekr_input.directory))
+    seekr_input.directory = directory
+    prepare_base.generate_directory(directory)
+    log_directory = model.get_log_directory(directory)
+    prepare_base.generate_directory(log_directory)
+    synopsis_filename = model.get_synopsis_filename(directory)
+    base.configure_logger(synopsis_filename, False)
+    full_command = " ".join(sys.argv)
+    logging.info(f"Preparing new model with command: {full_command}")
+    file_path = os.path.join(directory, "model.json")
+    if len(seekr_input.partitions) > 0:
+        prepare_base.prepare_model_cvs_and_anchors(
+            model, seekr_input, force_overwrite)
+    else:
+        raise Exception("Partition must be defined in input file, "\
+                        "A partition of None is not yet implemented.")
+    
+    seekr_input.md_settings.systemwide_settings.copy_initial_files(
+        directory, model.md_engine.systemwide_settings, model.using_toy())
+    if model.using_bd:
+        prepare_base.copy_bd_files(model, seekr_input, directory)
+        model.bd_engine.generate_bd_files(model, directory)
+    model.save(file_path)
+    os.chdir(curdir)
+    return model, file_path
+
+if __name__ == "__main__":
+    argparser = argparse.ArgumentParser(description=__doc__)
+    argparser.add_argument(
+        "input_file", metavar="INPUT_FILE", type=str, 
+        help="The name of input file for a SEEKR calculation.")
+    argparser.add_argument(
+        "-f", "--force_overwrite", dest="force_overwrite", default=False,
+        help="Toggle whether to overwrite existing simulation output files "\
+        "within any anchor that might have existed in an old model that would "\
+        "be overwritten by generating this new model. If not toggled, this "\
+        "program will throw an exception instead of performing any such "\
+        "overwrite.", action="store_true")
+    argparser.add_argument(
+        "-s", "--skip_checks", dest="skip_checks", default=False, 
+        help="By default, pre-simulation checks will be run after the "\
+        "preparation is complete, and if the checks fail, the SEEKR "\
+        "model will not be saved. This argument bypasses those "\
+        "checks and allows the model to be generated anyways.", 
+        action="store_true")    
+    args = argparser.parse_args() # parse the args into a dictionary
+    args = vars(args)
+    model_input_filename = args["input_file"]
+    force_overwrite = args["force_overwrite"]
+    skip_checks = args["skip_checks"]
+    # Read the input JSON file into the input object
+    seekr_input = prepare_base.read_input(model_input_filename)
+    model, file_path = prepare(seekr_input, force_overwrite)
+    if model.directory == ".":
+        model_dir = os.path.dirname(file_path)
+        model.directory = os.path.abspath(model_dir)
+    #if not skip_checks:
+    #    check.check_pre_simulation_all(model)

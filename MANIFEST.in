@@ -1,1 +1,7 @@
+include LICENSE
+include MANIFEST.in
+include versioneer.py
+
+graft seekr
 global-exclude *.py[cod] __pycache__ *.so
+include seekr/_version.py

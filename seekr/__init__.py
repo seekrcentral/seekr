@@ -1,7 +1,7 @@
-"""Simulation-Enabled Estimation of Kinetic Rates"""
+__version__ = "{version}"
 
-# Add imports here
-from .seekr import *
-
-
-from ._version import __version__
+__all__ = [
+    "prepare",
+    "run",
+    "analyze",
+]

@@ -22,6 +22,9 @@ requires-python = ">=3.10"
 # Declare any run-time dependencies that should be installed with the package.
 dependencies = [
     "attrs",
+    "cattrs",
+    "dicttoxml",
+    "xmltodict",
     "numpy",
     "scipy",
     "matplotlib",
@@ -33,7 +36,7 @@ dependencies = [
 
 # Update the urls once the hosting is set up.
 [project.urls]
-"Source" = "https://github.com/<username>/seekr/"
+"Source" = "https://github.com/seekrcentral/seekr/"
 "Documentation" = "https://seekr.readthedocs.io/"
 
 [tool.setuptools]
@@ -56,9 +59,9 @@ zip-safe = false
 # (instead of using 'find'). With 'find', the 'tests' subpackage is discovered
 # recursively because of its __init__.py file, but the data subdirectory is excluded
 # with include-package-data = false and namespaces = false.
-include-package-data = false
+include-package-data = true
 [tool.setuptools.packages.find]
-namespaces = false
+namespaces = true
 where = ["."]
 
 # Ref https://setuptools.pypa.io/en/latest/userguide/datafiles.html#package-data
