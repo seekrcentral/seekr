@@ -1,210 +1,563 @@
+"""
+modules/engines/openmm/sim.py
 
-# A bunch of distance CV functions.
+Objects needed for OpenMM Simulation and System objects.
+"""
 
-# TODO: move to OpenMM engine module for cvs?
-    def make_boundary_force(self, alias_id):
-        """
-        Create an OpenMM force object which will be used to compute
-        the value of the CV's mathematical expression as the simulation
-        propagates. Each *milestone* in a cell, not each CV, will have
-        a force object created.
-        
-        In this implementation of MMVT in OpenMM, CustomForce objects
-        are used to provide the boundary definitions of the MMVT cell.
-        These 'forces' are designed to never affect atomic motions,
-        but are merely monitored by the plugin for bouncing event.
-        So while they are technically OpenMM force objects, we don't
-        refer to them as forces outside of this layer of the code,
-        preferring instead the term: boundary definitions.
-        """
-        try:
-            import openmm
-        except ImportError:
-            import simtk.openmm as openmm
-            
-        assert self.num_groups == 2
-        expression_w_bitcode = "bitcode*"+self.openmm_expression
-        return openmm.CustomCentroidBondForce(
-            self.num_groups, expression_w_bitcode)
-    
-    # TODO: move to OpenMM engine module for cvs?
-    def make_restraining_force(self, alias_id):
-        """
-        Create an OpenMM force object that will restrain the system to
-        a given value of this CV.
-        """
-        try:
-            import openmm
-        except ImportError:
-            import simtk.openmm as openmm
-            
-        assert self.num_groups == 2
-        return openmm.CustomCentroidBondForce(
-            self.num_groups, self.restraining_expression)
-    
-    # TODO: move to OpenMM engine module for cvs?
-    def make_cv_force(self, alias_id):
-        """
-        Make a force that is composed only of the cv_expression.
-        Used for metadynamics and potentially other things.
-        """
-        try:
-            import openmm
-        except ImportError:
-            import simtk.openmm as openmm
-            
-        assert self.num_groups == 2
-        return openmm.CustomCentroidBondForce(
-            self.num_groups, self.cv_expression)
-    
-    # TODO: move to OpenMM engine module for cvs?
-    def make_voronoi_cv_boundary_forces(self, me_val, neighbor_val, alias_id):
-        """
-        
-        """
-        try:
-            import openmm
-        except ImportError:
-            import simtk.openmm as openmm
-            
-        me_expr = "(me_val - {})^2".format(self.cv_expression)
-        me_force = openmm.CustomCentroidBondForce(
-            self.num_groups, me_expr)
-        megroup1 = me_force.addGroup(self.group1)
-        megroup2 = me_force.addGroup(self.group2)
-        me_force.addPerBondParameter("me_val")
-        me_force.addBond([megroup1, megroup2], [me_val])
-        
-        neighbor_expr = "(neighbor_val - {})^2".format(self.cv_expression)
-        neighbor_force = openmm.CustomCentroidBondForce(
-            self.num_groups, neighbor_expr)
-        neighborgroup1 = neighbor_force.addGroup(self.group1)
-        neighborgroup2 = neighbor_force.addGroup(self.group2)
-        neighbor_force.addPerBondParameter("neighbor_val")
-        neighbor_force.addBond([neighborgroup1, neighborgroup2], [neighbor_val])
-        
-        return me_force, neighbor_force
-    
-    # TODO: move to OpenMM engine module for cvs?
-    def update_voronoi_cv_boundary_forces(
-            self, me_force, me_val, neighbor_force, neighbor_val, alias_id, 
-            context):
-        """
-        
-        """
-        # the group list values of [0,1] is hacky, but probably correct
-        me_force.setBondParameters(0, [0,1], [me_val])
-        neighbor_force.setBondParameters(0, [0,1], [neighbor_val])
-        return
-    
-    # TODO: move to OpenMM engine module for cvs?
-    def add_groups(self, force):
-        """
-        
-        """
-        self._mygroup_list = []
-        mygroup1 = force.addGroup(self.group1)
-        self._mygroup_list.append(mygroup1)
-        mygroup2 = force.addGroup(self.group2)
-        self._mygroup_list.append(mygroup2)
-        return
-    
-    # TODO: move to OpenMM engine module for cvs?
-    def add_parameters(self, force):
-        """
-        An OpenMM custom force object needs a list of variables
-        provided to it that will occur within its expression. Both
-        the per-dof and global variables are combined within the
-        variable_names_list. The numerical values of these variables
-        will be provided at a later step.
-        """
-        self.add_groups(force)
-        variable_names_list = []
-        variable_names_list.append("bitcode")
-        force.addPerBondParameter("bitcode")
-        if self.per_dof_variables is not None:
-            for per_dof_variable in self.per_dof_variables:
-                force.addPerBondParameter(per_dof_variable)
-                variable_names_list.append(per_dof_variable)
-        
-        if self.global_variables is not None:
-            for global_variable in self.global_variables:
-                force.addGlobalParameter(global_variable)
-                variable_names_list.append(global_variable)
-        
-        return variable_names_list
-    
-    # TODO: move to OpenMM engine module for cvs?
-    def add_groups_and_variables(self, force, variables, alias_id):
-        """
-        Provide the custom force with additional information it needs,
-        which includes a list of the groups of atoms involved with the
-        CV, as well as a list of the variables' *values*.
-        """
-        assert len(self._mygroup_list) == self.num_groups
-        # TODO: add this assert to other CVs
-        assert force.getNumBonds() == 0, \
-            "add_groups_and_variables cannot be called twice for the same "\
-            "CV. Use update_groups_and_variables."
-        force.addBond(self._mygroup_list, variables)
-        return
-    
-    # TODO: move to OpenMM engine module for cvs?
-    def update_groups_and_variables(self, force, variables, alias_id, context):
-        """
-        Update the force's variables with a list of new values.
-        
-        A context must have it's reinitialize() method called after 
-        this function for the changes to be applied.
-        """
-        force.setBondParameters(0, self._mygroup_list, variables)
-        return
-    
-    # TODO: move to OpenMM engine module for cvs?
-    def get_variable_values_list(self, milestone):
-        """
-        Create the list of CV variables' values in the proper order
-        so they can be provided to the custom force object.
-        """
-        assert milestone.cv_index == self.index
-        values_list = []
-        bitcode = 2**(milestone.alias_index-1)
-        k = milestone.variables["k"] * unit.kilojoules_per_mole/unit.angstrom**2
-        radius = milestone.variables["radius"] * unit.nanometers
-        values_list.append(bitcode)
-        values_list.append(k)
-        values_list.append(radius)
-        return values_list
+import os
+import typing
 
-# This should probably be moved to OpenMM engine module
-    def get_openmm_context_cv_value(self, context, positions=None, system=None):
-        """
-        Determine the current CV value for an openmm context.
-        """
-        if system is None:
-            system = context.getSystem()
-        if positions is None:
-            assert context is not None, \
-                "If positions is None, context must not be None"
-            state = context.getState(getPositions=True)
-            positions = state.getPositions()
-        com1 = base.get_openmm_center_of_mass_com(
-            system, positions, self.group1)
-        com2 = base.get_openmm_center_of_mass_com(
-            system, positions, self.group2)
-        radius = np.linalg.norm(com2-com1)
-        assert np.isfinite(radius), "Non-finite value detected."
-        return radius
+import numpy as np
+import openmm.unit as unit
+import openmm
+import openmm.app as openmm_app
+
+import seekr.modules.engines.base as engines_base
+import seekr.modules.engines.openmm.base as openmm_base
+import seekr.modules.sampling_methods.openmm_interface as openmm_interface
+
+if typing.TYPE_CHECKING:
+    import seekr.modules.data_structures as data_structures
+
+DEFAULT_BAROSTAT_FREQUENCY = 25
+
+kB = unit.BOLTZMANN_CONSTANT_kB * unit.AVOGADRO_CONSTANT_NA
+
+def make_topology_system_from_amber(
+        amber_parameters_topology: engines_base.Amber_parameters_topology,
+        directory: str,
+        nonbonded_method: typing.Any,
+        nonbonded_cutoff: unit.Quantity | None,
+        constraints: typing.Any,
+        hydrogenMass: unit.Quantity | None
+        ) -> typing.Tuple[openmm.System, openmm_app.Topology]:
+    """
+    Load the Amber parameters and topology from the provided object, and
+    return OpenMM system and topology.
+    """
+    prmtop_filename = os.path.join(
+        directory, amber_parameters_topology.prmtop_filename)
+    prmtop = openmm_app.AmberPrmtopFile(prmtop_filename)
+    system = prmtop.createSystem(
+        nonbondedMethod=nonbonded_method,
+        nonbondedCutoff=nonbonded_cutoff,
+        constraints=constraints,
+        hydrogenMass=hydrogenMass)
+    return system, prmtop.topology
+
+def make_topology_system_from_gromacs(
+        gromacs_parameters_topology: engines_base.Gromacs_parameters_topology,
+        directory: str,
+        nonbonded_method: typing.Any,
+        nonbonded_cutoff: unit.Quantity | None,
+        constraints: typing.Any,
+        hydrogenMass: unit.Quantity | None
+        ) -> typing.Tuple[openmm.System, openmm_app.Topology]:
+    """
+    Load the Gromacs parameters and topology from the provided object, and
+    return OpenMM system and topology.
+    """
+    top_filename = os.path.join(
+        directory, gromacs_parameters_topology.top_filename)
+    gro_filename = os.path.join(
+        directory, gromacs_parameters_topology.gro_filename)
+    top_file = openmm_app.GromacsTopFile(top_filename)
+    gro_file = openmm_app.GromacsGroFile(gro_filename)
+    system = top_file.createSystem(
+        nonbondedMethod=nonbonded_method,
+        nonbondedCutoff=nonbonded_cutoff,
+        constraints=constraints,
+        hydrogenMass=hydrogenMass)
+    return system, top_file.topology
+
+def make_topology_system_from_charmm(
+        charmm_parameters_topology: engines_base.Charmm_parameters_topology,
+        directory: str,
+        nonbonded_method: typing.Any,
+        nonbonded_cutoff: unit.Quantity | None,
+        constraints: typing.Any,
+        hydrogenMass: unit.Quantity | None
+        ) -> typing.Tuple[openmm.System, openmm_app.Topology]:
+    """
+    Load the CHARMM parameters and topology from the provided object, and
+    return OpenMM system and topology.
+    """
+    psf_filename = os.path.join(
+        directory, charmm_parameters_topology.psf_filename)
+    param_filenames_list = []
+    for param_basename in charmm_parameters_topology.param_filenames_list:
+        param_filename = os.path.join(directory, param_basename)
+        param_filenames_list.append(param_filename)
+    psf = openmm_app.CharmmPsfFile(psf_filename)
+    # TODO: hacky - will this always work?
+    psf.setBox(4.0*unit.nanometers, 4.0*unit.nanometers, 4.0*unit.nanometers)
+    params = openmm_app.CharmmParameterSet(*param_filenames_list)
+    system = psf.createSystem(
+        params, nonbondedMethod=nonbonded_method,
+        nonbondedCutoff=nonbonded_cutoff,
+        constraints=constraints,
+        hydrogenMass=hydrogenMass)
+    return system, psf.topology
+
+def make_topology_system_from_forcefield(
+        forcefield_parameters_topology: engines_base.Forcefield_parameters,
+        topology_obj: openmm_app.PDBFile,
+        directory: str,
+        nonbonded_method: typing.Any,
+        nonbonded_cutoff: unit.Quantity | None,
+        constraints: typing.Any,
+        hydrogenMass: unit.Quantity | None
+        ) -> openmm.System:
+    """
+    Load the OpenMM forcefield parameters and topology from the 
+    provided object, and return OpenMM system and topology.
+    """
+    forcefield_filenames = []
+    for forcefield_filename in \
+            forcefield_parameters_topology.built_in_forcefield_filenames:
+        forcefield_filenames.append(forcefield_filename)
+    
+    for forcefield_basename in \
+            forcefield_parameters_topology.custom_forcefield_filenames:
+        forcefield_filenames.append(os.path.join(
+            directory, forcefield_filename))
+
+    forcefield = openmm_app.ForceField(*forcefield_filenames)
+    system = forcefield.createSystem(
+        topology_obj.topology, nonbondedMethod=nonbonded_method,
+        nonbondedCutoff=nonbonded_cutoff,
+        constraints=constraints,
+        hydrogenMass=hydrogenMass)
+    return system
+
+def make_topology_system_from_xml(
+        openmm_system_obj: engines_base.Openmm_system,
+        directory: str, 
+        nonbonded_method: typing.Any,
+        nonbonded_cutoff: unit.Quantity | None,
+        constraints: typing.Any,
+        hydrogenMass: unit.Quantity | None
+        ) -> openmm.System:
+    """
+    Load the OpenMM system XML from the 
+    provided object, and return OpenMM system.
+    """
+    # TODO: enforce these assertions since the prepare stage.
+    assert nonbonded_method is None, \
+        "When an OpenMM system is loaded from XML, the nonbonded method "\
+        "is already set within the XML file, so it should not be provided."
+    assert nonbonded_cutoff is None, \
+        "When an OpenMM system is loaded from XML, the nonbonded cutoff "\
+        "is already set within the XML file, so it should not be provided."
+    assert constraints is None, \
+        "When an OpenMM system is loaded from XML, the constraints "\
+        "are already set within the XML file, so it should not be provided."
+    assert hydrogenMass is None, \
+        "When an OpenMM system is loaded from XML, the hydrogen mass "\
+        "is already set within the XML file, so it should not be provided."
+    system_xml_filename = os.path.join(
+        directory, openmm_system_obj.system_filename)
+    with open(system_xml_filename) as input:
+        system = openmm.XmlSerializer.deserialize(input.read())
+    return system
+
+def make_toy_system_object(model):
+    """
+    Make openmm system and topology files for use with a toy system.
+    """
+    system = openmm.System()
+    topology = openmm_app.Topology()
+    toy_settings = model.md_engine.toy_settings
+    num_particles = toy_settings.num_particles
+    assert num_particles == len(toy_settings.masses)
+    new_expression = "k*("+toy_settings.potential_energy_expression+")"
+    force = openmm.CustomCentroidBondForce(num_particles, new_expression)
+    force.addGlobalParameter("k", 1.0*openmm.unit.kilocalories_per_mole)
+    groups_list = []
+    for i in range(num_particles):
+        mass = toy_settings.masses[i] * openmm.unit.amu
+        system.addParticle(mass)
+        atom_name = "X{}".format(i)
+        if not atom_name in openmm_app.element.Element._elements_by_symbol:
+            element = openmm_app.element.Element(0, atom_name, atom_name, mass)
+        else:
+            element = openmm_app.element.Element._elements_by_symbol[atom_name]
+        chain = topology.addChain()
+        residue = topology.addResidue("UNK", chain)
+        topology.addAtom(atom_name, element, residue)
+        groups_list.append(force.addGroup([i]))
+    
+    force.addBond(groups_list, [])
+    system.addForce(force)
+    return system, topology
+
+def create_openmm_system(
+        model: "data_structures.Seekr_model",
+        directory: str,
+        positions_array_or_basename: list | np.ndarray | str,
+        md_parameters_topology: engines_base.Parameters_topology,
+        frame_index: int = 0,
+        ) -> openmm.System:
+    """
+    Create an OpenMM system object for the given frame.
+    """
+    # TODO: This isn't right - how do we get the correct stage parameters
+    # Given a stage index? The list here will not be indexed correctly...
+    # Solution: add Nones to stage_parameters
+    
+    nonbonded_method = model.md_engine.nonbonded_method.lower()
+    if nonbonded_method == "pme":
+        nonbondedMethod = openmm_app.PME
         
-    def check_openmm_context_within_boundary(
-            self, context, milestone_variables, positions=None, verbose=False,
-            tolerance=0.0):
+    elif nonbonded_method == "nocutoff":
+        nonbondedMethod = openmm_app.NoCutoff
+        
+    elif nonbonded_method == "cutoffnonperiodic":
+        nonbondedMethod = openmm_app.CutoffNonPeriodic
+        
+    elif nonbonded_method == "cutoffperiodic":
+        nonbondedMethod = openmm_app.CutoffPeriodic
+        
+    elif nonbonded_method == "ewald":
+        nonbondedMethod = openmm_app.Ewald
+    
+    elif nonbonded_method is None:
+        nonbondedMethod = None
+        
+    else:
+        raise Exception("nonbonded method not found: "\
+                        f"{nonbonded_method}")
+    
+    if model.md_engine.constraints is None:
+        constraints_str = None
+    else:
+        constraints_str = model.md_engine.constraints
+        
+    if constraints_str is None:
+        constraints = None
+    
+    elif constraints_str.lower() == "none":
+        constraints = None
+    
+    elif constraints_str.lower() == "hbonds":
+        constraints = openmm_app.HBonds
+        
+    elif constraints_str.lower() == "allbonds":
+        constraints = openmm_app.AllBonds
+        
+    elif constraints_str.lower() == "hangles":
+        constraints = openmm_app.HAngles
+        
+    else:
+        raise Exception("constraints not found: "\
+                        f"{constraints_str}")
+    
+    if model.md_engine.hydrogen_mass is not None:
+        hydrogenMass = model.md_engine.hydrogen_mass*openmm.unit.amu
+    else:
+        hydrogenMass = None
+
+    if model.using_toy():
+        positions_array = positions_array_or_basename
+        assert positions_array is not None, \
+            "No starting starting positions were provided."
+        positions_frames = np.array(positions_array) \
+            * openmm.unit.nanometers
+        positions = positions_frames[frame_index]
+        num_frames = len(positions_frames)
+        system, topology = make_toy_system_object(model)
+        box_vectors = None
+    else:
+        positions_filename = positions_array_or_basename
+        if (positions_filename is not None) and \
+                positions_filename != "":
+            pdb_full_path = os.path.join(directory, positions_filename)
+            pdb_obj = openmm_app.PDBFile(pdb_full_path)
+            box_vectors = openmm_base.get_box_vectors_from_pdb(pdb_full_path)
+        else:
+            pdb_obj = None
+            box_vectors = None
+
+        if md_parameters_topology.type == "Amber":
+            system, topology = make_topology_system_from_amber(
+                md_parameters_topology, directory,
+                nonbondedMethod, model.md_engine.nonbonded_cutoff,
+                constraints, hydrogenMass)
+        elif md_parameters_topology.type == "Gromacs":
+            system, topology = make_topology_system_from_gromacs(
+                md_parameters_topology, directory,
+                nonbondedMethod, model.md_engine.nonbonded_cutoff,
+                constraints, hydrogenMass)
+        elif md_parameters_topology.type == "Charmm":
+            system, topology = make_topology_system_from_charmm(
+                md_parameters_topology, directory,
+                nonbondedMethod, model.md_engine.nonbonded_cutoff,
+                constraints, hydrogenMass)
+        elif md_parameters_topology.type == "Forcefield":
+            system = make_topology_system_from_forcefield(
+                md_parameters_topology, pdb_obj,
+                directory, nonbondedMethod, model.md_engine.nonbonded_cutoff,
+                constraints, hydrogenMass)
+            topology = pdb_obj.topology
+
+        if pdb_obj is None:
+            positions = None
+            num_frames = 0
+        else:
+            assert frame_index >= 0, "Cannot have negative frame index"
+            assert frame_index < pdb_obj.getNumFrames(), \
+                f"Frame index {frame_index} out of range."
+            positions = pdb_obj.getPositions(frame=frame_index)
+            num_frames = pdb_obj.getNumFrames()
+    
+    # set all non-milestoning force groups to zero
+    for force in system.getForces():
+        force.setForceGroup(0)
+
+    return system, topology, positions, box_vectors, num_frames
+
+class Sim_openmm:
+    """
+    Contain superclass information necessary to run a SEEKR2 
+    calculation in OpenMM.
+    
+    platform : openmm.Platform()
+        The platform to use for the simulation. The CUDA platform
+        is recommended, but Reference is also available.
+        
+    properties : dict
+        A dictionary of properties passed to the Simulation() object
+        that apply to the platform.
+        
+    timestep : float
+        The timestep (in picoseconds) which was passed to the 
+        integrator, but is also useful to know in other places within 
+        the program.
+        
+    output_filename : str
+        The file that the plugin will write SEEKR output to, and which
+        will be parsed by the analysis software.
+
+    system : The OpenMM system object for this simulation.
+    
+    integrator : the OpenMM integrator object for this simulation.
+    
+    simulation : the OpenMM simulation object.
+    
+    traj_reporter : openmm.DCDReporter
+        The OpenMM Reporter object to which the trajectory will be
+        written.
+        
+    energy_reporter : openmm.StateDataReporter
+        The OpenMM StateDataReporter to which the energies and other
+        state data will be reported.
+        
+    """
+    def __init__(self):
+        self.platform = None
+        self.properties = None
+        self.timestep = None
+        self.box_vectors = None
+        self.system = None
+        self.topology = None
+        self.integrator = None
+        self.simulation = None
+        self.traj_reporter = openmm_app.DCDReporter
+        self.energy_reporter = openmm_app.StateDataReporter
+        return
+    
+    def add_integrator(
+            self, 
+            model: "data_structures.Seekr_model",
+            ensemble: "data_structures.Ensemble",
+            sampling_engine_interface: openmm_interface.Sampling_md_openmm_interface | None = None
+            ) -> None:
         """
-        Check if an OpenMM context describes a system that remains
-        within the expected anchor. Return True if passed, return
-        False if failed.
+        Assign the proper integrator to this OpenMM simulation.
         """
-        radius = self.get_openmm_context_cv_value(context, positions)
-        result = self.check_value_within_boundary(
-            radius, milestone_variables, verbose, tolerance)
-        return result
+        assert model.md_engine is not None
+        assert model.md_engine.type == "openmm"
+        assert model.md_engine.integrator_settings is not None
+        integrator_settings = model.md_engine.integrator_settings
+        timestep = model.get_md_timestep()
+        rigid_constraint_tolerance = integrator_settings.rigid_tolerance
+        self.timestep = timestep
+        integrator = openmm.CustomIntegrator(timestep)
+        integrator_type = integrator_settings.type
+        if integrator_type == "langevin":
+            if ensemble is not None:
+                assert ensemble.type in ["NVT", "NPT", "NPT_membrane"], \
+                    "Ensemble type not allowed or recognized for Langevin "\
+                    f"integrator: {ensemble.type}"
+            temperature = integrator_settings.target_temperature * unit.kelvin
+            friction = integrator_settings.friction / unit.picoseconds
+            integrator.addGlobalVariable("a", np.exp(-friction*timestep));
+            integrator.addGlobalVariable("b", np.sqrt(1-np.exp(-2*friction*timestep)));
+            integrator.addGlobalVariable("kT", kB*temperature);
+            sampling_engine_interface.add_global_variables_integrator(self.integrator)
+            integrator.addPerDofVariable("x1", 0);
+            sampling_engine_interface.add_per_DOF_variables_integrator(self.integrator)
+            sampling_engine_interface.pre_integration_instructions(self.integrator)
+            integrator.addUpdateContextState();
+            integrator.addComputePerDof("v", "v + dt*f/m");
+            integrator.addConstrainVelocities();
+            integrator.addComputePerDof("x", "x + 0.5*dt*v");
+            integrator.addComputePerDof("v", "a*v + b*sqrt(kT/m)*gaussian");
+            integrator.addComputePerDof("x", "x + 0.5*dt*v");
+            integrator.addComputePerDof("x1", "x");
+            integrator.addConstrainPositions();
+            integrator.addComputePerDof("v", "v + (x-x1)/dt");
+            sampling_engine_interface.post_integration_instructions(self.integrator)
+            random_seed = integrator_settings.random_seed
+            if random_seed is not None:
+                integrator.setRandomNumberSeed(random_seed)
+        #elif integrator_type == "brownian":
+        #    integrator_object = openmm.BrownianIntegrator
+        #elif integrator_type == "verlet":
+        #    integrator_object = openmm.VerletIntegrator
+        else:
+            raise Exception("Integrator type not available: "\
+                            f"{integrator_type}")
+        if rigid_constraint_tolerance is not None:
+            integrator.setConstraintTolerance(
+                rigid_constraint_tolerance)
+        self.integrator = integrator
+        return
+    
+    def add_barostat(
+            self, 
+            model: "data_structures.Seekr_model",
+            ensemble: "data_structures.Ensemble",
+            ) -> typing.Any:
+        """
+        Add a barostat to the simulation.
+        """
+        
+        if ensemble.type in ["NVE", "NVT"]:
+            return
+        else:
+            assert model.md_engine is not None
+            assert model.md_engine.type == "openmm"
+            assert model.md_engine.integrator_settings is not None
+            integrator_settings = model.md_engine.integrator_settings
+            target_temperature = integrator_settings.target_temperature
+            if ensemble.type == "NPT":
+                barostat = openmm.MonteCarloBarostat(
+                    ensemble.pressure*unit.bar,
+                    target_temperature*unit.kelvin,
+                    DEFAULT_BAROSTAT_FREQUENCY)
+                self.system.addForce(barostat)
+            elif ensemble.type == "NPT_membrane":
+                barostat = openmm.MonteCarloMembraneBarostat(
+                    ensemble.pressure*unit.atmospheres,
+                    0.0*unit.bar*unit.nanometers,
+                    target_temperature*unit.kelvin,
+                    openmm.MonteCarloMembraneBarostat.XYIsotropic,
+                    openmm.MonteCarloMembraneBarostat.ZFixed)
+                self.system.addForce(barostat)
+            else:
+                raise Exception("Ensemble type not recognized: "\
+                                f"{ensemble.type}")
+        return
+    
+    def add_platform(
+            self, 
+            model: "data_structures.Seekr_model",
+            ) -> None:
+        """
+        Add the platform to the simulation.
+        """
+        assert model.md_engine is not None
+        assert model.md_engine.type == "openmm"
+        platform_settings = model.md_engine.platform_settings
+        if platform_settings is None:
+            self.platform = openmm.Platform.getPlatformByName("Reference")
+            self.properties = {}
+            return
+        elif platform_settings.type == "cuda":
+            self.platform = openmm.Platform.getPlatformByName("CUDA")
+            self.properties = {"CudaDeviceIndex": platform_settings.device_index, 
+                               "CudaPrecision": platform_settings.precision}
+        else:
+            raise Exception("Platform not recognized: "\
+                            f"{platform_settings.type}")
+        return
+    
+    def add_simulation(
+            self, 
+            model: "data_structures.Seekr_model",
+            positions: unit.Quantity | None,
+            ) -> unit.Quantity:
+        """
+        Add the simulation object to the OpenMM simulation.
+        """
+        assert self.system is not None
+        assert self.integrator is not None
+        assert self.platform is not None
+        assert self.properties is not None
+        self.simulation = openmm_app.Simulation(
+            self.topology, self.system, self.integrator, self.platform, 
+            self.properties)
+        if positions is not None:
+            self.simulation.context.setPositions(positions)
+            self.simulation.context.setVelocitiesToTemperature(
+                model.md_engine.initial_temperature * unit.kelvin)
+        if self.box_vectors is not None:
+            self.simulation.context.setPeriodicBoxVectors(
+                *self.box_vectors.to_quantity())
+        self.simulation.context.setPositions(self.positions)
+        self.simulation.context.setVelocitiesToTemperature(
+            self.integrator.getTemperature())
+        if self.box_vectors is not None:
+            self.simulation.context.setPeriodicBoxVectors(*self.box_vectors)
+        return
+
+def write_toy_pdb_file(topology, positions, pdb_file_name):
+    """
+    For toy systems, write a PDB file to use as a topology file for
+    mdtraj.
+    """
+    positions_nm = np.array(positions) * unit.nanometers
+    writing_positions = positions_nm.value_in_unit(unit.angstroms)
+    with open(pdb_file_name, "w") as out_file:
+        openmm_app.PDBFile.writeHeader(topology, out_file)
+        openmm_app.PDBFile.writeModel(topology, writing_positions, out_file)
+        openmm_app.PDBFile.writeFooter(topology, out_file)
+    return
+
+def create_sim_openmm(
+        model: "data_structures.Seekr_model", 
+        directory: str,
+        positions_array_or_basename: list | np.ndarray | str,
+        md_parameters_topology: engines_base.Parameters_topology,
+        frame: int = 0,
+        ensemble: data_structures.Ensemble | None = None,
+        # TODO: change argument below to a sampling_method_OpenMM_intersection object
+        sampling_engine_interface: openmm_interface.Sampling_md_openmm_interface | None = None):
+    """
+    Generate an OpenMM simulation and other objects for a given
+    calculation.
+    """
+    sim_openmm = Sim_openmm()
+    system, topology, positions, box_vectors, _ \
+        = create_openmm_system(
+            model, directory, positions_array_or_basename, 
+            md_parameters_topology, frame)
+    sim_openmm.system = system
+    sim_openmm.topology = topology
+    sim_openmm.box_vectors = box_vectors
+    # TODO: replace with adding integrator from sampling method
+    # A sampling method of None will be conventional MD.
+    sim_openmm.add_integrator(model, ensemble, sampling_engine_interface)
+    if ensemble is not None:
+        sim_openmm.add_barostat(model, ensemble)
+    sim_openmm.add_platform(model)
+    # TODO: add forces here based on sampling method
+    #  and restraints
+    sim_openmm.add_simulation(model, positions)
+    if model.using_toy():
+        toy_pdb_filename = os.path.join(directory, "toy.pdb")
+        write_toy_pdb_file(topology, positions, toy_pdb_filename)
+    return sim_openmm
+    
+    

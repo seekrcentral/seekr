@@ -87,3 +87,16 @@ default-tag = "3.0.0"
 
 [tool.versioningit.write]
 file = "seekr/_version.py"
+
+#[tool.mypy]
+#python_version = "2.7"
+
+# mypy per-module options:
+[[tool.mypy.overrides]]
+module = [
+    "openmm",
+    "openmm.unit",
+    "scipy.spatial",
+    #"some_other_library"
+]
+ignore_missing_imports = true

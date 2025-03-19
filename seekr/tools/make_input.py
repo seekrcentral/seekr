@@ -67,7 +67,7 @@ def create_host_guest_example_input(
     seekr_input.temperature = 298.15
     seekr_input.md_settings = openmm_input.Openmm_settings_input()
     seekr_input.md_settings.systemwide_settings \
-        = engines_base.MD_systemwide_settings()
+        = engines_base.MD_systemwide_settings_input()
     if ff == "amber":
         seekr_input.md_settings.systemwide_settings.md_parameters_topology\
             = engines_base.Amber_parameters_topology()
@@ -154,7 +154,8 @@ def create_host_guest_example_input(
     stage4.n_trajectories_per_output = 1000
     stage4.n_steps_per_output = 100000
     stage4.sampling_method = sampling_input.NAM_bd_input()
-    stage4.completion_criteria = data_structures.Surface_crossed_completion_criteria()
+    stage4.completion_criteria = data_structures.Number_of_trajectories_completion_criteria()
+    stage4.completion_criteria.number_of_trajectories = 10000
     
     seekr_input.stages = [stage1, stage2, stage3, stage4]
     seekr_input.partitions = [prepare_base.Partition_input()]
@@ -166,9 +167,11 @@ def create_host_guest_example_input(
     bound_state_point = prepare_base.State_point()
     bound_state_point.name = "bound"
     bound_state_point.value = [0.05]
+    bound_state_point.end_state = True
     bulk_state_point = prepare_base.State_point()
     bulk_state_point.name = "bulk"
     bulk_state_point.value = [1.35]
+    bulk_state_point.end_state = True
     seekr_input.partitions[0].state_points = [bound_state_point, bulk_state_point]
     
     seekr_input.partitions[0].anchors = []

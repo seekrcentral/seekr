@@ -11,11 +11,16 @@ import sys
 import argparse
 import logging
 import typing
+import getpass
+import socket
 
+import seekr._version as seekr_version
 import seekr.modules.base as base
 import seekr.modules.data_structures as data_structures
 import seekr.modules.prepare_base as prepare_base
 import seekr.modules.engines.input as engines_input
+
+__version__ = seekr_version.__version__
 
 def prepare(
         seekr_input: prepare_base.Seekr_input, 
@@ -38,6 +43,8 @@ def prepare(
     base.configure_logger(synopsis_filename, False)
     full_command = " ".join(sys.argv)
     logging.info(f"Preparing new model with command: {full_command}")
+    logging.info(f"hostname: {socket.gethostname()}. username: {getpass.getuser()}. "\
+                 f"SEEKR version: {__version__}")
     file_path = os.path.join(directory, "model.json")
     if len(seekr_input.partitions) > 0:
         prepare_base.prepare_model_cvs_and_anchors(
@@ -46,11 +53,20 @@ def prepare(
         raise Exception("Partition must be defined in input file, "\
                         "A partition of None is not yet implemented.")
     
-    seekr_input.md_settings.systemwide_settings.copy_initial_files(
-        directory, model.md_engine.systemwide_settings, model.using_toy())
-    if model.using_bd:
+    if model.using_md():
+        assert seekr_input.md_settings is not None
+        assert seekr_input.md_settings.systemwide_settings is not None
+        assert model.md_engine is not None
+        assert model.md_engine.systemwide_settings is not None
+        seekr_input.md_settings.systemwide_settings.copy_initial_files(
+            directory, model.md_engine.systemwide_settings, model.using_toy())
+        
+    if model.using_bd():
+        assert seekr_input.bd_settings is not None
+        assert model.bd_engine is not None
         prepare_base.copy_bd_files(model, seekr_input, directory)
         model.bd_engine.generate_bd_files(model, directory)
+        
     model.save(file_path)
     os.chdir(curdir)
     return model, file_path
@@ -74,8 +90,8 @@ if __name__ == "__main__":
         "model will not be saved. This argument bypasses those "\
         "checks and allows the model to be generated anyways.", 
         action="store_true")    
-    args = argparser.parse_args() # parse the args into a dictionary
-    args = vars(args)
+    argspace = argparser.parse_args() # parse the args into a dictionary
+    args = vars(argspace)
     model_input_filename = args["input_file"]
     force_overwrite = args["force_overwrite"]
     skip_checks = args["skip_checks"]

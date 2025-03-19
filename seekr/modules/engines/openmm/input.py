@@ -8,7 +8,6 @@ uses OpenMM.
 import typing
 from attrs import define, field, validators
 
-import seekr.modules.data_structures as data_structures
 import seekr.modules.engines.base as engines_base
 import seekr.modules.engines.openmm.base as openmm_base
 
@@ -52,7 +51,7 @@ class Openmm_settings_input:
                               validator=[validators.instance_of(str),
                                          validators.in_(
                                              ["cuda", "opencl", "cpu", "reference"])])
-    systemwide_settings: engines_base.MD_systemwide_settings | None = None
+    systemwide_settings: engines_base.MD_systemwide_settings_input | None = None
 
     def make_model_engine(self, model_temperature: float) -> openmm_base.Openmm_md_engine:
         """
@@ -78,7 +77,9 @@ class Openmm_settings_input:
         elif self.platform_type == "reference":
             openmm_engine.platform_settings = None
 
-        openmm_engine.systemwide_settings = self.systemwide_settings
+        #openmm_engine.systemwide_settings = self.systemwide_settings
+        openmm_engine.systemwide_settings \
+            = self.systemwide_settings.make_systemwide_settings_for_model()
         return openmm_engine
     
     def assign_toy_settings(

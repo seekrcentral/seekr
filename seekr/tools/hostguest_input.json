@@ -18,7 +18,6 @@
                 "prmtop_filename": "/home/lvotapka/seekr/seekr/data/hostguest_files/hostguest.parm7"
             },
             "positions": "/home/lvotapka/seekr/seekr/data/hostguest_files/hostguest_at0.5.pdb",
-            "stage_directories": [],
             "selections": [
                 {
                     "name": "host",
@@ -156,13 +155,15 @@
                     "name": "bound",
                     "value": [
                         0.05
-                    ]
+                    ],
+                    "end_state": true
                 },
                 {
                     "name": "bulk",
                     "value": [
                         1.35
-                    ]
+                    ],
+                    "end_state": true
                 }
             ],
             "anchors": [

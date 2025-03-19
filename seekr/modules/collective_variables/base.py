@@ -4,10 +4,15 @@ collective_variables/base.py
 Base classes for collective variables, states, and anchors.
 """
 
+import typing
+
 from attrs import define, field, validators
 
 # TODO: make a base class for CVs? - it could contain potentially
 #  specialized functions for each CV.
+
+if typing.TYPE_CHECKING:
+    import seekr.modules.data_structures as data_structures
 
 @define
 class CV_input_2groups:
@@ -38,7 +43,9 @@ class CV_input_2groups:
     group2_name: str = field(default="",
                              validator=validators.instance_of(str))
     
-    def check(self):
+    def check(
+            self,
+            input_anchors: list["data_structures.Anchor_input"]) -> None:
         # TODO: fill out generic checks, and implement in derived classes
         #  if necessary.
         pass

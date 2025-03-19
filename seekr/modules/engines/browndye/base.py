@@ -1,5 +1,8 @@
 """
+modules.engines.browndye.base.py
 
+Base objects for simulation preparation, running, and analysis
+of Browndye simulations.
 """
 
 import os
@@ -7,9 +10,14 @@ import re
 import glob
 import typing
 from attrs import define, field, validators, Factory
+from attrs.validators import and_, optional, instance_of, gt, ge, deep_iterable
 import logging
 import xml.etree.ElementTree as ET
 from xml.dom import minidom
+import subprocess
+from collections import defaultdict
+
+import numpy as np
 
 import seekr.modules.base as base
 import seekr.modules.engines.base as engines_base
@@ -43,18 +51,17 @@ class Ion:
         liter.
     """
     
-    radius: float = field(default=1.0,
-                          validator=[validators.instance_of(float),
-                                           validators.gt(0)])
-    charge: float = field(default=0.0,
-                            validator=[validators.instance_of(float)])
-    conc: float = field(default=0.0,
-                            validator=[validators.instance_of(float),
-                                             validators.ge(0)])
+    radius: float = field(
+        default=1.0, validator=[instance_of(float), gt(0)])
+    charge: float = field(
+        default=0.0, validator=[instance_of(float)])
+    conc: float = field(
+        default=0.0, validator=[instance_of(float), ge(0)])
+    
     def serialize(
             self, 
             xmlIon: ET.Element
-            ):
+            ) -> None:
         """
         Serialize this object to XML
         
@@ -96,21 +103,16 @@ class Solvent:
         A list of Ion() objects for APBS input
     """
     
-    debye_length: float = field(default=9e9,
-                                validator=[validators.instance_of(float),
-                                             validators.gt(0)])
-    dielectric: float = field(default=78.0,
-                            validator=[validators.instance_of(float),
-                                         validators.gt(0)])
-    relative_viscosity: float = field(default=1.0,
-                                    validator=[validators.instance_of(float),
-                                                 validators.gt(0)])
-    kT: float = field(default=1.0,
-                      validator=[validators.instance_of(float),
-                                 validators.gt(0)])
-    desolvation_parameter: float = field(default=1.0,
-                                        validator=[validators.instance_of(float),
-                                                     validators.ge(0)])
+    debye_length: float = field(
+        default=9e9, validator=[instance_of(float), gt(0)])
+    dielectric: float = field(
+        default=78.0, validator=[instance_of(float), gt(0)])
+    relative_viscosity: float = field(
+        default=1.0, validator=[instance_of(float), gt(0)])
+    kT: float = field(
+        default=1.0, validator=[instance_of(float), gt(0)])
+    desolvation_parameter: float = field(
+        default=1.0, validator=[instance_of(float), ge(0)])
     ions: typing.List[Ion] = field(default=Factory(list))
     
     def serialize(
@@ -150,7 +152,7 @@ class Solvent:
             xmlSolventIons = ET.SubElement(xmlSolvent, 'ions')
             for ion in self.ions:
                 xmlIon = ET.SubElement(xmlSolventIons, 'ion')
-                xmlIon.text = ion.serialize(xmlIon)
+                ion.serialize(xmlIon)
         
         return
 
@@ -183,33 +185,23 @@ class Time_step_tolerances:
         This has the same relation to minimum_chain_dt.
     """
     
-    force: float | None = field(default=None,
-                                validator=validators.optional([
-                                    validators.instance_of(float),
-                                    validators.gt(0)]))
-    reaction: float | None = field(default=None,
-                                    validator=validators.optional([
-                                        validators.instance_of(float),
-                                        validators.gt(0)]))
-    minimum_core_dt: float = field(default=0.0,
-                                    validator=[validators.instance_of(float),
-                                                 validators.ge(0)])
-    minimum_chain_dt: float | None = field(default=None,
-                                            validator=validators.optional([
-                                                validators.instance_of(float),
-                                                validators.ge(0)]))
-    minimum_core_reaction_dt: float = field(default=0.0,
-                                            validator=[validators.instance_of(float),
-                                                         validators.ge(0)])
-    minimum_chain_reaction_dt: float | None = field(default=None,
-                                                    validator=validators.optional([
-                                                        validators.instance_of(float),
-                                                        validators.ge(0)]))
+    force: float | None = field(
+        default=None, validator=optional(and_(instance_of(float), gt(0))))
+    reaction: float | None = field(
+        default=None, validator=optional(and_(instance_of(float), gt(0))))
+    minimum_core_dt: float = field(
+        default=0.0, validator=[instance_of(float), ge(0)])
+    minimum_chain_dt: float | None = field(
+        default=None, validator=optional(and_(instance_of(float), ge(0))))
+    minimum_core_reaction_dt: float = field(
+        default=0.0, validator=[instance_of(float), ge(0)])
+    minimum_chain_reaction_dt: float | None = field(
+        default=None, validator=optional(and_(instance_of(float), ge(0))))
 
     def serialize(
             self, 
             xmlTime: ET.Element
-            ):
+            ) -> None:
         """
         Serialize this object to XML
         
@@ -258,13 +250,12 @@ class Electric_field:
         A file of multipole extension outside grids.
     """
     
-    grid_list: typing.List[str] = field(default=Factory(list),
-                                        validator=[validators.deep_iterable(
-                                            member_validator=validators.instance_of(base.Selection),
-                                            iterable_validator=validators.instance_of(list),)])
-    multipole_field: str | None = field(default=None,
-                                        validator=validators.optional(
-                                            validators.instance_of(str)))
+    grid_list: typing.List[str] = field(
+        default=Factory(list), validator=[deep_iterable(
+            member_validator=instance_of(base.Selection),
+            iterable_validator=instance_of(list),)])
+    multipole_field: str | None = field(
+        default=None, validator=optional(instance_of(str)))
 
     def serialize(
             self, 
@@ -303,14 +294,12 @@ class Link:
         The residue index within the chain to link to.
     """
     
-    core_name: str = field(default="", 
-                           validator=[validators.instance_of(str)])
-    core_residue: int = field(default=0,
-                                validator=[validators.instance_of(int),
-                                             validators.ge(0)])
-    chain_residue: int = field(default=0,
-                                validator=[validators.instance_of(int),
-                                             validators.ge(0)])
+    core_name: str = field(
+        default="", validator=instance_of(str))
+    core_residue: int = field(
+        default=0, validator=[instance_of(int), ge(0)])
+    chain_residue: int = field(
+        default=0, validator=[instance_of(int), ge(0)])
     def serialize(
             self, 
             xmlLink: ET.Element
@@ -356,13 +345,14 @@ class Chain:
         number of the chain's linking residue are specified.
     """
     
-    name: str = field(default="",
-                        validator=[validators.instance_of(str)])
-    atoms: str = field(default="",
-                        validator=[validators.instance_of(str)])
+    name: str = field(default="", validator=instance_of(str))
+    atoms: str = field(default="", validator=instance_of(str))
     link_list: typing.List[Link] = field(default=Factory(list))
 
-    def serialize(self, xmlChain):
+    def serialize(
+            self, 
+            xmlChain: ET.Element
+            ) -> None:
         """
         Serialize this object to XML
         
@@ -380,7 +370,7 @@ class Chain:
         xmlChainAtoms.text = self.atoms
         for link in self.link_list:
             xmlLink_i = ET.SubElement(xmlChain, 'link')
-            xmlLink_i.text = link.serialize(xmlLink_i)
+            link.serialize(xmlLink_i)
         return
 
 @define
@@ -419,42 +409,29 @@ class Core:
         The interior dielectric of the core.
     """
     
-    name: str = field(default="",
-                        validator=[validators.instance_of(str)])
-    atoms: str = field(default="",
-                        validator=[validators.instance_of(str)])
-    all_in_surface: str | None = field(default="false",
-                                        validator=validators.optional(
-                                            validators.instance_of(str)))
-    electric_field: Electric_field | None = field(default=None,
-                                                    validator=validators.optional(
-                                                        validators.instance_of(Electric_field)))
-    desolvation_field: str | None = field(default=None,
-                                            validator=validators.optional(
-                                                validators.instance_of(str)))
-    eff_charges: str | None = field(default=None,
-                                    validator=validators.optional(
-                                        validators.instance_of(str)))
-    eff_charges_squared: str | None = field(default=None,
-                                            validator=validators.optional(
-                                                validators.instance_of(str)))
-    copy: typing.Union["CoreCopy", None] = field(default=None,
-                                    validator=validators.optional(
-                                        validators.instance_of("CoreCopy")))
-    is_protein: str | None = field(default="false",
-                                    validator=validators.optional(
-                                        validators.instance_of(str)))
-    dielectric: float = field(default=4.0,
-                                validator=[validators.instance_of(float),
-                                             validators.gt(0)])
-    grid_spacing: float = field(default=0.5,
-                                validator=[validators.instance_of(float),
-                                             validators.gt(0)])
+    name: str = field(default="", validator=instance_of(str))
+    atoms: str = field(default="", validator=instance_of(str))
+    all_in_surface: str | None = field(default="false")
+    electric_field: Electric_field | None = field(
+        default=None, validator=optional(instance_of(Electric_field)))
+    desolvation_field: str | None = field(
+        default=None,validator=optional(instance_of(str)))
+    eff_charges: str | None = field(
+        default=None, validator=optional(instance_of(str)))
+    eff_charges_squared: str | None = field(
+        default=None, validator=optional(instance_of(str)))
+    copy: typing.Union["CoreCopy", None] = field(default=None)
+    is_protein: str | None = field(default="false")
+    dielectric: float = field(
+        default=4.0, validator=[instance_of(float), gt(0)])
+    grid_spacing: float = field(
+        default=0.5, validator=[instance_of(float), gt(0)])
     
     def serialize(
             self, 
             xmlCore: ET.Element, 
-            make_apbs_mode: bool = True):
+            make_apbs_mode: bool = True
+            ) -> None:
         """
         Serialize this object to XML
         
@@ -480,8 +457,7 @@ class Core:
         if not make_apbs_mode:
             if self.electric_field is not None:
                 xmlCoreElecField = ET.SubElement(xmlCore, 'electric_field')
-                xmlCoreElecField.text = self.electric_field.serialize(
-                    xmlCoreElecField)
+                self.electric_field.serialize(xmlCoreElecField)
         if self.desolvation_field is not None:
             assert self.desolvation_field
             xmlEDesolv = ET.SubElement(xmlCore, "desolvation_field")
@@ -496,7 +472,7 @@ class Core:
             xmlEEff2.text = self.eff_charges_squared
         if self.copy is not None:
             xmlECopy = ET.SubElement(xmlCore, 'copy')
-            xmlECopy.text = self.copy.serialize(xmlECopy)
+            self.copy.serialize(xmlECopy)
         if self.is_protein is not None:
             assert self.is_protein.lower() in ["true","false"]
             xmlCoreIsProt = ET.SubElement(xmlCore, "is_protein")
@@ -526,16 +502,15 @@ class CoreCopy:
         A list of 9 floats that describes the new rotation.
     """
     
-    parent: str = field(default="",
-                        validator=[validators.instance_of(str)])
-    translation: typing.List[float] = field(default=Factory(list),
-                                            validator=[validators.deep_iterable(
-                                                member_validator=validators.instance_of(base.Selection),
-                                                iterable_validator=validators.instance_of(list),)])
-    rotation: typing.List[float] = field(default=Factory(list),
-                                        validator=[validators.deep_iterable(
-                                            member_validator=validators.instance_of(base.Selection),
-                                                iterable_validator=validators.instance_of(list),)])
+    parent: str = field(default="", validator=[instance_of(str)])
+    translation: typing.List[float] = field(
+        default=Factory(list), validator=[validators.deep_iterable(
+            member_validator=instance_of(base.Selection),
+            iterable_validator=instance_of(list),)])
+    rotation: typing.List[float] = field(
+        default=Factory(list), validator=[validators.deep_iterable(
+            member_validator=instance_of(base.Selection),
+            iterable_validator=instance_of(list),)])
 
     def serialize(
             self, 
@@ -580,8 +555,7 @@ class Group:
         A list of Chain() objects for this group
     """
     
-    name: str = field(default="",
-                        validator=[validators.instance_of(str)])
+    name: str = field(default="", validator=[instance_of(str)])
     core_list: typing.List[Core] = field(default=Factory(list))
     chain_list: typing.List[Chain] = field(default=Factory(list))
     
@@ -589,7 +563,7 @@ class Group:
             self, 
             xmlGroup: ET.Element, 
             make_apbs_mode: bool = True
-            ):
+            ) -> None:
         """
         Serialize this object to XML
         
@@ -604,10 +578,10 @@ class Group:
         xmlGroupName.text = self.name
         for core in self.core_list:
             xmlCore_i = ET.SubElement(xmlGroup, 'core')
-            xmlCore_i.text = core.serialize(xmlCore_i, make_apbs_mode)
+            core.serialize(xmlCore_i, make_apbs_mode)
         for chain in self.chain_list:
             xmlChain_i = ET.SubElement(xmlGroup, 'chain')
-            xmlChain_i.text = chain.serialize(xmlChain_i)
+            chain.serialize(xmlChain_i)
         return
 
 @define
@@ -650,41 +624,34 @@ class System:
         A list of Group() objects for the system.
     """
     
-    force_field: str | None = field(default=None,
-                                    validator=validators.optional(
-                                        validators.instance_of(str)))
-    parameters: str | None = field(default=None,
-                                    validator=validators.optional(
-                                        validators.instance_of(str)))
-    start_at_site: str | None = field(default="false",
-                                    validator=validators.optional(
-                                        validators.instance_of(str)))
-    b_radius: float | None = field(default=None,
-                                    validator=validators.optional(
-                                        validators.instance_of(float)))
-    reaction_file: str = field(default="", 
-                                validator=validators.instance_of(str))
-    hydrodynamic_interactions: str | None = field(default="true",
-                                    validator=validators.optional(
-                                        validators.instance_of(str)))
-    n_steps_between_hi_updates: int | None = field(default=None,
-                                    validator=validators.optional([
-                                        validators.instance_of(int),
-                                        validators.gt(0)]))
-    density_field: str | None = field(default=None,
-                                    validator=validators.optional(
-                                        validators.instance_of(str)))
-    atom_weights: str | None = field(default=None,
-                                    validator=validators.optional(
-                                        validators.instance_of(str)))
+    force_field: str | None = field(
+        default=None, validator=optional(instance_of(str)))
+    parameters: str | None = field(
+        default=None, validator=optional(instance_of(str)))
+    start_at_site: str | None = field(
+        default="false") #, validator=optional(instance_of(str)))
+    b_radius: float | None = field(
+        default=None, validator=optional(instance_of(float)))
+    reaction_file: str = field(
+        default="", validator=instance_of(str))
+    hydrodynamic_interactions: str | None = field(
+        default="true") #, validator=optional(instance_of(str)))
+    n_steps_between_hi_updates: int | None = field(
+        default=None, validator=optional(and_(instance_of(int), gt(0))))
+    density_field: str | None = field(
+        default=None, validator=optional(instance_of(str)))
+    atom_weights: str | None = field(
+        default=None, validator=optional(instance_of(str)))
     solvent: Solvent = field(default=Factory(Solvent))
-    time_step_tolerances: Time_step_tolerances = field(default=Factory(Time_step_tolerances))
+    time_step_tolerances: Time_step_tolerances = field(
+        default=Factory(Time_step_tolerances))
     group_list: typing.List[Group] = field(default=Factory(list))
     
     def serialize(
             self, 
             xmlSys: ET.Element, 
-            make_apbs_mode: bool = True):
+            make_apbs_mode: bool = True
+            ) -> None:
         """
         This function needs to be defined explicitly because the 
         serializer will not format this XML block the way that 
@@ -731,12 +698,12 @@ class System:
             xmlSysWeights = ET.SubElement(xmlSys, "atom_weights")
             xmlSysWeights.text = self.atom_weights
         xmlSysSolv = ET.SubElement(xmlSys, 'solvent')
-        xmlSysSolv.text = self.solvent.serialize(xmlSysSolv, make_apbs_mode)
+        self.solvent.serialize(xmlSysSolv, make_apbs_mode)
         xmlSysTime = ET.SubElement(xmlSys, 'time_step_tolerances')
-        xmlSysTime.text = self.time_step_tolerances.serialize(xmlSysTime)
+        self.time_step_tolerances.serialize(xmlSysTime)
         for group in self.group_list:
             xmlGroup_i = ET.SubElement(xmlSys, 'group')
-            xmlGroup_i.text = group.serialize(xmlGroup_i, make_apbs_mode)
+            group.serialize(xmlGroup_i, make_apbs_mode)
         return
 
 @define
@@ -770,33 +737,24 @@ class Root:
         described inside this section.
     """
     
-    n_threads: int = field(default=1,
-                            validator=[validators.instance_of(int),
-                                         validators.gt(0)])
-    seed: int = field(default=11111113,
-                        validator=[validators.instance_of(int)])
-    output: str = field(default="results1.xml",
-                        validator=[validators.instance_of(str)])
-    n_trajectories: int = field(default=100,
-                                validator=[validators.instance_of(int),
-                                             validators.gt(0)])
-    n_trajectories_per_output: int | None = field(default=None,
-                                                    validator=validators.optional([
-                                                        validators.instance_of(int),
-                                                        validators.gt(0)]))
-    max_n_steps: int = field(default=1000000,
-                            validator=[validators.instance_of(int),
-                                         validators.gt(0)])
-    trajectory_file: str | None = field(default=BROWNDYE_TRAJ_PREFIX,
-                                        validator=validators.optional(
-                                            validators.instance_of(str)))
-    n_steps_per_output: int | None = field(default=100000,
-                                            validator=validators.optional(
-                                                [validators.instance_of(int),
-                                                validators.gt(0)]))
-    min_rxn_dist_file: str | None = field(default=None,
-                                        validator=validators.optional(
-                                            validators.instance_of(str)))
+    n_threads: int = field(
+        default=1, validator=[instance_of(int), gt(0)])
+    seed: int = field(
+        default=11111113, validator=[instance_of(int)])
+    output: str = field(
+        default="results1.xml", validator=[instance_of(str)])
+    n_trajectories: int = field(
+        default=100, validator=[instance_of(int), gt(0)])
+    n_trajectories_per_output: int | None = field(
+        default=None, validator=optional(and_( instance_of(int), gt(0))))
+    max_n_steps: int = field(
+        default=1000000, validator=[instance_of(int), gt(0)])
+    trajectory_file: str | None = field(
+        default=BROWNDYE_TRAJ_PREFIX) #, validator=optional(instance_of(str)))
+    n_steps_per_output: int | None = field(
+        default=100000) #, validator=optional(gt(0)))
+    min_rxn_dist_file: str | None = field(
+        default=None, validator=optional(instance_of(str)))
     system: System = field(default=Factory(System))
     
     def serialize(
@@ -850,7 +808,7 @@ class Root:
             xmlMinRxnFile = ET.SubElement(xmlRoot, "min_rxn_dist_file")
             xmlMinRxnFile.text = str(self.min_rxn_dist_file)
         xmlSys = ET.SubElement(xmlRoot, "system")
-        xmlSys.text = self.system.serialize(xmlSys, make_apbs_mode)
+        self.system.serialize(xmlSys, make_apbs_mode)
         return xmlRoot
     
     def write(
@@ -884,23 +842,22 @@ class Reaction:
     A Browndye2 reaction block in an XML file.
     """
     
-    name: str = field(default="",
-                        validator=[validators.instance_of(str)])
-    state_before: str = field(default="",
-                                validator=[validators.instance_of(str)])
-    state_after: str = field(default="",
-                            validator=[validators.instance_of(str)])
-    molecule0_group: str = field(default="",
-                                validator=[validators.instance_of(str)])
-    molecule0_core: str = field(default="",
-                                validator=[validators.instance_of(str)])
-    molecule1_group: str = field(default="",
-                                validator=[validators.instance_of(str)])
-    molecule1_core: str = field(default="",
-                                validator=[validators.instance_of(str)])
-    n_needed: int = field(default=1,
-                            validator=[validators.instance_of(int),
-                                         validators.ge(0)])
+    name: str = field(
+        default="", validator=instance_of(str))
+    state_before: str = field(
+        default="", validator=instance_of(str))
+    state_after: str = field(
+        default="", validator=instance_of(str))
+    molecule0_group: str = field(
+        default="", validator=instance_of(str))
+    molecule0_core: str = field(
+        default="", validator=instance_of(str))
+    molecule1_group: str = field(
+        default="", validator=instance_of(str))
+    molecule1_core: str = field(
+        default="", validator=instance_of(str))
+    n_needed: int = field(
+        default=1, validator=[instance_of(int), ge(0)])
     pair_list: typing.List["Pair"] = field(default=Factory(list))
         
     def serialize(
@@ -934,7 +891,7 @@ class Reaction:
         assert len(self.pair_list) > 0
         for pair in self.pair_list:
             xmlPair_i = ET.SubElement(xmlCriterion, "pair")
-            xmlPair_i.text = pair.serialize(xmlPair_i)
+            pair.serialize(xmlPair_i)
         
         return
 
@@ -944,15 +901,12 @@ class Pair:
     A Browndye2 reaction pair.
     """
     
-    atom1_index: int = field(default=-1,
-                            validator=[validators.instance_of(int),
-                                         validators.ge(-1)])
-    atom2_index: int = field(default=-1,
-                            validator=[validators.instance_of(int),
-                                            validators.ge(-1)])
-    distance: float = field(default=0.0,
-                            validator=[validators.instance_of(float),
-                                         validators.ge(0.0)])
+    atom1_index: int = field(
+        default=-1, validator=[instance_of(int), ge(-1)])
+    atom2_index: int = field(
+        default=-1, validator=[instance_of(int), ge(-1)])
+    distance: float = field(
+        default=0.0, validator=[instance_of(float), ge(0.0)])
     
     def serialize(
             self, 
@@ -977,11 +931,11 @@ class Reaction_root:
     The root XML of the simulation reaction file.
     """
     
-    first_state: str = field(default="",
-                            validator=[validators.instance_of(str)])
+    first_state: str = field(
+        default="", validator=instance_of(str))
     reaction_list: typing.List[Reaction] = field(default=Factory(list))
     
-    def serialize(self):
+    def serialize(self) -> ET.Element:
         """
         Convert this object to an XML file.
         """
@@ -994,7 +948,7 @@ class Reaction_root:
         xmlReactions = ET.SubElement(xmlRoot, "reactions")
         for reaction in self.reaction_list:
             xmlReaction_i = ET.SubElement(xmlReactions, "reaction")
-            xmlReaction_i.text = reaction.serialize(xmlReaction_i)
+            reaction.serialize(xmlReaction_i)
         return xmlRoot
     
     def write(
@@ -1061,9 +1015,9 @@ def make_and_run_apbs(
         for line in f.readlines():
             result = re.search("<debye_length> (.+?) </debye_length>", line)
             if result:
-                debye_length = result.group(1)
+                debye_length = float(result.group(1))
                 
-    if float(debye_length) <= 0.0:
+    if debye_length <= 0.0:
         logging.critical("Problem: debye_length not generated.")
         raise AssertionError("Problem: debye_length not generated.")
     
@@ -1084,20 +1038,20 @@ def make_and_run_apbs(
 @define
 class Browndye_molecule:
     name: str = field(default="", 
-                        validator=validators.instance_of(str))
+                        validator=instance_of(str))
     pqr_filename: str = field(default="",
-                            validator=validators.instance_of(str))
+                            validator=instance_of(str))
     pqrxml_filename: str | None = field(default=None,
-                            validator=validators.optional(validators.instance_of(str)))
+                            validator=optional(instance_of(str)))
     # TODO: allow for multiple ghost indices because there might be multiple sites
     ghost_site_indices: typing.Dict[str, int] | None = field(
-        default=None, validator=validators.optional(validators.instance_of(dict)))
+        default=None, validator=optional(instance_of(dict)))
     
     def generate_pqrxml_file(
             self, 
             directory: str,
             browndye_bin: str,
-            output_xml_filename: str = None,
+            output_xml_filename: str | None = None,
             ) -> None:
         """
         Generate the pqrxml file for this molecule
@@ -1121,34 +1075,35 @@ class Browndye_systemwide_settings:
     # including bulk anchor, within BD simulations
     molecules: list[Browndye_molecule] = field(default=Factory(list),
                     validator=validators.deep_iterable(
-                        member_validator=validators.instance_of(
+                        member_validator=instance_of(
                             Browndye_molecule),
-                        iterable_validator=validators.instance_of(list),
+                        iterable_validator=instance_of(list),
                     ))
 
 @define
 class Browndye_bd_engine:
     type: typing.Literal["browndye"] = "browndye"
     binary_directory: str = field(default="",
-                                    validator=validators.instance_of(str))
+                                    validator=instance_of(str))
     apbs_grid_spacing: float = field(default=0.5,
-                                    validator=[validators.instance_of(float),
-                                               validators.gt(0)])
+                                    validator=[instance_of(float),
+                                               gt(0)])
     
     ions: list[base.Ion] = field(default=Factory(list),
                             validator=validators.deep_iterable(
-                                member_validator=validators.instance_of(base.Ion),
-                                iterable_validator=validators.instance_of(list),
+                                member_validator=instance_of(base.Ion),
+                                iterable_validator=instance_of(list),
                             ))
     debye_length: float = field(default=9e9,
-                                validator=[validators.instance_of(float),
-                                           validators.gt(0)])
+                                validator=[instance_of(float), gt(0)])
+    random_seed: int = field(default=0,
+                             validator=[instance_of(int), ge(0)])
     # TODO: Does this belong in a BD CV/anchor object?
     b_surface_directory: str = field(default="b_surface",
-                                    validator=validators.instance_of(str))
+                                    validator=instance_of(str))
     
     results_glob: str = field(default="results*.xml",
-                            validator=validators.instance_of(str))
+                            validator=instance_of(str))
     
     systemwide_settings: Browndye_systemwide_settings | None = None
 
@@ -1166,6 +1121,7 @@ class Browndye_bd_engine:
             root_directory, self.b_surface_directory)
         root.system.start_at_site = "False"
         root.n_trajectories = 1
+        root.seed = self.get_random_seed()
         # TODO: set default for these values and check them at the run stage
         #  or at least before input generation.
         #if root.n_trajectories_per_output > root.n_trajectories:
@@ -1193,13 +1149,16 @@ class Browndye_bd_engine:
             bd_ion.charge = model_ion.charge
             bd_ion.conc = model_ion.concentration
             root.system.solvent.ions.append(bd_ion)
-            
+        
+        assert self.systemwide_settings is not None, "Systemwide settings must be set for BD"
         for molecule in self.systemwide_settings.molecules:
             molecule_group = Group()
             molecule_group.name = molecule.name
             molecule_core = Core()
             molecule_core.name = molecule.name
-            molecule_pqrxml_filename = molecule.pqrxml_filename
+            assert molecule.pqrxml_filename is not None, \
+                "PQRXML file must be generated before BD input generation"
+            molecule_pqrxml_filename: str = molecule.pqrxml_filename
             molecule_core.atoms = molecule_pqrxml_filename
             molecule_core.grid_spacing = self.apbs_grid_spacing
             molecule_group.core_list.append(molecule_core)
@@ -1218,7 +1177,7 @@ class Browndye_bd_engine:
 
     def make_browndye_reaction_xml(
             self,
-            model: "data_structures.Model",
+            model: "data_structures.Seekr_model",
             abs_reaction_path: str
             ) -> None:
         """
@@ -1266,14 +1225,20 @@ class Browndye_bd_engine:
                 #key=lambda x: (0.5*(x.variables[f"me_{this_anchors_bd_cv_index}"] \
                 #                + x.variables[f"neighbor_{this_anchors_bd_cv_index}"])),
                 key=lambda x: x.variables["avg_value"], reverse=True)
+            assert this_anchors_bd_cv_index is not None
             this_cv: "distance_cv.Distance_CV" = cvs[this_anchors_bd_cv_index]
-            this_cv_group1_name = this_cv.group1_name
-            this_cv_group2_name = this_cv.group2_name
-            ghost_index_1 = None
-            ghost_index_2 = None
-            molecule1_name = None
-            molecule2_name = None
+            this_cv_group1_name: str = this_cv.group1_name
+            this_cv_group2_name: str = this_cv.group2_name
+            ghost_index_1: int = -1
+            ghost_index_2: int = -1
+            molecule1_name: str = ""
+            molecule2_name: str = ""
+            assert bd_engine is not None, "BD engine must be set to make reaction files"
+            assert bd_engine.systemwide_settings is not None, \
+                "Systemwide settings must be set to make reaction files"
             for molecule in bd_engine.systemwide_settings.molecules:
+                assert molecule.ghost_site_indices is not None, \
+                    "Ghost site indices must be set for all molecules"
                 if this_cv_group1_name in molecule.ghost_site_indices:
                     ghost_index_1 = molecule.ghost_site_indices[this_cv_group1_name]
                     molecule1_name = molecule.name
@@ -1286,10 +1251,10 @@ class Browndye_bd_engine:
             # Next identify which is the inner and the outer milestone
             rxn_outer = Reaction()
             pair1 = Pair()
-            from_state = "b"
-            outer_milestone = spherical_milestones_in_this_anchor[0]
-            to_state = str(outer_milestone.index)
-            rxn_outer.name = "{}_{}".format(from_state, to_state)
+            from_state: str = "b"
+            outer_milestone: data_structures.Milestone = spherical_milestones_in_this_anchor[0]
+            to_state: str = str(outer_milestone.index)
+            rxn_outer.name = f"{from_state}_{to_state}"
             rxn_outer.state_after = str(outer_milestone.index)
             # TODO: remove
             #pair1.distance = 0.5*(outer_milestone.variables[f"me_{this_anchors_bd_cv_index}"] \
@@ -1358,11 +1323,13 @@ class Browndye_bd_engine:
 
     def generate_bd_files(
             self, 
-            model: "data_structures.Model",
+            model: "data_structures.Seekr_model",
             root_directory: str
             ) -> None:
         b_surface_full_path = os.path.join(
             root_directory, self.b_surface_directory)
+        assert self.systemwide_settings is not None, \
+            "Systemwide settings must be set to generate BD files."
         for molecule in self.systemwide_settings.molecules:
             molecule.generate_pqrxml_file(b_surface_full_path, self.binary_directory)
         
@@ -1371,3 +1338,171 @@ class Browndye_bd_engine:
         self.debye_length = float(debye_length)
         abs_reaction_path = os.path.join(b_surface_full_path, reaction_filename)
         self.make_browndye_reaction_xml(model, abs_reaction_path)
+
+    # TODO: move to a different object/module??
+    def get_bd_transition_counts(
+            self, 
+            root_directory: str
+            ) -> dict:
+        """
+        Get the transition counts from the BD results files.
+        """
+        output_file_glob = os.path.join(
+            root_directory, self.b_surface_directory, self.results_glob)
+        output_file_list = glob.glob(output_file_glob)
+        output_file_list = base.order_files_numerically(output_file_list)
+        bd_transition_counts = {}
+        if len(output_file_list) > 0:
+            transition_counts = compute_transition_counts(output_file_list)
+            bd_transition_counts["b_surface"] = transition_counts
+        return bd_transition_counts
+    
+    def get_random_seed(
+            self
+            ) -> int:
+        """
+        Get the random seed for the Browndye engine.
+        """
+        return self.random_seed
+            
+        return 0
+
+    def set_random_seed(
+            self, 
+            seed: int
+            ) -> None:
+        """
+        Set the random seed for the Browndye engine.
+        """
+        self.random_seed = seed
+        return
+
+# TODO: move to different module? This may better belong in an analysis module
+def compute_transition_counts(results_filename_list):
+    """
+    Compute the transition counts from the BD results files.
+    """
+    transition_counts = defaultdict(int)
+    # first, obtain counts directly from the results file
+    for results_filename in results_filename_list:
+        results_root = ET.parse(results_filename)
+        reactions = results_root.find("reactions")
+        n_trajectories = int(reactions.find("n_trajectories").text.strip())
+        #total_n_trajectories += n_trajectories
+        stuck = int(reactions.find("stuck").text.strip())
+        escaped = int(reactions.find("escaped").text.strip())
+        for completed in reactions.iter("completed"):
+            name = completed.find("name").text.strip().split("_")
+            dest = int(name[1])
+            n = int(completed.find("n").text.strip())
+            transition_counts[dest] += n
+        transition_counts["escaped"] += escaped
+        transition_counts["stuck"] += stuck
+        transition_counts["total"] += n_trajectories
+    return transition_counts
+
+# TODO: move to different module? This may better belong in an analysis module
+def run_compute_rate_constant(compute_rate_constant_program,
+                                       results_filename_list, 
+                                       sample_error_from_normal=False):
+    """
+    run the BrownDye program compute_rate_constant to find k_ons
+    and the value k(b).
+    
+    Parameters:
+    -----------
+    compute_rate_constant_program : str
+        The exact command to use to run the Browndye 
+        compute_rate_constant program.
+    
+    results_filename_list : list
+        A list of string paths to the results XML file, which is an 
+        output from running the BrownDye program.
+    
+    sample_error_from_normal : bool, default False
+        Add a fluctuation to the k-on value(s) sampled from a
+        normal distribution with a standard deviation equal to the
+        k-on's error. This is used by the error estimators to 
+        incorporate the error in the k_b value obtained from BrownDye.
+    
+    Results:
+    --------
+    k_ons : defaultdict
+        dictionary whose keys are various milestoning states and
+        whose values are the k-ons to those states.
+    
+    k_on_errors : defaultdict
+        dictionary whose keys are various milestoning states and
+        whose values are the errors in the k-ons to those states.
+    
+    reaction_probabilities : defaultdict
+        dictionary whose keys are various milestoning states and
+        whose values are the probabilities of reaching those states
+        from the b-surface.
+    
+    reaction_probability_errors : defaultdict
+        dictionary whose keys are various milestoning states and
+        whose values are the errors in the probabilities of 
+        reaching those states from the b-surface.
+        
+    transition_counts : defaultdict
+        dictionary whose keys are the various milestone states and 
+        also the "escaped" and "stuck" states. The values are the 
+        counts of crossings of these various states.
+    """
+    
+    k_ons = defaultdict(float)
+    k_on_errors = defaultdict(float)
+    reaction_probabilities = defaultdict(float)
+    reaction_probability_errors = defaultdict(float)
+    transition_counts = defaultdict(int)
+    k_b = 0.0
+    #total_n_trajectories = 0
+    
+    transition_counts = compute_transition_counts(results_filename_list)
+
+    for results_filename in results_filename_list:
+        cmd = "%s < %s" % (compute_rate_constant_program, 
+                           results_filename)
+        logging.info("running command: " + cmd)
+        output_string = subprocess.check_output(cmd, shell=True)
+        # TODO: validate output string somehow to catch errors
+        root = ET.fromstring(output_string)
+        
+        
+        
+        # now obtain probabilities and rates
+        for rate in root.iter("rate"):
+            rate_constant = rate.find("rate_constant")
+            k_on_tag = rate_constant.find("mean")
+            k_on_tag_high = rate_constant.find("high")
+            assert k_on_tag is not None
+            assert k_on_tag_high is not None
+            k_on = float(k_on_tag.text)
+            k_on_error = 0.5*(float(k_on_tag_high.text) - k_on)
+            reaction_probability = rate.find("reaction_probability")
+            beta_tag = reaction_probability.find("mean")
+            assert beta_tag is not None
+            beta = float(beta_tag.text)
+            if beta != 0.0:
+                k_b = k_on / beta
+            
+    for key in transition_counts:
+        reaction_probabilities[key] \
+            = transition_counts[key] / transition_counts["total"]
+        k_ons[key] = k_b * reaction_probabilities[key]
+        if transition_counts[key] > 1:
+            reaction_probability_errors[key] = reaction_probabilities[key] \
+                / np.sqrt(transition_counts[key]-1)
+            k_on_errors[key] = k_b * reaction_probability_errors[key]
+        else:
+            reaction_probability_errors[key] = 1e99
+            k_on_errors[key] = 1e99
+        
+        if sample_error_from_normal:
+            k_ons[key] = np.random.normal(loc=k_ons[key], 
+                                          scale=k_on_errors[key])
+    
+    assert k_ons.keys() == transition_counts.keys()
+    return k_ons, k_on_errors, reaction_probabilities, \
+        reaction_probability_errors, transition_counts

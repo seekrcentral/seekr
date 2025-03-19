@@ -21,9 +21,10 @@ import logging
 from attrs import define, field, validators, Factory
 from cattrs import Converter
 import numpy as np
-from scipy.spatial import Delaunay, Voronoi
+from scipy.spatial import Delaunay
 from scipy.spatial import QhullError
 
+import seekr.modules.base as base
 import seekr.modules.data_structures as data_structures
 import seekr.modules.collective_variables.data_structures as cv_data_struct
 import seekr.modules.collective_variables.input as cv_input
@@ -112,7 +113,8 @@ class Input_stage_md:
     def make_model_stage(
             self, 
             index: int,
-            systemwide_stage_input: bool) -> data_structures.Stage_md:
+            systemwide_stage_input: bool
+            ) -> typing.Tuple[data_structures.Stage_md, bool]:
         """
         Given this input stage object, create the model's Stage object.
         """
@@ -171,7 +173,8 @@ class Input_stage_bd:
     def make_model_stage(
             self, 
             index: int,
-            systemwide_stage_input: bool) -> data_structures.Stage_bd:
+            systemwide_stage_input: bool
+            ) -> typing.Tuple[data_structures.Stage_bd, bool]:
         """
         Given this input stage object, create the model's Stage object.
         """
@@ -223,11 +226,14 @@ class State_point:
     """
     name: str = field(default="",
                         validator=validators.instance_of(str))
-    value: list[float] = field(default=Factory(list),
-                                validator=validators.deep_iterable(
-                                    member_validator=validators.instance_of(float),
-                                    iterable_validator=validators.instance_of(list),
-                                ))
+    value: list[float | None] = field(default=Factory(list),)
+                                #validator=validators.deep_iterable(
+                                #    member_validator=validators.instance_of(float),
+                                #    iterable_validator=validators.instance_of(list),
+                                #))
+    # whether to set the end_anchor attribute to True in an Anchor
+    end_state: bool = field(default=True,
+                            validator=validators.instance_of(bool))
 
 def find_voronoi_anchor_neighbors(
         anchors: list[data_structures.Anchor]
@@ -360,9 +366,9 @@ class Partition_input:
             self, 
             starting_anchor_index: int,
             starting_milestone_index: int,
-            connection_flag_dict: dict[int, list[data_structures.Anchor]], 
+            connection_flag_dict: dict[int|str, list[data_structures.Anchor]], 
             associated_input_anchor: dict[int, data_structures.Anchor_input]
-            ) -> typing.Tuple[typing.List[data_structures.Anchor], set, int]:
+            ) -> typing.Tuple[typing.List[data_structures.Anchor], list[tuple[int, int]], int]:
         """
         For this partition, create the anchors that are defined
         herein.
@@ -372,7 +378,7 @@ class Partition_input:
         if len(self.cvs) == 0:
             raise Exception("CVs must be defined within a Partition_input.")
         
-        anchor_connections = []
+        anchor_connections: list[tuple[int, int]] = []
         for alpha, input_anchor in enumerate(self.anchors):
             anchor: data_structures.Anchor = data_structures.Anchor()
             anchor.index = starting_anchor_index + alpha
@@ -406,7 +412,7 @@ class Partition_input:
                 if input_anchor.bulk_anchor:
                     connection_flag_dict["bulk"].append(anchor)
                 if alpha > 0:
-                    pair = ((alpha-1, alpha))
+                    pair = (alpha-1, alpha)
                     if (pair not in anchor_connections) \
                             and (pair[::-1] not in anchor_connections):
                         anchor_connections.append(pair)
@@ -421,8 +427,17 @@ class Partition_input:
             # Temporarily place the absolute path of the topology file(s)
             #  and position file in the anchor. This will later be changed
             #  to relative paths.
-            anchor.md_parameters_topology = input_anchor.md_parameters_topology
-            anchor.positions = input_anchor.positions
+            # NOTE: this approach was changed to using anchor.stage_parameters
+            #anchor.md_parameters_topology = input_anchor.md_parameters_topology
+            #anchor.positions = input_anchor.positions
+            
+            anchor.stage_parameters = []
+            if input_anchor.positions is not None and input_anchor.positions != "":
+                stage_parameter = {}
+                stage_parameter["directory"] = base.INITIAL_DIRECTORY
+                #stage_parameter["md_parameters_topology"] = input_anchor.md_parameters_topology
+                stage_parameter["positions"] = input_anchor.positions
+                anchor.stage_parameters = [stage_parameter]
             anchors.append(anchor)
         
         # TODO: implement voronoi connections - maybe different per
@@ -461,15 +476,18 @@ class Seekr_input:
     temperature: float = field(default=298.15,
                                validator=[validators.instance_of(float),
                                           validators.gt(0)])
+    random_seed: int | None = field(default=None,
+                                    validator=validators.optional(
+                                        validators.instance_of(int)))
     toy_settings: Toy_settings_input | None = None
     md_settings: engines_input.MD_settings_input | None = None
     bd_settings: engines_input.BD_settings_input | None = None
-    stages: list[Input_stage] = field(default=Factory(list),
-                            validator=validators.deep_iterable(
-                                member_validator=validators.instance_of(
-                                    Input_stage),
-                                iterable_validator=validators.instance_of(list),
-                            ))
+    stages: list[Input_stage] = field(default=Factory(list),)
+                            #validator=validators.deep_iterable(
+                            #    member_validator=validators.instance_of(
+                            #        Input_stage),
+                            #    iterable_validator=validators.instance_of(list),
+                            #))
     # A single partition can contain multiple CVs, state_points, and anchors
     # and multiple partitions can be connected using the connection flags.
     # Multiple partitions would be used to represent, for instance, multiple
@@ -497,29 +515,38 @@ class Seekr_input:
         else:
             model.directory = "."
         model.temperature = self.temperature
-        model.md_engine = self.md_settings.make_model_engine(self.temperature)
+        if self.md_settings is not None:
+            model.md_engine = self.md_settings.make_model_engine(self.temperature)
         if self.toy_settings is None:
             model.is_toy_system = False
         else:
             model.is_toy_system = True
-            self.toy_settings.assign_toy_settings(model.md_engine)
-        model.bd_engine = self.bd_settings.make_model_engine()
+            if model.md_engine is not None:
+                self.toy_settings.assign_toy_settings(model.md_engine)
+        if self.bd_settings is not None:
+            model.bd_engine = self.bd_settings.make_model_engine()
         # Assign stage information
         model.stages = []
-        if self.md_settings.systemwide_settings.positions is None:
-            # Then the first stage is started from the anchors
-            systemwide_stage_input = False
-        else:
-            if not model.using_toy():
-                assert self.md_settings.systemwide_settings\
-                    .md_parameters_topology is not None, \
-                    "If starting from a systemwide position, the topology file "\
-                    "must be specified systemwide unless using toy mode."
-            systemwide_stage_input = True
-            
+        if self.md_settings is not None:
+            if self.md_settings.systemwide_settings is not None:
+                if self.md_settings.systemwide_settings.positions is None:
+                    # Then the first stage is started from the anchors
+                    systemwide_stage_input = False
+                else:
+                    if not model.using_toy():
+                        assert self.md_settings.systemwide_settings\
+                            .md_parameters_topology is not None, \
+                            "If starting from a systemwide position, the topology file "\
+                            "must be specified systemwide unless using toy mode."
+                    systemwide_stage_input = True
+        
+        last_md_stage_index = 0
         for i, stage_input in enumerate(self.stages):
             stage, systemwide_stage_input = stage_input.make_model_stage(
                 i+1, systemwide_stage_input)
+            if stage.type == "md_stage":
+                stage.input_stage_index = last_md_stage_index
+                last_md_stage_index = stage.index
             model.stages.append(stage)
                 
         return model
@@ -561,8 +588,8 @@ def read_input(input_filename):
                                       data_structures.structure_positions_type_union)
     #converter.register_structure_hook(data_structures.Completion_criteria, 
     #                                  data_structures.structure_completion_criteria_type_union)
-    converter.register_structure_hook(data_structures.Stage, 
-                                      data_structures.structure_stage_type_union)
+    #converter.register_structure_hook(data_structures.Stage, 
+    #                                  data_structures.structure_stage_type_union)
     seekr_input = converter.structure(json_string, Seekr_input)
     return seekr_input
 
@@ -570,11 +597,17 @@ def copy_bd_files(
         model: data_structures.Seekr_model, 
         seekr_input: Seekr_input,
         root_directory: str
-        ) -> str:
+        ) -> None:
     """
     Copy the BD files into the anchor directory.
     """
-
+    assert seekr_input.bd_settings is not None, \
+        "BD settings must be defined to copy BD files."
+    assert model.bd_engine is not None, \
+        "BD engine must be defined to copy BD files."
+    assert model.bd_engine.systemwide_settings is not None, \
+        "BD systemwide settings must be defined - anchor-by-anchor " \
+        "not yet implemented."
     for anchor in model.anchors:
         if anchor.bd and not anchor.md:
             # If anchor.bd is True, while anchor.md is False, then this
@@ -642,27 +675,32 @@ def make_state_points(
         ) -> list[State_point]:
     """
     Create the State_point objects for the Model from the input partitions.
+    This is necessary because partitions will, in general, have a different
+    number of CVs than the model. This means that, for the model, the "value"
+    attribute needs to be filled out with None values for the CVs that are
+    in other partitions.
     """
-    state_points = []
+    state_points: list[State_point] = []
     for partition in seekr_input.partitions:
         start_cv_index = partition.cvs[0]._index
         for input_state_point in partition.state_points:
             input_value_entries = input_state_point.value
-            new_value = []
-            counter = 0
+            new_value: list[float | None] = []
+            counter: int = 0
             # Need to fill out model state points to have the right size of
             #  value lists in each object.
-            for i in range(start_cv_index):
+            for _ in range(start_cv_index):
                 new_value.append(None)
                 counter += 1
             for input_value_entry in input_value_entries:
                 new_value.append(input_value_entry)
                 counter += 1
-            for i in range(counter, num_model_cvs):
+            for _ in range(counter, num_model_cvs):
                 new_value.append(None)
             state_point = State_point(
                 name=input_state_point.name,
-                value=new_value)
+                value=new_value,
+                end_state=input_state_point.end_state)
             state_points.append(state_point)
     
     return state_points
@@ -679,11 +717,11 @@ def create_anchors(
         The model object representing the entire calculation.
     
     """
-    anchor_index = 0
-    anchors = []
-    connection_flag_dict = defaultdict(list)
-    associated_input_anchor = {}
-    anchor_connections = []
+    anchor_index: int = 0
+    anchors: list[data_structures.Anchor] = []
+    connection_flag_dict: dict[int|str, list[data_structures.Anchor]] = defaultdict(list)
+    associated_input_anchor: dict[int, data_structures.Anchor_input] = {}
+    anchor_connections: list[tuple[int, int]] = []
     anchor_index = 0
     milestone_index = 0
     for partition in seekr_input.partitions:
@@ -730,6 +768,8 @@ def assign_all_state_points(
                     f"State point named {state_point.name} found in multiple anchors."
                 
                 anchor.name = state_point.name
+                if state_point.end_state:
+                    anchor.end_anchor = True
                 already_found_anchor = True
 
         if not already_found_anchor:
@@ -766,16 +806,9 @@ def prepare_model_cvs_and_anchors(
     anchors, index_reference = cv_input.resolve_connections(
         connection_flag_dict, model, associated_input_anchor, 
         anchor_connections)
-    
     cv_input.resolve_modifications_and_filetree(
         model, anchors, index_reference, associated_input_anchor, 
         seekr_input.directory, force_overwrite)
-
-    # TODO: move commented part to MMVT sampling method module
-    # check to make sure that anchors don't have repeated milestone aliases
-    # or have themselves as neighbors. Also check that bulk anchors are at
-    # the end of the list
-    #iterated_through_bulk_anchors = False
     for anchor in anchors:
         alias_indices = set()
         for milestone in anchor.milestones:
@@ -783,13 +816,7 @@ def prepare_model_cvs_and_anchors(
                 "Repeated alias indices detected in anchor {}".format(
                     anchor.index)
             alias_indices.add(milestone.alias_index)
-            """
-            if model.get_type() == "mmvt":
-                assert milestone.neighbor_anchor_index is not anchor.index, \
-                    "Milestone neighbor_anchor_index cannot be its own anchor "\
-                    "in MMVT. Index: {}".format(anchor.index)
-            """
-
+            
     model.num_anchors = len(anchors)
     model.num_milestones = milestone_index
     assign_all_state_points(state_points, model)

@@ -15,10 +15,11 @@ from attrs import define, field, validators, Factory
 
 XML_ROOT = "seekr_model"
 INITIAL_DIRECTORY = "stage_0_initial"
+MAX_SEEKR_SIMULATION_STEPS = 100000000000 # ~100 us
 
 # To prevent circular imports due to type checking
 if typing.TYPE_CHECKING:
-    import openmm
+    from openmm.unit import Quantity, Unit
 
 @define
 class Selection:
@@ -56,8 +57,8 @@ class Box_vectors():
         
     def to_quantity(
             self, 
-            quantity_obj: "openmm.unit.Quantity", 
-            my_unit: "openmm.unit.Unit") -> "openmm.unit.Quantity":
+            quantity_obj: "Quantity", 
+            my_unit: "Unit") -> "Quantity":
         """
         Convert this object to a Quantity object that could be used
         in OpenMM or parmed.
@@ -70,8 +71,8 @@ class Box_vectors():
     
     def from_quantity(
             self, 
-            quantity: "openmm.unit.Quantity", 
-            my_unit: "openmm.unit.Unit") -> None:
+            quantity: "Quantity", 
+            my_unit: "Unit") -> None:
         """
         Fill out the entries within this object from a Quantity
         object representing box vectors.

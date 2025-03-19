@@ -14,7 +14,7 @@ import seekr.modules.data_structures as data_structures
 import seekr.modules.collective_variables.base as cv_base
 
 if typing.TYPE_CHECKING:
-    from seekr.modules.data_structures import Seekr_model
+    from seekr.modules.data_structures import Seekr_model, Anchor_input
 
 # Paradigm: the burden of handling each CV ought to be placed within
 #  the engine portion of the code. But then how to handle the problem
@@ -218,20 +218,9 @@ class Distance_cv_input(cv_base.CV_input_2groups):
     
     def check(
             self,
-            input_anchors: list) -> None:
+            input_anchors: list["Anchor_input"]) -> None:
         """
         Check that this input CV is valid.
         """
         # TODO: implement the checks from SEEKR2 for distance CVs
         pass
-    
-
-def make_mmvt_spherical_cv_object(spherical_cv_input, index):
-    """
-    Create a DistanceCV object from the Input to be placed into the Model.
-    """
-    group1 = base.parse_xml_list(spherical_cv_input.group1)
-    group2 = base.parse_xml_list(spherical_cv_input.group2)
-    groups = [group1, group2]
-    cv = MMVT_spherical_CV(index, groups)
-    return cv
