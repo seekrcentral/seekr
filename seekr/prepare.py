@@ -16,29 +16,29 @@ import socket
 
 import seekr._version as seekr_version
 import seekr.modules.base as base
-import seekr.modules.data_structures as data_structures
-import seekr.modules.prepare_base as prepare_base
-import seekr.modules.engines.input as engines_input
+import seekr.modules.structures as structures
+import seekr.modules.preparer as preparer
+import seekr.modules.engines.preparer as engines_preparer
 
 __version__ = seekr_version.__version__
 
 def prepare(
-        seekr_input: prepare_base.Seekr_input, 
+        seekr_input: preparer.Seekr_input, 
         force_overwrite: bool=False
-        ) -> typing.Tuple[data_structures.Seekr_model, str]:
+        ) -> typing.Tuple[structures.Seekr_model, str]:
     """
     Using the Input from the user, prepare the Model
     object and the filetree. Then prepare all building files
     for each anchor and structure the Model.
     """
     curdir = os.getcwd()
-    model: data_structures.Seekr_model = seekr_input.create_model()
+    model: structures.Seekr_model = seekr_input.create_model()
     directory = os.path.abspath(
         os.path.expanduser(seekr_input.directory))
     seekr_input.directory = directory
-    prepare_base.generate_directory(directory)
+    preparer.generate_directory(directory)
     log_directory = model.get_log_directory(directory)
-    prepare_base.generate_directory(log_directory)
+    preparer.generate_directory(log_directory)
     synopsis_filename = model.get_synopsis_filename(directory)
     base.configure_logger(synopsis_filename, False)
     full_command = " ".join(sys.argv)
@@ -47,7 +47,7 @@ def prepare(
                  f"SEEKR version: {__version__}")
     file_path = os.path.join(directory, "model.json")
     if len(seekr_input.partitions) > 0:
-        prepare_base.prepare_model_cvs_and_anchors(
+        preparer.prepare_model_cvs_and_anchors(
             model, seekr_input, force_overwrite)
     else:
         raise Exception("Partition must be defined in input file, "\
@@ -64,8 +64,10 @@ def prepare(
     if model.using_bd():
         assert seekr_input.bd_settings is not None
         assert model.bd_engine is not None
-        prepare_base.copy_bd_files(model, seekr_input, directory)
-        model.bd_engine.generate_bd_files(model, directory)
+        preparer.copy_bd_files(model, seekr_input, directory)
+        # TODO: must be determined using an existing BD engine or
+        #  from a plugin
+        preparer.generate_bd_files(model.bd_engine, model, directory)
         
     model.save(file_path)
     os.chdir(curdir)
@@ -96,7 +98,7 @@ if __name__ == "__main__":
     force_overwrite = args["force_overwrite"]
     skip_checks = args["skip_checks"]
     # Read the input JSON file into the input object
-    seekr_input = prepare_base.read_input(model_input_filename)
+    seekr_input = preparer.read_input(model_input_filename)
     model, file_path = prepare(seekr_input, force_overwrite)
     if model.directory == ".":
         model_dir = os.path.dirname(file_path)

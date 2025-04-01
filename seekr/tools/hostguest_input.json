@@ -1,6 +1,7 @@
 {
     "directory": "~/tmp/seekr3_test",
     "temperature": 298.15,
+    "random_seed": 111,
     "toy_settings": null,
     "md_settings": {
         "type": "openmm",
@@ -86,7 +87,8 @@
             "completion_criteria": {
                 "type": "number_of_steps",
                 "number_of_steps": 10000
-            }
+            },
+            "restraints": []
         },
         {
             "type": "md_stage",
@@ -105,8 +107,10 @@
                 "steps_per_update": 250
             },
             "completion_criteria": {
-                "type": "all_anchors_filled"
-            }
+                "type": "all_anchors_filled",
+                "eval_interval": 250
+            },
+            "restraints": []
         },
         {
             "type": "md_stage",
@@ -123,7 +127,8 @@
             "completion_criteria": {
                 "type": "number_of_steps",
                 "number_of_steps": 10000
-            }
+            },
+            "restraints": []
         },
         {
             "type": "bd_stage",
@@ -134,7 +139,8 @@
                 "type": "NAM"
             },
             "completion_criteria": {
-                "type": "surface_crossed",
+                "type": "number_of_trajectories",
+                "number_of_trajectories": 10000,
                 "max_number_of_steps": 100000000
             }
         }
@@ -146,8 +152,7 @@
                     "_index": 0,
                     "group1_name": "host",
                     "group2_name": "guest",
-                    "type": "distance",
-                    "_variable_name": "r"
+                    "type": "distance"
                 }
             ],
             "state_points": [

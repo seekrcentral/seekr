@@ -1,5 +1,10 @@
 """
+modules/collective_variables/structures.py
 
+Structures for collective variables within seekr - anything that might
+be found within the model.json file.
+
+This module mainly defines types common to collective variables.
 """
 
 import typing

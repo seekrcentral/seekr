@@ -1,7 +1,10 @@
 """
-base.py
+modules/base.py
 
-Contain common functions and utilities used throughout SEEKR.
+Contain common functions and utilities used throughout seekr.
+
+Imports from external libraries only.
+Imported by anything else in the seekr codebase.
 """
 
 import os
@@ -11,39 +14,23 @@ import typing
 import logging
 
 import numpy as np
-from attrs import define, field, validators, Factory
+import numpy.typing as nptyping
+import mdtraj
 
 XML_ROOT = "seekr_model"
 INITIAL_DIRECTORY = "stage_0_initial"
 MAX_SEEKR_SIMULATION_STEPS = 100000000000 # ~100 us
+SYSTEMWIDE_DIRECTORY = "systemwide"
 
-# To prevent circular imports due to type checking
-if typing.TYPE_CHECKING:
-    from openmm.unit import Quantity, Unit
-
-@define
-class Selection:
-    """
-    A selection of atoms to help with the definition of CVs.
-    """
-    name: str = field(default="",
-                        validator=validators.instance_of(str))
-    # TODO: support additional types of selections like resname, noh, etc.?
-    #  probably not - the automated site finder and anchor assignment should
-    #  take care of that.
-    atom_indices: list[int] = field(default=Factory(list),
-                                    validator=validators.deep_iterable(
-                                        member_validator=[validators.instance_of(int),
-                                                    validators.ge(0)],
-                                        iterable_validator=validators.instance_of(list),
-                                    ))
+Positions_type = typing.Union[typing.List, str, None]
+Float_or_list_type = typing.Union[typing.List, float, None]
+Int_or_list_type = typing.Union[typing.List, int, None]
 
 class Box_vectors():
     """
     A box vector object that contains the a, b, and c vectors in units
     of nanometers.
     """
-    
     def __init__(self) -> None:
         self.ax = 1.0
         self.ay = 0.0
@@ -54,40 +41,47 @@ class Box_vectors():
         self.cx = 0.0
         self.cy = 0.0
         self.cz = 1.0
-        
-    def to_quantity(
-            self, 
-            quantity_obj: "Quantity", 
-            my_unit: "Unit") -> "Quantity":
+ 
+    # NOTE: this function was replaced by to_array. Simply use to_array()
+    #  and multiply by the unit.nanometers
+    #def to_quantity(
+    #        self, 
+    #        quantity_obj: "Quantity", 
+    #        my_unit: "Unit") -> "Quantity":
+    def to_array(self) -> nptyping.ArrayLike:
         """
-        Convert this object to a Quantity object that could be used
+        Convert this object to a np.Array object that could be used
         in OpenMM or parmed.
         """
-        box_vector = quantity_obj(
+        box_vector = np.array(
             [[self.ax, self.ay, self.az], 
              [self.bx, self.by, self.bz], 
-             [self.cx, self.cy, self.cz]], unit=my_unit)
+             [self.cx, self.cy, self.cz]])
         return box_vector
     
-    def from_quantity(
+    # NOTE: this function was replaced by to_array. Simply use to_array()
+    #  and multiply by the unit.nanometers
+    #def from_quantity(
+    #        self, 
+    #        quantity: "Quantity", 
+    #        my_unit: "Unit") -> None:
+    def from_array(
             self, 
-            quantity: "Quantity", 
-            my_unit: "Unit") -> None:
+            array: nptyping.ArrayLike
+            ) -> None:
         """
-        Fill out the entries within this object from a Quantity
+        Fill out the entries within this object from a Numpy Array
         object representing box vectors.
         """
-        
-        values = quantity.value_in_unit(my_unit)
-        self.ax = float(values[0][0])
-        self.ay = float(values[0][1])
-        self.az = float(values[0][2])
-        self.bx = float(values[1][0])
-        self.by = float(values[1][1])
-        self.bz = float(values[1][2])
-        self.cx = float(values[2][0])
-        self.cy = float(values[2][1])
-        self.cz = float(values[2][2])
+        self.ax = float(array[0][0])
+        self.ay = float(array[0][1])
+        self.az = float(array[0][2])
+        self.bx = float(array[1][0])
+        self.by = float(array[1][1])
+        self.bz = float(array[1][2])
+        self.cx = float(array[2][0])
+        self.cy = float(array[2][1])
+        self.cz = float(array[2][2])
         return
     
     def from_6_vector(
@@ -220,26 +214,11 @@ class NoIndentListEncoder(json.JSONEncoder):
         
         return result
 
-@define
-class Ion:
-    name: str | None = field(default=None,
-                             validator=validators.optional(
-                                 validators.instance_of(str)))
-    radius: float = field(default=0.9,
-                            validator=[validators.instance_of(float),
-                                         validators.gt(0)])
-    charge: float = field(default=1.0,
-                            validator=[validators.instance_of(float)])
-    concentration: float = field(default=0.0,
-                                    validator=[validators.instance_of(float),
-                                                validators.ge(0)])
-
-
 def configure_logger(
         logname: str, 
         overwrite: bool=False) -> None:
     """
-    Set the logger for the SEEKR program.
+    Set the logger for the seekr program.
     """
     if overwrite:
         filemode = 'w'
@@ -297,6 +276,7 @@ def order_files_numerically(
     sorted_file_list: list[str] = [file_list[numerical_dict[number]] for number in numerical_list]
     return sorted_file_list
 
+# TODO: move to openmm/base.py
 def convert_openmm_to_python_expr(
         old_function_str: str) -> str:
     """
@@ -362,3 +342,20 @@ def make_tree(
             # then we can descend further, recursively
             make_tree(subbranchpath, tree=tree[subbranch])
     return
+
+# Otherwise Mypy has a problem with the str.lower method.
+def string_lower(string: str | None) -> str | None:
+    if isinstance(string, str):
+        return string.lower()
+    elif string is None:
+        return None
+    else:
+        raise TypeError("string_lower only accepts strings or None.")
+    
+def get_pdb_num_frames(full_pdb_filename: str) -> int:
+    """
+    Using MDtraj, get the number of frames in a PDB file.
+    """
+    mdtraj_obj = mdtraj.load(full_pdb_filename)
+    num_frames = mdtraj_obj.n_frames
+    return num_frames

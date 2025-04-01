@@ -14,10 +14,10 @@ import openmm.app as openmm_app
 
 import seekr.modules.engines.base as engines_base
 import seekr.modules.engines.openmm.base as openmm_base
-import seekr.modules.sampling_methods.openmm_interface as openmm_interface
-
-if typing.TYPE_CHECKING:
-    import seekr.modules.data_structures as data_structures
+import seekr.modules.structures as structures
+import seekr.modules.sampling_methods.openmm_interface as sampling_openmm_interface
+import seekr.modules.sampling_methods.openmm_interface as completion_openmm_interface
+import seekr.modules.sampling_methods.openmm_interface as restraints_openmm_interface
 
 DEFAULT_BAROSTAT_FREQUENCY = 25
 
@@ -120,7 +120,7 @@ def make_topology_system_from_forcefield(
     for forcefield_basename in \
             forcefield_parameters_topology.custom_forcefield_filenames:
         forcefield_filenames.append(os.path.join(
-            directory, forcefield_filename))
+            directory, forcefield_basename))
 
     forcefield = openmm_app.ForceField(*forcefield_filenames)
     system = forcefield.createSystem(
@@ -192,7 +192,7 @@ def make_toy_system_object(model):
     return system, topology
 
 def create_openmm_system(
-        model: "data_structures.Seekr_model",
+        model: structures.Seekr_model,
         directory: str,
         positions_array_or_basename: list | np.ndarray | str,
         md_parameters_topology: engines_base.Parameters_topology,
@@ -366,11 +366,29 @@ class Sim_openmm:
         self.energy_reporter = openmm_app.StateDataReporter
         return
     
+    def add_restraints(
+            self,
+            restraints_interfaces: restraints_openmm_interface.Base_restraint_openmm_interface | None,
+            positions: unit.Quantity,
+            periodic_system: bool
+            ) -> None:
+        """
+        Add restraints to the OpenMM system.
+        """
+        if restraints_interfaces is not None:
+            for restraint_interface in restraints_interfaces:
+                restraint_interface.add_forces_to_system(
+                    system=self.system, 
+                    positions=positions,
+                    periodic_system=periodic_system)
+        return
+
     def add_integrator(
             self, 
-            model: "data_structures.Seekr_model",
-            ensemble: "data_structures.Ensemble",
-            sampling_engine_interface: openmm_interface.Sampling_md_openmm_interface | None = None
+            model: structures.Seekr_model,
+            ensemble: structures.Ensemble,
+            sampling_engine_interface: openmm_interface.Sampling_md_openmm_interface,
+            completion_criteria_interface: openmm_interface.Completion_criteria_interface
             ) -> None:
         """
         Assign the proper integrator to this OpenMM simulation.
@@ -391,23 +409,24 @@ class Sim_openmm:
                     f"integrator: {ensemble.type}"
             temperature = integrator_settings.target_temperature * unit.kelvin
             friction = integrator_settings.friction / unit.picoseconds
-            integrator.addGlobalVariable("a", np.exp(-friction*timestep));
-            integrator.addGlobalVariable("b", np.sqrt(1-np.exp(-2*friction*timestep)));
-            integrator.addGlobalVariable("kT", kB*temperature);
+            integrator.addGlobalVariable("a", np.exp(-friction*timestep))
+            integrator.addGlobalVariable("b", np.sqrt(1-np.exp(-2*friction*timestep)))
+            integrator.addGlobalVariable("kT", kB*temperature)
             sampling_engine_interface.add_global_variables_integrator(self.integrator)
-            integrator.addPerDofVariable("x1", 0);
+            integrator.addPerDofVariable("x1", 0)
             sampling_engine_interface.add_per_DOF_variables_integrator(self.integrator)
             sampling_engine_interface.pre_integration_instructions(self.integrator)
-            integrator.addUpdateContextState();
-            integrator.addComputePerDof("v", "v + dt*f/m");
-            integrator.addConstrainVelocities();
-            integrator.addComputePerDof("x", "x + 0.5*dt*v");
-            integrator.addComputePerDof("v", "a*v + b*sqrt(kT/m)*gaussian");
-            integrator.addComputePerDof("x", "x + 0.5*dt*v");
-            integrator.addComputePerDof("x1", "x");
-            integrator.addConstrainPositions();
-            integrator.addComputePerDof("v", "v + (x-x1)/dt");
+            integrator.addUpdateContextState()
+            integrator.addComputePerDof("v", "v + dt*f/m")
+            integrator.addConstrainVelocities()
+            integrator.addComputePerDof("x", "x + 0.5*dt*v")
+            integrator.addComputePerDof("v", "a*v + b*sqrt(kT/m)*gaussian")
+            integrator.addComputePerDof("x", "x + 0.5*dt*v")
+            integrator.addComputePerDof("x1", "x")
+            integrator.addConstrainPositions()
+            integrator.addComputePerDof("v", "v + (x-x1)/dt")
             sampling_engine_interface.post_integration_instructions(self.integrator)
+            completion_criteria_interface.post_integration_instructions(self.integrator)
             random_seed = integrator_settings.random_seed
             if random_seed is not None:
                 integrator.setRandomNumberSeed(random_seed)
@@ -426,8 +445,8 @@ class Sim_openmm:
     
     def add_barostat(
             self, 
-            model: "data_structures.Seekr_model",
-            ensemble: "data_structures.Ensemble",
+            model: structures.Seekr_model,
+            ensemble: structures.Ensemble,
             ) -> typing.Any:
         """
         Add a barostat to the simulation.
@@ -462,7 +481,7 @@ class Sim_openmm:
     
     def add_platform(
             self, 
-            model: "data_structures.Seekr_model",
+            model: structures.Seekr_model,
             ) -> None:
         """
         Add the platform to the simulation.
@@ -485,7 +504,7 @@ class Sim_openmm:
     
     def add_simulation(
             self, 
-            model: "data_structures.Seekr_model",
+            model: structures.Seekr_model,
             positions: unit.Quantity | None,
             ) -> unit.Quantity:
         """
@@ -526,14 +545,16 @@ def write_toy_pdb_file(topology, positions, pdb_file_name):
     return
 
 def create_sim_openmm(
-        model: "data_structures.Seekr_model", 
+        model: structures.Seekr_model, 
         directory: str,
         positions_array_or_basename: list | np.ndarray | str,
         md_parameters_topology: engines_base.Parameters_topology,
         frame: int = 0,
-        ensemble: data_structures.Ensemble | None = None,
+        ensemble: structures.Ensemble | None = None,
         # TODO: change argument below to a sampling_method_OpenMM_intersection object
-        sampling_engine_interface: openmm_interface.Sampling_md_openmm_interface | None = None):
+        sampling_engine_interface: sampling_openmm_interface.Sampling_md_openmm_interface | None = None,
+        restraints_interfaces: restraints_openmm_interface.Base_restraint_openmm_interface | None = None
+        ) -> Sim_openmm:
     """
     Generate an OpenMM simulation and other objects for a given
     calculation.
@@ -546,14 +567,22 @@ def create_sim_openmm(
     sim_openmm.system = system
     sim_openmm.topology = topology
     sim_openmm.box_vectors = box_vectors
+    if model.using_toy():
+        periodic_system = False
+    else:
+        if box_vectors is None:
+            periodic_system = False
+        else:
+            periodic_system = True
     # TODO: replace with adding integrator from sampling method
     # A sampling method of None will be conventional MD.
-    sim_openmm.add_integrator(model, ensemble, sampling_engine_interface)
+    sim_openmm.add_integrator(model, ensemble, sampling_engine_interface,
+                              completion_criteria_interface)
     if ensemble is not None:
         sim_openmm.add_barostat(model, ensemble)
     sim_openmm.add_platform(model)
     # TODO: add forces here based on sampling method
-    #  and restraints
+    sim_openmm.add_restraints(restraints_interfaces, positions, periodic_system)
     sim_openmm.add_simulation(model, positions)
     if model.using_toy():
         toy_pdb_filename = os.path.join(directory, "toy.pdb")

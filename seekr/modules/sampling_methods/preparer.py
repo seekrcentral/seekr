@@ -6,7 +6,7 @@ import typing
 
 from attrs import define, field, validators
 
-import seekr.modules.sampling_methods.base as base
+import seekr.modules.sampling_methods.structures as sampling_method_structures
 
 # TODO: one day, this module will import sampling
 #  methods added to this directory, but for now, they must be
@@ -23,7 +23,7 @@ class Conventional_md_input:
         """
         Make the model sampling method object for this input.
         """
-        return base.Conventional_md_sampling_method()
+        return sampling_method_structures.Conventional_md_sampling_method()
 
 @define
 class Metadynamics_md_input:
@@ -51,7 +51,7 @@ class Metadynamics_md_input:
         """
         Make the model sampling method object for this input.
         """
-        metaD = base.Metadynamics_md_sampling_method()
+        metaD = sampling_method_structures.Metadynamics_md_sampling_method()
         metaD.number_of_points = self.number_of_points
         metaD.bias_factor = self.bias_factor
         metaD.gaussian_height = self.gaussian_height
@@ -73,7 +73,7 @@ class Milestoning_md_input:
         """
         Make the model sampling method object for this input.
         """
-        milestoning = base.Milestoning_md_sampling_method()
+        milestoning = sampling_method_structures.Milestoning_md_sampling_method()
         milestoning.milestoning_method = self.milestoning_method
         return milestoning
 
@@ -88,7 +88,7 @@ class NAM_bd_input:
         """
         Make the model sampling method object for this input.
         """
-        return base.NAM_bd_sampling_method()
+        return sampling_method_structures.NAM_bd_sampling_method()
 
 @define
 class WE_bd_input:
@@ -101,7 +101,7 @@ class WE_bd_input:
         """
         Make the model sampling method object for this input.
         """
-        return base.WE_bd_sampling_method()
+        return sampling_method_structures.WE_bd_sampling_method()
 
 MD_sampling_method_input = typing.Union[Conventional_md_input,
                                     Metadynamics_md_input,

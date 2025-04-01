@@ -1,11 +1,11 @@
 """
-prepare_base.py
+modules/preparer.py
 
 Routines for preparing the model file given input that contains:
  - physical settings (temperature, pressure, etc.)
  - simulation engine specific settings (OpenMM, NAMD, Browndye, SDA, etc.)
- - SEEKR calculation type (MMVT, other milestoning, etc.)
- - HIDR calculation type (MetaD, steered MD, RAMD, scaled MD, etc.)
+ - SEEKR calculation type (MMVT, other milestoning, MetaD, steered MD, RAMD, 
+      scaled MD, etc.)
  - CV and Anchor information)
 
 """
@@ -16,6 +16,7 @@ import json
 from collections import defaultdict
 import typing
 import shutil
+import random
 import logging
 
 from attrs import define, field, validators, Factory
@@ -25,24 +26,30 @@ from scipy.spatial import Delaunay
 from scipy.spatial import QhullError
 
 import seekr.modules.base as base
-import seekr.modules.data_structures as data_structures
-import seekr.modules.collective_variables.data_structures as cv_data_struct
-import seekr.modules.collective_variables.input as cv_input
+import seekr.modules.structures as structures
+import seekr.modules.collective_variables.structures as cv_structures
+#import seekr.modules.collective_variables.input as cv_input
+import seekr.modules.completion_criteria.structures as compl_crit_struct
+import seekr.modules.restraints.structures as restraints_structures
 # TODO: these don't need to be imported here, and in the future,
 #  they will be imported from a generic input.py file in the 
 #  engines directory.
-import seekr.modules.engines.base as engines_base
-import seekr.modules.engines.browndye.base as browndye_base
-import seekr.modules.engines.data_structures as engines_data_struct
-import seekr.modules.engines.input as engines_input
-#import seekr.modules.engines.openmm.input as openmm_input
-#import seekr.modules.engines.browndye.input as browndye_input
-import seekr.modules.sampling_methods.input as sampling_methods_input
+#import seekr.modules.engines.base as engines_base
+import seekr.modules.engines.browndye.structures as browndye_structures
+import seekr.modules.engines.structures as engines_structures
+import seekr.modules.engines.preparer as engines_preparer
+import seekr.modules.engines.openmm.preparer as openmm_preparer
+import seekr.modules.engines.browndye.preparer as browndye_preparer
+import seekr.modules.sampling_methods.preparer as sampling_methods_preparer
+import seekr.modules.collective_variables.preparer as cv_preparer
 
 KEEP_ANCHOR_RE = "hidr*|string*"
 
+MD_settings_input = typing.Union[openmm_preparer.Openmm_settings_input]
+# TODO: add SDA
+BD_settings_input = typing.Union[browndye_preparer.Browndye_settings_input]
+
 # TODO: modify this function to include multiple stages
-# TODO: move to CV module?
 def anchor_has_files(model, anchor):
     """
     Returns True if seekr simulations have already been run in this anchor.
@@ -104,21 +111,22 @@ class Input_stage_md:
     output_interval: int = field(default=1000,
                                   validator=[validators.instance_of(int),
                                              validators.gt(0)])
-    ensemble: data_structures.Ensemble = field(default=Factory(
-        data_structures.NVT_ensemble))
-    sampling_method: sampling_methods_input.MD_sampling_method_input = field(
-        default=Factory(sampling_methods_input.Conventional_md_input))
-    completion_criteria: data_structures.Completion_criteria | None = None
+    ensemble: structures.Ensemble = field(default=Factory(
+        structures.NVT_ensemble))
+    sampling_method: sampling_methods_preparer.MD_sampling_method_input = field(
+        default=Factory(sampling_methods_preparer.Conventional_md_input))
+    completion_criteria: compl_crit_struct.MD_completion_criteria | None = None
+    restraints: list[restraints_structures.Restraint] = field(default=Factory(list))
     
     def make_model_stage(
             self, 
             index: int,
             systemwide_stage_input: bool
-            ) -> typing.Tuple[data_structures.Stage_md, bool]:
+            ) -> typing.Tuple[structures.Stage_md, bool]:
         """
         Given this input stage object, create the model's Stage object.
         """
-        stage = data_structures.Stage_md()
+        stage = structures.Stage_md()
         stage.index = index
         stage.name = self.name
         stage.run_minimization = self.run_minimization
@@ -165,20 +173,20 @@ class Input_stage_bd:
     n_steps_per_output: int = field(default=100000,
                                     validator=[validators.instance_of(int),
                                                validators.gt(0)])
-    sampling_method: sampling_methods_input.BD_sampling_method_input = field(
-        default=Factory(sampling_methods_input.NAM_bd_input))
-    completion_criteria: data_structures.Surface_crossed_completion_criteria = field(
-        default=Factory(data_structures.Surface_crossed_completion_criteria))
+    sampling_method: sampling_methods_preparer.BD_sampling_method_input = field(
+        default=Factory(sampling_methods_preparer.NAM_bd_input))
+    completion_criteria: compl_crit_struct.BD_completion_criteria = field(
+        default=Factory(compl_crit_struct.Number_of_trajectories_completion_criteria))
     
     def make_model_stage(
             self, 
             index: int,
             systemwide_stage_input: bool
-            ) -> typing.Tuple[data_structures.Stage_bd, bool]:
+            ) -> typing.Tuple[structures.Stage_bd, bool]:
         """
         Given this input stage object, create the model's Stage object.
         """
-        stage = data_structures.Stage_bd()
+        stage = structures.Stage_bd()
         stage.index = index
         stage.name = self.name
         stage.n_trajectories_per_output = self.n_trajectories_per_output
@@ -206,12 +214,12 @@ class Toy_settings_input:
     
     def assign_toy_settings(
             self, 
-            seekr_model_md_engine : engines_data_struct.MD_engine
+            seekr_model_md_engine : structures.MD_engine
             ) -> None:
         """
         Assign the toy settings to the model engine.
         """
-        seekr_model_md_engine.toy_settings = engines_base.Toy_settings()
+        seekr_model_md_engine.toy_settings = engines_structures.Toy_settings()
         seekr_model_md_engine.toy_settings.potential_energy_expression = self.potential_energy_expression
         seekr_model_md_engine.toy_settings.num_particles = self.num_particles
         seekr_model_md_engine.toy_settings.masses = self.masses
@@ -236,7 +244,7 @@ class State_point:
                             validator=validators.instance_of(bool))
 
 def find_voronoi_anchor_neighbors(
-        anchors: list[data_structures.Anchor]
+        anchors: list[structures.Anchor]
         ) -> dict[int, set[int]]:
     """
     Given anchor positions, assign each anchor to a Voronoi cell
@@ -280,8 +288,8 @@ def find_voronoi_anchor_neighbors(
     return neighbor_anchors
 
 def make_milestone_between_two_voronoi_anchors(
-            anchor: data_structures.Anchor, 
-            neighbor_anchor: data_structures.Anchor,
+            anchor: structures.Anchor, 
+            neighbor_anchor: structures.Anchor,
             milestone_index: int, 
             cv_indices: list[int]) -> int:
         neighbor_index = neighbor_anchor.index
@@ -290,12 +298,12 @@ def make_milestone_between_two_voronoi_anchors(
             if milestone.neighbor_anchor_index == neighbor_anchor.index:
                 return milestone_index
         
-        milestone1 = data_structures.Milestone()
+        milestone1 = structures.Milestone()
         milestone1.index = milestone_index
         milestone1.neighbor_anchor_index = neighbor_index
         milestone1.alias_index = len(anchor.milestones)+1
         milestone1.variables = {"k": 1.0}
-        milestone2 = data_structures.Milestone()
+        milestone2 = structures.Milestone()
         milestone2.index = milestone_index
         milestone2.neighbor_anchor_index = anchor.index
         milestone2.alias_index = len(neighbor_anchor.milestones)+1
@@ -337,16 +345,121 @@ def make_milestone_between_two_voronoi_anchors(
         return milestone_index
 
 @define
+class Anchor_input:
+    """
+    A base class for Anchor_inputs.
+
+    In SEEKR, an anchor is a point in CV space. How this point
+    is used within SEEKR depends on the enhanced sampling
+    method. For instance, an anchor is used with MMVT to define
+    a Voronoi cell, whose boundaries become the milestones. In
+    Elber milestoning, two anchors are used to define two 
+    Voronoi cells, and the milestone in between the two cells
+    is the starting milestone, while the other boundaries define
+    the ending milestones.
+    """
+    name: str = field(default="",
+                           validator=validators.instance_of(str))
+    value: list[float] = field(default=Factory(list),
+                                validator=validators.deep_iterable(
+                                    member_validator=[validators.instance_of(float)],
+                                    iterable_validator=validators.instance_of(list),
+                                ))
+    md_parameters_topology: engines_structures.Parameters_topology | None = None
+    positions: base.Positions_type = None
+    selections: list[engines_structures.Selection] | None = field(default=None,
+                                        validator=validators.optional(
+                                            validators.deep_iterable(
+                                                member_validator=validators.instance_of(
+                                                    engines_structures.Selection),
+                                                iterable_validator=validators.instance_of(list),
+                                            )))
+    end_anchor: bool = field(default=False,
+                            validator=validators.instance_of(bool))
+    bulk_anchor: bool = field(default=False,
+                            validator=validators.instance_of(bool))
+    connection_flags: list[int] = field(default=Factory(list),
+                                        validator=validators.deep_iterable(
+                                            member_validator=[validators.instance_of(int)],
+                                            iterable_validator=validators.instance_of(list),
+                                        ))
+    
+    def check(self) -> None:
+        """
+        Check the anchor input for errors.
+        """
+        if self.bulk_anchor:
+            assert self.end_anchor, "Bulk anchor must be an end anchor."
+        return
+    
+    def get_variable_value(
+            self,
+            index: int
+            ) -> float:
+        """
+        Return the variable value for this anchor.
+        """
+        return self.value[index]
+    
+    def same_md_parameters(
+            self,
+            other: "Anchor_input"
+            ) -> bool:
+        """
+
+        """
+        if self.md_parameters_topology is None:
+            if other.md_parameters_topology is None:
+                return True
+            else:
+                return False
+        else:
+            if other.md_parameters_topology is None:
+                return False
+            else:
+                if self.md_parameters_topology.same_parameters(other.md_parameters_topology):
+                    return True
+                else:
+                    return False
+                
+    def copy_initial_files(
+            self, 
+            anchor: structures.Anchor, 
+            root_directory: str,
+            toy_mode: bool
+            ) -> None:
+        """
+        Copy the files for the initial 'stage' from this Anchor_input
+        to the actual anchor.
+        """
+        if anchor.stage_parameters[0] is not None:
+            anchor_initial_directory: str = os.path.join(
+                root_directory, anchor.directory, anchor.stage_parameters[0]["directory"])
+            if toy_mode:
+                anchor.stage_parameters[0]["positions"] = self.positions
+            else:
+                if self.md_parameters_topology is not None:
+                    self.md_parameters_topology.copy_files(anchor_initial_directory)
+                if (self.positions is not None) and (self.positions != ""):
+                    assert isinstance(self.positions, str), \
+                        "anchor.positions must be a filename str if not in Toy mode."
+                    pdb_basename: str = os.path.basename(self.positions)
+                    anchor_pdb_full_path: str = os.path.join(anchor_initial_directory,
+                                                            pdb_basename)
+                    shutil.copyfile(os.path.expanduser(self.positions), anchor_pdb_full_path)
+                    anchor.stage_parameters[0]["positions"] = pdb_basename
+
+@define
 class Partition_input:
     """
     Partition information concerns how the system is divided into
     partitions - that is, involving functions of the N-D positions.
     This means CVs, anchors, state_points, etc.
     """
-    cvs: list[cv_input.CV_input] = field(default=Factory(list),
+    cvs: list[cv_preparer.CV_input] = field(default=Factory(list),
                             validator=validators.deep_iterable(
                                 member_validator=validators.instance_of(
-                                    cv_input.CV_input),
+                                    cv_preparer.CV_input),
                                 iterable_validator=validators.instance_of(list),
                             ))
     state_points: list[State_point] = field(default=Factory(list),
@@ -355,10 +468,10 @@ class Partition_input:
                                     State_point),
                                 iterable_validator=validators.instance_of(list),
                             ))
-    anchors: list[data_structures.Anchor_input] = field(default=Factory(list),
+    anchors: list[Anchor_input] = field(default=Factory(list),
                             validator=validators.deep_iterable(
                                 member_validator=validators.instance_of(
-                                    data_structures.Anchor_input),
+                                    Anchor_input),
                                 iterable_validator=validators.instance_of(list),
                             ))
 
@@ -366,9 +479,9 @@ class Partition_input:
             self, 
             starting_anchor_index: int,
             starting_milestone_index: int,
-            connection_flag_dict: dict[int|str, list[data_structures.Anchor]], 
-            associated_input_anchor: dict[int, data_structures.Anchor_input]
-            ) -> typing.Tuple[typing.List[data_structures.Anchor], list[tuple[int, int]], int]:
+            connection_flag_dict: dict[int|str, list[structures.Anchor]], 
+            associated_input_anchor: dict[int, "Anchor_input"]
+            ) -> typing.Tuple[typing.List[structures.Anchor], list[tuple[int, int]], int]:
         """
         For this partition, create the anchors that are defined
         herein.
@@ -380,7 +493,7 @@ class Partition_input:
         
         anchor_connections: list[tuple[int, int]] = []
         for alpha, input_anchor in enumerate(self.anchors):
-            anchor: data_structures.Anchor = data_structures.Anchor()
+            anchor: structures.Anchor = structures.Anchor()
             anchor.index = starting_anchor_index + alpha
             anchor.directory = f"anchor_{anchor.index}"
             if input_anchor.name == "":
@@ -424,13 +537,6 @@ class Partition_input:
                 #    "Connection flags within Voronoi CVs not currently supported."
                 need_voronoi_connections = True
 
-            # Temporarily place the absolute path of the topology file(s)
-            #  and position file in the anchor. This will later be changed
-            #  to relative paths.
-            # NOTE: this approach was changed to using anchor.stage_parameters
-            #anchor.md_parameters_topology = input_anchor.md_parameters_topology
-            #anchor.positions = input_anchor.positions
-            
             anchor.stage_parameters = []
             if input_anchor.positions is not None and input_anchor.positions != "":
                 stage_parameter = {}
@@ -438,10 +544,10 @@ class Partition_input:
                 #stage_parameter["md_parameters_topology"] = input_anchor.md_parameters_topology
                 stage_parameter["positions"] = input_anchor.positions
                 anchor.stage_parameters = [stage_parameter]
+            else:
+                anchor.stage_parameters = [None]
             anchors.append(anchor)
         
-        # TODO: implement voronoi connections - maybe different per
-        # sampling method?
         if need_voronoi_connections:
             neighbor_anchors = find_voronoi_anchor_neighbors(anchors)
             for alpha, neighbor_set in neighbor_anchors.items():
@@ -454,7 +560,6 @@ class Partition_input:
                             and (pair[::-1] not in anchor_connections):
                         anchor_connections.append(pair)
 
-        # TODO: make milestones
         milestone_index = starting_milestone_index
         for pair in anchor_connections:
             alpha, beta = pair
@@ -465,7 +570,7 @@ class Partition_input:
                 cv_indices)
             
         return anchors, anchor_connections, milestone_index
-    
+
 @define
 class Seekr_input:
     """
@@ -480,8 +585,8 @@ class Seekr_input:
                                     validator=validators.optional(
                                         validators.instance_of(int)))
     toy_settings: Toy_settings_input | None = None
-    md_settings: engines_input.MD_settings_input | None = None
-    bd_settings: engines_input.BD_settings_input | None = None
+    md_settings: MD_settings_input | None = None
+    bd_settings: BD_settings_input | None = None
     stages: list[Input_stage] = field(default=Factory(list),)
                             #validator=validators.deep_iterable(
                             #    member_validator=validators.instance_of(
@@ -502,14 +607,14 @@ class Seekr_input:
     def create_model(
             self, 
             use_absolute_directory: bool=False
-            ) -> data_structures.Seekr_model:
+            ) -> structures.Seekr_model:
         """
         Given the Seekr_input object, which contains the settings, 
         create the Model object which contains more detailed 
         information.
         """
         
-        model = data_structures.Seekr_model()
+        model = structures.Seekr_model()
         if use_absolute_directory:
             model.directory = self.directory
         else:
@@ -547,8 +652,12 @@ class Seekr_input:
             if stage.type == "md_stage":
                 stage.input_stage_index = last_md_stage_index
                 last_md_stage_index = stage.index
-            model.stages.append(stage)
-                
+            model.stages.append(stage)  
+        if self.random_seed is not None:
+            model.set_random_seeds(self.random_seed)
+        else:
+            model.set_random_seeds(random.randint(0, 1000000))
+        
         return model
 
 def generate_directory(directory, empty_dir=False):
@@ -584,8 +693,12 @@ def read_input(input_filename):
     # Use a cattrs Converter to define how to structure the dictionary input
     converter = Converter()
     # Register a structure hook for the Positions_type
-    converter.register_structure_hook(engines_base.Positions_type, 
-                                      data_structures.structure_positions_type_union)
+    converter.register_structure_hook(base.Positions_type, 
+                                      structures.structure_positions_type_union)
+    converter.register_structure_hook(base.Float_or_list_type, 
+                                      structures.structure_float_or_list_type_union)
+    converter.register_structure_hook(base.Int_or_list_type, 
+                                      structures.structure_int_or_list_type_union)
     #converter.register_structure_hook(data_structures.Completion_criteria, 
     #                                  data_structures.structure_completion_criteria_type_union)
     #converter.register_structure_hook(data_structures.Stage, 
@@ -594,7 +707,7 @@ def read_input(input_filename):
     return seekr_input
 
 def copy_bd_files(
-        model: data_structures.Seekr_model, 
+        model: structures.Seekr_model, 
         seekr_input: Seekr_input,
         root_directory: str
         ) -> None:
@@ -616,7 +729,7 @@ def copy_bd_files(
                 root_directory, anchor.directory)
             for molecule in seekr_input.bd_settings.molecules:
                 pqr_filename = os.path.basename(molecule.pqr_filename)
-                new_bd_molecule = browndye_base.Browndye_molecule()
+                new_bd_molecule = browndye_structures.Browndye_molecule()
                 new_bd_molecule.name = os.path.splitext(pqr_filename)[0]
                 new_bd_molecule.pqr_filename = pqr_filename
                 pqr_new_filename = os.path.join(b_surface_directory, pqr_filename)
@@ -627,32 +740,11 @@ def copy_bd_files(
     return
 
 def create_cvs(
-        model: data_structures.Seekr_model, 
         seekr_input: Seekr_input, 
         root_directory: str
-        ) -> list[cv_data_struct.Collective_variable]:
+        ) -> list[cv_structures.Collective_variable]:
     """
     Create the collective variable objects for the model.
-    
-    Parameters:
-    -----------
-    model : Seekr_model()
-        The model object representing the entire calculation.
-    
-    collective_variable_inputs : list
-        A list of cv input objects used to construct the anchors for
-        this model.
-        
-    root_directory : str
-        A path to the root directory of this model. Used to copy over
-        RMSD CV reference structure.
-    
-    Returns:
-    --------
-    cvs : list
-        A list of collective variable objects that will be placed into
-        the model.
-    
     """
     cvs = []
     cv_counter = 0
@@ -660,10 +752,11 @@ def create_cvs(
         assert len(partition.cvs) > 0, \
             "Collective variables must be defined if a partition exists."
         for cv_input in partition.cvs:
-            cv_input.check(partition.anchors)
-            cv: cv_data_struct.Collective_variable \
+            # TODO: remove - or put into partition for checking
+            cv_input.check()
+            cv: cv_structures.Collective_variable \
                 = cv_input.make_cv_object(index=cv_counter)
-            cv.fill_input_values_from_model(model, root_directory)
+            cv.fill_input_values_from_model(root_directory)
             cvs.append(cv)
             cv_counter += 1
 
@@ -707,7 +800,7 @@ def make_state_points(
 
 def create_anchors(
         seekr_input: Seekr_input
-        ) -> tuple[list[data_structures.Anchor], dict, dict, list, int]:
+        ) -> tuple[list[structures.Anchor], dict, dict, list, int]:
     """
     Create the Anchor objects for the Model from the input partitions.
     
@@ -718,9 +811,9 @@ def create_anchors(
     
     """
     anchor_index: int = 0
-    anchors: list[data_structures.Anchor] = []
-    connection_flag_dict: dict[int|str, list[data_structures.Anchor]] = defaultdict(list)
-    associated_input_anchor: dict[int, data_structures.Anchor_input] = {}
+    anchors: list[structures.Anchor] = []
+    connection_flag_dict: dict[int|str, list[structures.Anchor]] = defaultdict(list)
+    associated_input_anchor: dict[int, Anchor_input] = {}
     anchor_connections: list[tuple[int, int]] = []
     anchor_index = 0
     milestone_index = 0
@@ -736,22 +829,9 @@ def create_anchors(
     return anchors, connection_flag_dict, associated_input_anchor, \
         anchor_connections, milestone_index
 
-"""
-def assign_bd_anchors(
-        model: data_structures.Seekr_model,
-        seekr_input: Seekr_input
-        ) -> None:
-    ""
-    Detect anchors that will be significant for BD calculation.
-    ""
-    for anchor in model.anchors:
-        if anchor.name == "bulk":
-            anchor.bd = True
-"""
-
 def assign_all_state_points(
         state_points: list[State_point], 
-        model: data_structures.Seekr_model
+        model: structures.Seekr_model
         ) -> None:
     """
     Given a State_point object, find which anchor it belongs in, and
@@ -779,7 +859,7 @@ def assign_all_state_points(
     return
 
 def prepare_model_cvs_and_anchors(
-        model: data_structures.Seekr_model, 
+        model: structures.Seekr_model, 
         seekr_input: Seekr_input, 
         force_overwrite: bool
         ) -> None:
@@ -787,7 +867,7 @@ def prepare_model_cvs_and_anchors(
     Fill out the CV and anchor items within the model based on the 
     input objects.
     """
-    cvs = create_cvs(model, seekr_input, seekr_input.directory)
+    cvs = create_cvs(seekr_input, seekr_input.directory)
     model.collective_variables = cvs
     anchors, connection_flag_dict, associated_input_anchor, \
         anchor_connections, milestone_index = create_anchors(seekr_input)
@@ -803,10 +883,10 @@ def prepare_model_cvs_and_anchors(
     #  assigned.
     
     # assign connections between anchors
-    anchors, index_reference = cv_input.resolve_connections(
+    anchors, index_reference = resolve_connections(
         connection_flag_dict, model, associated_input_anchor, 
         anchor_connections)
-    cv_input.resolve_modifications_and_filetree(
+    resolve_modifications_and_filetree(
         model, anchors, index_reference, associated_input_anchor, 
         seekr_input.directory, force_overwrite)
     for anchor in anchors:
@@ -821,3 +901,451 @@ def prepare_model_cvs_and_anchors(
     model.num_milestones = milestone_index
     assign_all_state_points(state_points, model)
     return
+
+def cleanse_outputs(
+        model: "structures.Seekr_model",
+        anchor_or_systemwide: engines_structures.MD_systemwide_settings \
+            | Anchor_input, 
+        ) -> None:
+    """
+    Delete all simulation outputs from systemwide or anchor.
+    """
+    for stage in model.stages:
+        full_directory = os.path.join(model.directory, anchor_or_systemwide.directory, 
+                                        stage.get_directory_name())
+        if os.path.exists(full_directory):
+            file_globs = stage.sampling_method.get_output_globs()
+            for file_glob in file_globs:
+                full_glob = os.path.join(full_directory, file_glob)
+                for file in glob.glob(full_glob):
+                    os.remove(file)
+
+    return
+
+# TODO: move to modules/preparer.py?
+def modify_model(
+        old_model: structures.Seekr_model, 
+        new_model: structures.Seekr_model, 
+        root_directory: str, 
+        force_overwrite=False) -> list[int]:
+    """
+    If someone runs the prepare stage on a model with existing
+    directories and simulation results, examine the changes to delete
+    and rename directories properly, and only overwrite simulation files
+    if forced to do so.
+    """
+    
+    old_model.directory = root_directory
+    anchor_pairs: list[tuple[int, int]] = []
+    old_anchors_to_delete: list[int] = []
+    new_anchors_to_create: list[int] = []
+    
+    index_where_stages_begin_to_differ = None
+    for i, (old_stage, new_stage) in enumerate(zip(old_model.stages, new_model.stages)):
+        if old_stage != new_stage:
+            index_where_stages_begin_to_differ = i
+    
+    stages_to_delete_indices = []
+    if index_where_stages_begin_to_differ is not None:
+        for i in range(index_where_stages_begin_to_differ, len(old_model.stages)):
+            stages_to_delete_indices.append(i)
+    
+    stages_to_delete_indices_with_files = []
+    for i in stages_to_delete_indices:
+        if old_model.stages[i].has_files(old_model):
+            stages_to_delete_indices_with_files.append(i)
+            
+    # Look through the new and old milestones and pair them up by the value
+    #  of their variables
+    for alpha, anchor_alpha in enumerate(new_model.anchors):
+        #if anchor1.bulkstate:
+        #    continue
+        alpha_paired: bool = False
+        for beta, anchor_beta in enumerate(old_model.anchors):
+            #if anchor_beta.bulkstate:
+            #    continue
+            if anchor_alpha.variables == anchor_beta.variables:
+                pair = (alpha, beta)
+                anchor_pairs.append(pair)
+                alpha_paired = True
+                break
+        if not alpha_paired:
+            new_anchors_to_create.append(alpha)
+        
+    for beta, anchor_beta in enumerate(old_model.anchors):
+        #if anchor2.bulkstate:
+        #    continue
+        beta_paired = False
+        for pair in anchor_pairs:
+            if beta == pair[1]:
+                beta_paired = True
+                break
+        if not beta_paired:
+            old_anchors_to_delete.append(beta)
+        
+    # Now check all the paired anchors to see if anyone's milestones
+    # have changed
+    old_anchors_with_changed_milestones: list[int] = []
+    old_anchors_with_starting_pdbs_to_keep: list[int] = []
+    for pair in anchor_pairs:
+        (alpha, beta) = pair
+        anchor_alpha: structures.Anchor = new_model.anchors[alpha]
+        anchor_beta: structures.Anchor = old_model.anchors[beta]
+        milestones_changed = False
+        milestone_pairs = []
+        for i, milestone_alpha in enumerate(anchor_alpha.milestones):
+            milestone_alpha_paired = False
+            for j, milestone_beta in enumerate(anchor_beta.milestones):
+                if milestone_alpha.variables == milestone_beta.variables:
+                    milestone_pairs.append((i,j))
+                    milestone_alpha_paired = True
+                    break
+            if not milestone_alpha_paired:
+                milestones_changed = True
+        for j, milestone_beta in enumerate(anchor_beta.milestones):
+            milestone_beta_paired = False
+            for milestone_pair in milestone_pairs:
+                if j == milestone_pair[1]:
+                    milestone_beta_paired = True
+                    break
+            if not milestone_beta_paired:
+                milestones_changed = True
+        if milestones_changed:
+            old_anchors_with_changed_milestones.append(beta)
+            
+        # See whether the starting structures have changed
+        # TODO: old_anchors_with_starting_pdbs_to_keep this is probably now irrelevant
+        if not new_model.using_toy():
+            # TODO: this originally looked to see whether hidr or string
+            #  PDB output files were present, but that was a hacky solution.
+            #  This time, examine whether the anchor has a stage with a PDB
+            #  file defined.
+            pass
+            #old_anchor_starting = base.get_anchor_pdb_filename(anchor2)
+            #if re.match(KEEP_ANCHOR_RE, old_anchor_starting):
+            #    old_anchors_with_starting_pdbs_to_keep.append(beta)
+    
+    # TODO: examine whether stages or structures have changed in the systemwide settings
+
+    warning_msg = ""
+    # TODO: old_anchors_with_starting_pdbs_to_keep this is probably now irrelevant
+    # check whether any anchors have been given new starting structures
+    if len(old_anchors_with_starting_pdbs_to_keep) > 0:
+        warning_msg+=f"The anchor(s) {old_anchors_with_starting_pdbs_to_keep}"\
+            +"have been given new starting structures (from a simulation stage) "\
+            "and the entered command mismatches the new structure file names. "\
+            "If you desire to ignore this message, then use the "\
+            "--force_overwrite (-f) option, and the existing structures from the stage "\
+            "will be kept in the new model. If you wish to overwrite these, you "\
+            "will need to change the model.xml file or write the root directory "\
+            "to a new location.\n\n"
+    
+    # check whether deleting directories contain simulation files
+    deleting_directories_with_files = []
+    for del_anchor_index in old_anchors_to_delete:
+        del_anchor: structures.Anchor = old_model.anchors[del_anchor_index]
+        if del_anchor.has_files(root_directory):
+            deleting_directories_with_files.append(del_anchor.directory)
+    
+    if len(deleting_directories_with_files) > 0 :
+        warning_msg+=f"The anchor(s) {deleting_directories_with_files} "\
+            +"already have existing output files and the entered command "\
+            "would overwrite them. If you desire to overwrite the existing "\
+            "files, then use the --force_overwrite (-f) option, and these "\
+            f"anchors will be deleted in directory: {root_directory}\n\n"
+    
+    # Check whether directories with changed milestones already contain
+    # simulation files
+    cleansing_anchors: list[structures.Anchor] = []
+    cleansing_directories: list[str] = []
+    for cleanse_anchor_index in old_anchors_with_changed_milestones:
+        cleanse_anchor: structures.Anchor = old_model.anchors[cleanse_anchor_index]
+        if cleanse_anchor.has_files(root_directory):
+            cleansing_anchors.append(cleanse_anchor)
+            cleansing_directories.append(cleanse_anchor.directory)
+    
+    if len(cleansing_directories) > 0 :
+        warning_msg+=f"The anchor(s) {cleansing_directories} "\
+            +"already have existing output files yet the milestone locations "\
+            "will be changed if this command proceeds. If you desire "\
+            "to overwrite the existing files, then use the "\
+            "--force_overwrite (-f) option, and these outputs will be "\
+            f"deleted in directory: {root_directory}\n\n"
+    
+    if len(stages_to_delete_indices_with_files) > 0:
+        warning_msg+=f"The stage(s) {stages_to_delete_indices_with_files} "\
+            +"already have existing output files and the entered command "\
+            "would overwrite them. If you desire to overwrite the existing "\
+            "files, then use the --force_overwrite (-f) option, and these "\
+            f"anchors will be deleted in directory: {root_directory}\n\n"
+
+    if warning_msg and not force_overwrite:
+        print(warning_msg)
+        raise Exception("Cannot overwrite existing files.")
+    
+    for del_anchor_index in old_anchors_to_delete:
+        del_anchor = old_model.anchors[del_anchor_index]
+        full_path = os.path.join(root_directory, del_anchor.directory)
+        print("removing directory: "+del_anchor.directory)
+        shutil.rmtree(full_path)
+    
+    for cleansing_anchor in cleansing_anchors:
+        print("removing output files from anchor:", cleansing_anchor.name)
+        cleanse_outputs(cleansing_anchor, old_model)
+    
+    for stage_index in stages_to_delete_indices:
+        stage = old_model.stages[stage_index]
+        print("removing output files from stage:", stage.name)
+        stage.remove_directory(old_model)
+
+    # Now that the equivalent anchors are known, we know which ones will
+    # be deleted, and which ones are being changed, with or without
+    # simulation data, 
+    
+    new_anchors_with_starting_pdbs_to_keep = []
+    for pair in anchor_pairs:
+        (alpha, beta) = pair
+        anchor1 = old_model.anchors[beta]
+        anchor2 = new_model.anchors[alpha]
+        full_path1 = os.path.join(root_directory, anchor1.directory)
+        full_path2 = os.path.join(root_directory, anchor2.directory)
+        if full_path1 != full_path2:
+            if os.path.exists(full_path2):
+                # then we cannot rename to this without giving this one
+                # a temporary directory
+                for problem_anchor in old_model.anchors:
+                    if problem_anchor.directory == "":
+                        continue
+                    if problem_anchor.directory == anchor2.directory:
+                        temporary_name = problem_anchor.directory+"temp"
+                        temp_full_path1 = os.path.join(root_directory, 
+                                                  problem_anchor.directory)
+                        temp_full_path2 = os.path.join(root_directory, 
+                                                  temporary_name)
+                        print("moving directory {} to {}".format(
+                            problem_anchor.directory, temporary_name))
+                        os.rename(temp_full_path1, temp_full_path2)
+                        problem_anchor.directory = temporary_name
+                        break
+            
+            print("moving directory {} to {}".format(anchor1.directory, 
+                                                 anchor2.directory))
+            # If it gets here, it's because a new directory was made that
+            # has no data in it. It can be safely deleted
+            if os.path.exists(full_path2):
+                shutil.rmtree(full_path2)
+                
+            os.rename(full_path1, full_path2)
+        
+        # Do not do this, because this information will be calculated anew,
+        # even if existing structures are kept.
+        #anchor2.stage_parameters = anchor1.stage_parameters
+            
+        if anchor1.index in old_anchors_with_starting_pdbs_to_keep:
+            new_anchors_with_starting_pdbs_to_keep.append(anchor2.index)
+    
+    for new_anchor_index_to_create in new_anchors_to_create:
+        print("creating new anchor {}".format(new_anchor_index_to_create))
+    
+    return new_anchors_with_starting_pdbs_to_keep
+
+# TODO: move to modules/preparer.py?
+def resolve_modifications_and_filetree(
+        model: structures.Seekr_model, 
+        anchors: list[structures.Anchor], 
+        index_reference: dict[int, int],
+        associated_input_anchor: dict[int, Anchor_input],
+        root_directory: str, 
+        force_overwrite: bool
+        ) -> None:
+    """
+    Resolve modifications to the model and the filetree.
+    """
+    json_path = os.path.join(root_directory, "model.json")
+    if os.path.exists(json_path):
+        # then a model file already exists at this location: update
+        # the anchor directories.
+        old_model = structures.load_model(json_path)
+        logging.info("Model file already existed at this location. "\
+                     "Modified the existing model.")
+        model.set_random_seeds(old_model.get_random_seed())
+        new_anchors_with_starting_pdbs_to_keep = modify_model(
+            old_model, model, root_directory, force_overwrite)
+    else:
+        new_anchors_with_starting_pdbs_to_keep = None
+    # Add all stages to the model anchors or systemwide
+    for stage in model.stages:
+        assert stage.input_from_systemwide_settings is not None, \
+            "The input_from_systemwide_settings flag must be defined "\
+            "for each stage."
+        assert stage.output_to_systemwide_settings is not None, \
+            "The output_to_systemwide_settings flag must be defined "\
+            "for each stage."
+        if (not stage.output_to_systemwide_settings) \
+                and stage.type == "md_stage":
+            # NOTE: mypy error is handled with "md_stage" type check above
+            stage.add_stage_parameters_to_anchors(model)
+            stage.add_stage_parameters_to_systemwide_settings(model, do_none=True)
+        elif stage.type == "md_stage":
+            stage.add_stage_parameters_to_anchors(model, do_none=True)
+            stage.add_stage_parameters_to_systemwide_settings(model)
+    
+    for old_index in index_reference:
+        new_index = index_reference[old_index]
+        if new_index < len(anchors):
+            input_anchor = associated_input_anchor[old_index]
+            anchors[new_index].generate_filetree(root_directory)
+            if (new_anchors_with_starting_pdbs_to_keep is not None) \
+                    and (new_index in new_anchors_with_starting_pdbs_to_keep):
+                logging.info("Keeping starting structure for anchor:", new_index)
+            else:
+                input_anchor.copy_initial_files(anchors[new_index], root_directory, 
+                                                model.using_toy())
+    return
+
+def generate_bd_files(
+        bd_engine: structures.BD_engine, 
+        model: structures.Seekr_model, 
+        directory: str
+        ) -> None:
+    """
+    Determine the BD engine and prepare the necessary files for it.
+    """
+    found_function = False
+    if bd_engine.type == "browndye":
+        browndye_preparer.generate_bd_files(bd_engine, model, directory)
+        found_function = True
+    # TODO: implement SDA
+    else:
+        # implement check of installed plugins for other BD engines
+        pass
+
+    if not found_function:
+        raise Exception(f"BD engine type {bd_engine.type} not recognized.")
+    
+def resolve_connections(
+        connection_flag_dict: dict, 
+        model: structures.Seekr_model, 
+        associated_input_anchor: dict[int, Anchor_input],
+        anchor_connections: list[tuple[int, int]]
+        ) -> tuple[list[structures.Anchor], dict[int, int]]:
+    """
+    Given connection information between anchors, merge anchors
+    that are connected.
+    """
+    anchors: list[structures.Anchor] = model.anchors
+    anchor_indices_to_remove = []
+    index_reference = {}
+    bulk_anchor: structures.Anchor | None = None
+    for anchor in anchors:
+        index_reference[anchor.index] = anchor.index
+    
+    for key in connection_flag_dict:
+        anchor_connection_list: list[structures.Anchor] \
+            = connection_flag_dict[key]
+        bulk_discarded_indices = []
+        if key == "bulk":
+            bulk_anchor = anchor_connection_list[0]
+            for anchor_discarded in anchor_connection_list:
+                anchor_indices_to_remove.append(anchor_discarded.index)
+                bulk_discarded_indices.append(anchor_discarded.index)
+                
+        else:
+            assert len(anchor_connection_list) > 1, \
+                f"Connection flag {key} needs to have endpoints "\
+                +"in at least two anchors."
+        
+        anchor_kept = anchor_connection_list[0]
+        for anchor_discarded in anchor_connection_list[1:]:
+            input_anchor_kept = associated_input_anchor[anchor_kept.index]
+            input_anchor_discarded = associated_input_anchor[anchor_discarded.index]
+            assert anchor_kept.end_anchor == anchor_discarded.end_anchor, \
+                "The anchors connected by connection flag {} ".format(key) \
+                +"must have the same value for 'end_anchor'."
+            if anchor_kept.name == "bulk":
+                assert anchor_kept.name == anchor_discarded.name, \
+                    "The anchors connected by connection flag {} ".format(key) \
+                    +"must have the same name 'bulk'."   
+            # Ensure that both anchors don't have starting structures 
+            # defined
+            if (input_anchor_kept.positions is None) \
+                    or (input_anchor_kept.positions == ""):
+                input_anchor_kept.positions \
+                    = input_anchor_discarded.positions
+            
+            if (input_anchor_discarded.positions is None) \
+                    or (input_anchor_discarded.positions == ""):
+                input_anchor_discarded.positions \
+                    = input_anchor_kept.positions
+            assert input_anchor_kept.positions \
+                    == input_anchor_discarded.positions, \
+                "The anchors connected by connection flag {} ".format(key) \
+                +"have inconsistent positions defined."
+            assert input_anchor_kept.same_md_parameters(
+                input_anchor_discarded), \
+                "The anchors connected by connection flag {} ".format(key) \
+                +"have inconsistent MD parameters defined."
+            anchor_indices_to_remove.append(anchor_discarded.index)
+            anchor_kept.milestones += anchor_discarded.milestones
+            anchor_kept.variables.update(anchor_discarded.variables)
+            index_reference[anchor_discarded.index] = anchor_kept.index
+            
+    # sort and remove all redundant anchors
+    anchor_indices_to_remove = sorted(set(anchor_indices_to_remove), 
+                                      reverse=True)
+    for anchor_index_to_remove in anchor_indices_to_remove:
+        if len(anchors) > anchor_index_to_remove+1:
+            for lower_anchor in anchors[anchor_index_to_remove+1:]:
+                index_reference[lower_anchor.index] -= 1
+                
+    for anchor_index_to_remove in anchor_indices_to_remove:
+        anchors.pop(anchor_index_to_remove)
+    
+    if bulk_anchor is not None:
+        # make sure the bulk anchor is the last anchor always
+        anchors.append(bulk_anchor)
+        index_reference[bulk_anchor.index] = len(anchors) - 1
+        for bulk_discarded in bulk_discarded_indices:
+            index_reference[bulk_discarded] = len(anchors) - 1
+    
+    visited_new_indices = []
+    
+    for old_index in index_reference:
+        new_index = index_reference[old_index]
+        if new_index < len(anchors):
+            anchors[new_index].index = new_index
+            anchors[new_index].directory = f"anchor_{new_index}"
+            if anchors[new_index].name.startswith("anchor_"):
+                anchors[new_index].name = anchors[new_index].directory
+            
+            for pair in anchor_connections:
+                pair_tuple = set(pair)
+                if old_index in pair:
+                    pair_tuple.remove(old_index)
+                    old_other_index = pair_tuple.pop()
+                    new_other_index = index_reference[old_other_index]
+                    assert new_other_index != new_index, "An anchor cannot "\
+                        "be a neighbor to itself."
+                    anchors[new_index].neighbor_anchor_indices.append(new_other_index)
+
+        visited_new_indices.append(new_index)
+    
+    if bulk_anchor is None:
+        assert not model.using_bd(), "A bulk anchor must be defined "\
+            "if using BD. This can be done by naming an input_anchor "\
+            "with the name 'bulk', or by setting the 'bulk_anchor' flag "\
+            "to True."
+    else:
+        bulk_anchor.md = False
+        if model.using_bd():
+            bulk_anchor.bd = True
+            assert model.bd_engine is not None, "A BD engine must be "\
+                "defined if using BD."
+            bulk_anchor.directory = model.bd_engine.b_surface_directory
+
+            for neighbor_index in bulk_anchor.neighbor_anchor_indices:
+                neighbor_anchor = anchors[neighbor_index]
+                neighbor_anchor.bd = True
+
+
+    return anchors, index_reference

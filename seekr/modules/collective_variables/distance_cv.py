@@ -1,5 +1,5 @@
 """
-collective_variables/distance_cv.py
+modules/collective_variables/distance_cv.py
 
 Model and input classes for the distance collective variable.
 This CV measures the distance between the center of mass of two 
@@ -9,16 +9,6 @@ groups of atoms.
 import typing
 
 from attrs import define, field, validators
-
-import seekr.modules.data_structures as data_structures
-import seekr.modules.collective_variables.base as cv_base
-
-if typing.TYPE_CHECKING:
-    from seekr.modules.data_structures import Seekr_model, Anchor_input
-
-# Paradigm: the burden of handling each CV ought to be placed within
-#  the engine portion of the code. But then how to handle the problem
-#  of new CVs for existing engines?
 
 @define
 class Distance_CV:
@@ -36,16 +26,18 @@ class Distance_CV:
     group2_name: str = field(validator=validators.instance_of(str))
     name: str = field(default="",
                         validator=validators.instance_of(str))
-    cv_expression: typing.Literal["distance(g1, g2)"] = "distance(g1, g2)"
+    #cv_expression: typing.Literal["distance(g1, g2)"] = "distance(g1, g2)"
     num_groups: typing.Literal[2] = 2
-    per_dof_variables: typing.List[str] = ["k", "value"]
-    global_variables: typing.List[str] = []
+    #per_dof_variables: typing.List[str] = ["k", "value"]
+    #global_variables: typing.List[str] = []
     variable_name = "r"
+    periodic: bool = False
+    min_value: float = 0.0
+    max_value: float = 3.0
     type: typing.Literal["distance"] = "distance"
     
     def fill_input_values_from_model(
-            self, 
-            model: "Seekr_model",
+            self, # TODO: use kwargs?
             root_directory: str) -> None:
         """
         Fill extra values from model immediately after creation of this object.
@@ -55,10 +47,29 @@ class Distance_CV:
         can be used to fill in the value.
         """
         return
+    
+    def is_periodic(self) -> bool:
+        """
+        Return whether this CV is periodic.
+        """
+        return self.periodic
+
+    def get_min_value(self) -> float:
+        """
+        Return the minimum value of this CV.
+        """
+        return self.min_value
+    
+    def get_max_value(self) -> float:
+        """
+        Return the maximum value of this CV.
+        """
+        return self.max_value
 
     # TODO: break down these functions into parts that can depend on
     #  the Selection object, then employ the mathematical function of
     #  this CV to determine the value.
+    #  Should these be moved to unattached functions?
     """
     def get_mdtraj_cv_value(self, traj, frame_index):
         ""
@@ -189,20 +200,18 @@ boundary at {:.4f} nm."".format(radius, milestone_radius)
     """
 
 @define
-class Distance_cv_input(cv_base.CV_input_2groups):
+class Distance_cv_input:
     """
     Distance CV input resulting in concentric spherical anchors
     and milestones.
-
-    _variable_name: str
-        The name of the variable to be used in the "variables" field
-        of the Anchor. Not entered by the user.
     """
-    # The other attributes are inherited from CV_input_2groups
-    # TODO: is variable_name necessary as an input? Probably not.
-    type: typing.Literal["distance"] = "distance"
-    _variable_name: str = field(default="r",
+    _index: int = field(default=0,
+                          validator=validators.instance_of(int))
+    group1_name: str = field(default="",
                              validator=validators.instance_of(str))
+    group2_name: str = field(default="",
+                             validator=validators.instance_of(str))
+    type: typing.Literal["distance"] = "distance"
     
     def make_cv_object(
             self, 
@@ -216,9 +225,9 @@ class Distance_cv_input(cv_base.CV_input_2groups):
         cv.name = f"distance_{self.group1_name}_{self.group2_name}"
         return cv
     
-    def check(
-            self,
-            input_anchors: list["Anchor_input"]) -> None:
+    # TODO: move this sort of check to another object? An external function?
+    # To the partition???
+    def check(self) -> None:
         """
         Check that this input CV is valid.
         """

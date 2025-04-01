@@ -1,0 +1,136 @@
+"""
+modules/engines/browndye/structures.py
+
+Structures for the Browndye engine - anything that might appear in the model.json.
+"""
+
+import os
+import typing
+import glob
+import logging
+
+from attrs import define, field, validators, Factory
+from attrs.validators import instance_of, optional, gt, ge
+
+import seekr.modules.base as base
+import seekr.modules.engines.browndye.base as browndye_base
+
+@define
+class Ion:
+    name: str | None = field(default=None,
+                             validator=validators.optional(
+                                 validators.instance_of(str)))
+    radius: float = field(default=0.9,
+                            validator=[validators.instance_of(float),
+                                         validators.gt(0)])
+    charge: float = field(default=1.0,
+                            validator=[validators.instance_of(float)])
+    concentration: float = field(default=0.0,
+                                    validator=[validators.instance_of(float),
+                                                validators.ge(0)])
+
+@define
+class Browndye_molecule:
+    name: str = field(default="", 
+                        validator=instance_of(str))
+    pqr_filename: str = field(default="",
+                            validator=instance_of(str))
+    pqrxml_filename: str | None = field(default=None,
+                            validator=optional(instance_of(str)))
+    ghost_site_indices: typing.Dict[str, int] | None = field(
+        default=None, validator=optional(instance_of(dict)))
+    
+    def generate_pqrxml_file(
+            self, 
+            directory: str,
+            browndye_bin: str,
+            output_xml_filename: str | None = None,
+            ) -> None:
+        """
+        Generate the pqrxml file for this molecule
+        """
+        input_pqr_filename = os.path.join(directory, self.pqr_filename)
+        if output_xml_filename is None:
+            output_xml_filename = ".".join(os.path.splitext(input_pqr_filename)[:-1]) + ".xml"
+        pqr2xml_binary = os.path.join(browndye_bin, "pqr2xml")
+        pqr2xml_command = pqr2xml_binary + " < " + input_pqr_filename + " > " \
+            + output_xml_filename
+        logging.info("running command: " + pqr2xml_command)
+        os.system(pqr2xml_command)
+        assert os.path.exists(output_xml_filename), "Problem generating XML from "\
+            f"PQR file: file not created: {output_xml_filename}"
+        self.pqrxml_filename = os.path.basename(output_xml_filename)
+        return
+
+@define
+class Browndye_systemwide_settings:
+    # To be used for a common set of parameters for all anchors
+    # including bulk anchor, within BD simulations
+    molecules: list[Browndye_molecule] = field(default=Factory(list),
+                    validator=validators.deep_iterable(
+                        member_validator=instance_of(
+                            Browndye_molecule),
+                        iterable_validator=instance_of(list),
+                    ))
+
+@define
+class Browndye_bd_engine:
+    type: typing.Literal["browndye"] = "browndye"
+    binary_directory: str = field(default="",
+                                    validator=instance_of(str))
+    apbs_grid_spacing: float = field(default=0.5,
+                                    validator=[instance_of(float),
+                                               gt(0)])
+    
+    ions: list[Ion] = field(default=Factory(list),
+                            validator=validators.deep_iterable(
+                                member_validator=instance_of(Ion),
+                                iterable_validator=instance_of(list),
+                            ))
+    debye_length: float = field(default=9e9,
+                                validator=[instance_of(float), gt(0)])
+    random_seed: int = field(default=0,
+                             validator=[instance_of(int), ge(0)])
+    # TODO: Does this belong in a BD CV/anchor object?
+    b_surface_directory: str = field(default="b_surface",
+                                    validator=instance_of(str))
+    
+    results_glob: str = field(default="results*.xml",
+                            validator=instance_of(str))
+    
+    systemwide_settings: Browndye_systemwide_settings | None = None
+
+    def get_bd_transition_counts(
+            self, 
+            root_directory: str
+            ) -> dict:
+        """
+        Get the transition counts from the BD results files.
+        """
+        output_file_glob = os.path.join(
+            root_directory, self.b_surface_directory, self.results_glob)
+        output_file_list = glob.glob(output_file_glob)
+        output_file_list = base.order_files_numerically(output_file_list)
+        bd_transition_counts = {}
+        if len(output_file_list) > 0:
+            transition_counts = browndye_base.compute_transition_counts(output_file_list)
+            bd_transition_counts["b_surface"] = transition_counts
+        return bd_transition_counts
+    
+    def get_random_seed(
+            self
+            ) -> int:
+        """
+        Get the random seed for the Browndye engine.
+        """
+        return self.random_seed
+
+    def set_random_seed(
+            self, 
+            seed: int
+            ) -> None:
+        """
+        Set the random seed for the Browndye engine.
+        """
+        self.random_seed = seed
+        return

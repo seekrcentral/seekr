@@ -11,13 +11,17 @@ import json
 from cattrs import unstructure
 
 import seekr.modules.base as base
-import seekr.modules.engines.base as engines_base
-import seekr.modules.data_structures as data_structures
-import seekr.modules.prepare_base as prepare_base
-import seekr.modules.engines.openmm.input as openmm_input
-import seekr.modules.engines.browndye.input as browdye_input
-import seekr.modules.sampling_methods.input as sampling_input
 import seekr.modules.collective_variables.distance_cv as distance_cv
+import seekr.modules.engines.structures as engines_structures
+import seekr.modules.engines.browndye.structures as browndye_structures
+import seekr.modules.completion_criteria.structures as compl_crit_struct
+import seekr.modules.structures as structures
+import seekr.modules.engines.preparer as engines_preparer
+import seekr.modules.engines.openmm.preparer as openmm_preparer
+import seekr.modules.engines.browndye.preparer as browndye_preparer
+import seekr.modules.sampling_methods.preparer as sampling_preparer
+
+import seekr.modules.preparer as preparer
 
 TOOLS_DIRECTORY = os.path.dirname(__file__)
 DATA_DIRECTORY = os.path.abspath(os.path.join(TOOLS_DIRECTORY, "..", "data"))
@@ -27,7 +31,7 @@ def create_host_guest_example_input(
         root_dir: str, 
         bd: bool = True, 
         ff: str = "amber"
-        ) -> prepare_base.Seekr_input:
+        ) -> preparer.Seekr_input:
     """
     Create an example input object for loading and testing in SEEKR.
     """
@@ -62,15 +66,16 @@ def create_host_guest_example_input(
     receptor_indices_bd = list(range(147))
     ligand_indices_bd = list(range(15))
     
-    seekr_input = prepare_base.Seekr_input()
+    seekr_input = preparer.Seekr_input()
     seekr_input.directory = root_dir
     seekr_input.temperature = 298.15
-    seekr_input.md_settings = openmm_input.Openmm_settings_input()
+    seekr_input.random_seed = 111
+    seekr_input.md_settings = openmm_preparer.Openmm_settings_input()
     seekr_input.md_settings.systemwide_settings \
-        = engines_base.MD_systemwide_settings_input()
+        = engines_preparer.MD_systemwide_settings_input()
     if ff == "amber":
         seekr_input.md_settings.systemwide_settings.md_parameters_topology\
-            = engines_base.Amber_parameters_topology()
+            = engines_structures.Amber_parameters_topology()
         seekr_input.md_settings.systemwide_settings.md_parameters_topology\
             .prmtop_filename = amber_prmtop_filename
         # To test starting from a single position
@@ -79,40 +84,40 @@ def create_host_guest_example_input(
     else:
         raise Exception(f"ff option not implemented: {ff}.")
     
-    receptor_selection_md = base.Selection()
+    receptor_selection_md = engines_structures.Selection()
     receptor_selection_md.name = "host"
     receptor_selection_md.atom_indices = receptor_indices_md
-    ligand_selection_md = base.Selection()
+    ligand_selection_md = engines_structures.Selection()
     ligand_selection_md.name = "guest"
     ligand_selection_md.atom_indices = ligand_indices_md
     seekr_input.md_settings.systemwide_settings.selections\
         = [receptor_selection_md, ligand_selection_md]
     if bd:
-        seekr_input.bd_settings = browdye_input.Browndye_settings_input()
+        seekr_input.bd_settings = browndye_preparer.Browndye_settings_input()
         seekr_input.bd_settings.apbs_grid_spacing = 2.0
-        ion1 = base.Ion()
+        ion1 = browndye_structures.Ion()
         ion1.name = "Cl-"
         ion1.radius = 1.2
         ion1.charge = -1.0
         ion1.concentration = 0.0
-        ion2 = base.Ion()
+        ion2 = browndye_structures.Ion()
         ion2.name = "Na+"
         ion2.radius = 0.9
         ion2.charge = 1.0
         ion2.concentration = 0.0
         seekr_input.bd_settings.ions = [ion1, ion2]
-        receptor_selection_bd = base.Selection()
+        receptor_selection_bd = engines_structures.Selection()
         receptor_selection_bd.name = "host"
         receptor_selection_bd.atom_indices = receptor_indices_bd
-        ligand_selection_bd = base.Selection()
+        ligand_selection_bd = engines_structures.Selection()
         ligand_selection_bd.name = "guest"
         ligand_selection_bd.atom_indices = ligand_indices_bd
-        receptor_molecule = browdye_input.Browndye_molecule_input()
+        receptor_molecule = browndye_preparer.Browndye_molecule_input()
         receptor_molecule.name = "beta-cyclodextrin"
         receptor_molecule.pqr_filename = os.path.join(
             HOSTGUEST_DIRECTORY, "hostguest_receptor.pqr")
         receptor_molecule.selections = [receptor_selection_bd]
-        ligand_molecule = browdye_input.Browndye_molecule_input()
+        ligand_molecule = browndye_preparer.Browndye_molecule_input()
         ligand_molecule.name = "1-butanol"
         ligand_molecule.pqr_filename = os.path.join(
             HOSTGUEST_DIRECTORY, "hostguest_ligand.pqr")
@@ -121,54 +126,54 @@ def create_host_guest_example_input(
     else:
         seekr_input.bd_settings = None
 
-    stage1 = prepare_base.Input_stage_md()
+    stage1 = preparer.Input_stage_md()
     stage1.name = "equilibration"
     stage1.run_minimization = True
     stage1.output_interval = 1000
-    stage1.ensemble = data_structures.NVT_ensemble()
-    stage1.sampling_method = sampling_input.Conventional_md_input()
-    stage1.completion_criteria = data_structures.Number_of_steps_completion_criteria()
+    stage1.ensemble = structures.NVT_ensemble()
+    stage1.sampling_method = sampling_preparer.Conventional_md_input()
+    stage1.completion_criteria = compl_crit_struct.Number_of_steps_completion_criteria()
     stage1.completion_criteria.number_of_steps = 10000
 
-    stage2 = prepare_base.Input_stage_md()
+    stage2 = preparer.Input_stage_md()
     stage2.name = "metadynamics"
     stage2.run_minimization = False
     stage2.output_interval = 1000
-    stage2.ensemble = data_structures.NVT_ensemble()
-    stage2.sampling_method = sampling_input.Metadynamics_md_input()
+    stage2.ensemble = structures.NVT_ensemble()
+    stage2.sampling_method = sampling_preparer.Metadynamics_md_input()
     stage2.sampling_method.gaussian_height = 1.0
-    stage2.completion_criteria = data_structures.All_anchors_filled_completion_criteria()
+    stage2.completion_criteria = compl_crit_struct.All_anchors_filled_completion_criteria()
 
-    stage3 = prepare_base.Input_stage_md()
+    stage3 = preparer.Input_stage_md()
     stage3.name = "MMVT"
     stage3.run_minimization = False
     stage3.output_interval = 1000
-    stage3.ensemble = data_structures.NVT_ensemble()
-    stage3.sampling_method = sampling_input.Milestoning_md_input()
+    stage3.ensemble = structures.NVT_ensemble()
+    stage3.sampling_method = sampling_preparer.Milestoning_md_input()
     stage3.sampling_method.milestoning_method = "MMVT"
-    stage3.completion_criteria = data_structures.Number_of_steps_completion_criteria()
+    stage3.completion_criteria = compl_crit_struct.Number_of_steps_completion_criteria()
     stage3.completion_criteria.number_of_steps = 10000
 
-    stage4 = prepare_base.Input_stage_bd()
+    stage4 = preparer.Input_stage_bd()
     stage4.name = "bd"
     stage4.n_trajectories_per_output = 1000
     stage4.n_steps_per_output = 100000
-    stage4.sampling_method = sampling_input.NAM_bd_input()
-    stage4.completion_criteria = data_structures.Number_of_trajectories_completion_criteria()
+    stage4.sampling_method = sampling_preparer.NAM_bd_input()
+    stage4.completion_criteria = compl_crit_struct.Number_of_trajectories_completion_criteria()
     stage4.completion_criteria.number_of_trajectories = 10000
     
     seekr_input.stages = [stage1, stage2, stage3, stage4]
-    seekr_input.partitions = [prepare_base.Partition_input()]
+    seekr_input.partitions = [preparer.Partition_input()]
     distance_cv_input = distance_cv.Distance_cv_input()
     distance_cv_input.group1_name = "host"
     distance_cv_input.group2_name = "guest"
     seekr_input.partitions[0].cvs = [distance_cv_input]
     
-    bound_state_point = prepare_base.State_point()
+    bound_state_point = preparer.State_point()
     bound_state_point.name = "bound"
     bound_state_point.value = [0.05]
     bound_state_point.end_state = True
-    bulk_state_point = prepare_base.State_point()
+    bulk_state_point = preparer.State_point()
     bulk_state_point.name = "bulk"
     bulk_state_point.value = [1.35]
     bulk_state_point.end_state = True
@@ -176,7 +181,7 @@ def create_host_guest_example_input(
     
     seekr_input.partitions[0].anchors = []
     for i, (value, pdb_filename) in enumerate(zip(values_list, pdb_filenames)):
-        input_anchor = data_structures.Anchor_input()
+        input_anchor = preparer.Anchor_input()
         input_anchor.value = [value]
         if pdb_filename == "":
             pdb_filename_full = ""
@@ -196,10 +201,6 @@ if __name__ == "__main__":
     json_filename = sys.argv[1]
     root_dir = "~/tmp/seekr3_test"
     seekr_input = create_host_guest_example_input(root_dir, bd=True)
-
-    md_settings = seekr_input.md_settings
-    #seekr_input_dict = unstructure(md_settings)
-    #seekr_input_dict = asdict(seekr_input)
     seekr_input_dict = unstructure(seekr_input)
     seekr_input_dict = base.wrap_noindent_integers(seekr_input_dict)
     json_dump = json.dumps(seekr_input_dict, indent=4, cls=base.NoIndentListEncoder)
