@@ -12,7 +12,7 @@ import openmm
 import openmm.unit as unit
 import openmm.app as openmm_app
 
-import seekr.modules.engines.structure as engines_structures
+import seekr.modules.structures as structures
 import seekr.modules.restraints.structures as restraints_structures
 
 # TODO: choose which force group to assign restraints to. Will it be a 
@@ -132,7 +132,7 @@ class Proximity_restraint_openmm_interface:
 
 def assign_restraints_interface(
         restraint: restraints_structures.Restraint, 
-        md_engine: engines_structures.MD_engine
+        md_engine: structures.MD_engine
         ) -> Base_restraint_openmm_interface:
     """
     Given a sampling_method and an md_engine, confirm that the OpenMM

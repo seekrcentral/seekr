@@ -11,66 +11,16 @@ import seekr.modules.structures as structures
 import seekr.modules.engines.openmm.runner as runner_openmm
 import seekr.modules.engines.browndye.runner as runner_browndye
 
-# TODO: fill out types
-def make_lock_string():
-    """
-    Make a string that can be put into the LOCK file to detect race
-    conditions.
-    """
-    pid = os.getpid()
-    timestamp = time.time()
-    lock_string = "{},{:.3f}".format(pid, timestamp)
-    return lock_string
-
-# TODO: fill out types
-def create_lock(lock_filename, verbose=False):
-    """
-    Create a lock file to prevent running if a SEEKR anchor is currently being
-    run by another process.
-    """
-    directory = os.path.dirname(lock_filename)
-    if os.path.exists(lock_filename) and verbose:
-        print("Warning: a lock file was detected in directory "\
-                f"{directory}. This may happen because the a previous "\
-                "process failed suddenly, or because a process is currently "\
-                "running on this anchor.")
-    lock_string = make_lock_string()
-    with open(lock_filename, "w") as f:
-        f.write(lock_string)
-    return lock_filename, lock_string
-
-# TODO: fill out types
-def update_lock(lock_filename, lock_string):
-    """
-    Check the lock file for changes, and update the lock file.
-    """
-    directory = os.path.dirname(lock_filename)
-    if not os.path.exists(lock_filename):
-        raise Exception(f"The lock file was deleted for directory {directory}.")
-    with open(lock_filename, "r") as f:
-        old_lock_string = f.readline()
-    if old_lock_string != lock_string:
-        with open(lock_filename, "w") as f:
-            # kill the other process
-            f.write("ABORT")
-        raise Exception("A lock file modification was detected for directory "\
-                        f"{directory}. Another SEEKR process was "\
-                        "running on the same anchor at the same time. Both "\
-                        "processes will be killed. You must force this "\
-                        "anchor to restart from the beginning to obtain "\
-                        "correct results.")
-    # otherwise all is well
-    lock_string = make_lock_string()
-    with open(lock_filename, "w") as f:
-        f.write(lock_string)
-    return lock_string
+INFORMATION_CHECKPOINT_FILENAME_NOEXT = "checkpoint_information"
+INFORMATION_CHECKPOINT_FILENAME_EXT = ".json"
+RESTART_CHECKPOINT_FILENAME_NOEXT = "backup"
+RESTART_CHECKPOINT_FILENAME_EXT = ".checkpoint"
 
 def run_md_simulation(
         model: structures.Seekr_model, 
         stage_index: int, 
         anchor_index: int, 
         restart: bool, 
-        total_simulation_length: int, 
         swarm_index: int | None = None, 
         device_index: str | None = None,
         force_overwrite: bool = False
@@ -83,8 +33,7 @@ def run_md_simulation(
     if model.md_engine.type == "openmm":
         runner_openmm.run_simulation(
             model, stage_index, anchor_index, 
-            restart, total_simulation_length, 
-            swarm_index, device_index, 
+            restart, swarm_index, device_index, 
             force_overwrite)
         found_engine = True
     else:
@@ -146,3 +95,28 @@ def cleanse_outputs_bd(
 
     if not found_engine:
         raise Exception(f"BD engine not found: {model.bd_engine.type}.")
+    
+def get_checkpoint_information_basename(
+        swarm_index: int | None
+        ) -> str:
+    if swarm_index is None:
+        checkpoint_information_filename \
+            = INFORMATION_CHECKPOINT_FILENAME_NOEXT \
+                + INFORMATION_CHECKPOINT_FILENAME_EXT
+    else:
+        checkpoint_information_filename \
+            = INFORMATION_CHECKPOINT_FILENAME_NOEXT \
+            + f".swarm_{swarm_index}" \
+            + INFORMATION_CHECKPOINT_FILENAME_EXT
+    return checkpoint_information_filename
+
+def get_restart_checkpoint_basename(
+        swarm_index: int | None
+        ) -> str:
+    if swarm_index is None:
+        restart_checkpoint_filename = RESTART_CHECKPOINT_FILENAME_NOEXT\
+            + RESTART_CHECKPOINT_FILENAME_EXT
+    else:
+        restart_checkpoint_filename = RESTART_CHECKPOINT_FILENAME_NOEXT\
+            + str(swarm_index) + RESTART_CHECKPOINT_FILENAME_EXT
+    return restart_checkpoint_filename

@@ -57,7 +57,7 @@ class All_anchors_filled_completion_criteria:
         """
         Return the minimum simulation length for this completion criteria.
         """
-        return base.MAX_SEEKR_SIMULATION_LENGTH
+        return base.MAX_SEEKR_SIMULATION_STEPS
     
     def get_evaluation_interval(self) -> int:
         return self.eval_interval

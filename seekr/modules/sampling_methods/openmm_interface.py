@@ -8,20 +8,21 @@ as classes that implement methods that interface with OpenMM
 """
 
 import os
+import time
 import typing
+import logging
 
 from attrs import define
 import openmm
 import openmm.app as openmm_app
 
 import seekr.modules.structures as structures
-import seekr.modules.engines.structure as engines_structures
+import seekr.modules.engines.structures as engines_structures
 import seekr.modules.sampling_methods.structures as sampling_methods_structures
 import seekr.modules.completion_criteria.openmm_interface \
     as completion_criteria_openmm_interface
 import seekr.modules.collective_variables.openmm_interface \
     as collective_variables_openmm_interface
-import seekr.modules.engines.openmm.sim as sim_openmm
 
 def make_list_from_ambig_entry(value, num_elements):
     """
@@ -99,14 +100,14 @@ class Base_md_openmm_interface:
         return None
     
     # TODO: simulation itself should be passed in here
-    def assign_from_sim_openmm(
+    def assign_sim_openmm(
             self,
-            sim_openmm_obj: sim_openmm.Sim_openmm
+            simulation: openmm_app.Simulation
         ) -> None:
         """
         Assign the simulation object from an OpenMM simulation object.
         """
-        self._simulation_obj = sim_openmm_obj.simulation
+        self._simulation_obj = simulation
         return None
 
     def pre_simulation_preparations(
@@ -138,10 +139,12 @@ class Base_md_openmm_interface:
             min_steps: int,
             max_steps: int,
             checkpoint_filename: str,
+            checkpoint_info_filename: str,
             lock_filename: str,
-            completion_criteria_openmm_interface: \
+            completion_openmm_interface: \
                 completion_criteria_openmm_interface\
                     .Base_completion_criteria_openmm_interface,
+            do_initial_benchmark: bool = True,
             ) -> int:
         """
         Run the simulation.
@@ -166,7 +169,15 @@ class Base_md_openmm_interface:
             else:
                 steps_to_take = steps_until_eval
                 make_eval = True
+            if num_steps == 0 and do_initial_benchmark:
+                start_time = time.time()
             self._simulation_obj.step(steps_to_take)
+            if num_steps == 0 and do_initial_benchmark:
+                total_time = time.time() - start_time
+                timestep = self._simulation_obj.context.getIntegrator().getStepSize()
+                ns_per_day = steps_to_take * timestep * 1e-3 \
+                    * 86400 / total_time
+                logging.info(f"Initial benchmark (ns/day): {ns_per_day}")
             num_steps += steps_to_take
             on_step += steps_to_take
             if num_steps % steps_between_checkpoints == 0:
@@ -174,10 +185,11 @@ class Base_md_openmm_interface:
             if make_eval:
                 #integrator = self._simulation_obj.context.getIntegrator()
                 #abort = integrator.getGlobalVariableByName("abort")
-                abort = completion_criteria_openmm_interface.criteria_satisfied(
-                    self._simulation_obj)
+                abort = completion_openmm_interface.criteria_satisfied()
             if make_checkpoint:
                 self._simulation_obj.saveCheckpoint(checkpoint_filename)
+                engines_structures.write_checkpoint_information_file(
+                    on_step, checkpoint_info_filename)
                 lock_string = engines_structures.update_lock(
                     lock_filename, lock_string)
             if on_step >= max_steps:
@@ -188,6 +200,8 @@ class Base_md_openmm_interface:
                     stopping = True
             
         self._simulation_obj.saveCheckpoint(checkpoint_filename)
+        engines_structures.write_checkpoint_information_file(
+            on_step, checkpoint_info_filename)
         os.remove(lock_filename)
         return num_steps
 
@@ -323,7 +337,7 @@ Sampling_md_openmm_interface = typing.Union[Conventional_md_openmm_interface,
 
 def assign_sampling_method_interface(
         sampling_method: sampling_methods_structures.MD_sampling_method, 
-        md_engine: engines_structures.MD_engine
+        md_engine: structures.MD_engine
         ) -> Sampling_md_openmm_interface | None:
     """
     Given a sampling_method and an md_engine, confirm that the OpenMM

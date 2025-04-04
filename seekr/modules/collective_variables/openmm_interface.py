@@ -12,7 +12,7 @@ import openmm.unit as unit
 
 import seekr.modules.collective_variables.distance_cv as distance_cv
 import seekr.modules.collective_variables.structures as cv_structures
-import seekr.modules.engines.structures as engines_structures
+import seekr.modules.structures as structures
 
 @define
 class Distance_cv_openmm_interface:
@@ -109,7 +109,7 @@ CV_openmm_interface = typing.Union[Distance_cv_openmm_interface]
 
 def assign_cv_interface(
         collective_variable: cv_structures.Collective_variable,
-        md_engine: engines_structures.MD_engine) -> CV_openmm_interface:
+        md_engine: structures.MD_engine) -> CV_openmm_interface:
     """
     Given a collective variable object, assign the appropriate OpenMM interface.
     """

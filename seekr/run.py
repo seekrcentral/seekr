@@ -23,14 +23,12 @@ def run(
         device_index: str | None = None, 
         force_overwrite: bool = False
         ) -> None:
-    synopsis_filename = model.get_synopsis_filename()
-    base.configure_logger(synopsis_filename, False)
     stage_index = extract_stage_index(model, stage_arg)
     assert stage_index is not None, \
         "Stage argument must match a name or index of a stage in the model."
     stage = model.stages[stage_index]
     anchor_index = extract_anchor_index(model, anchor_arg)
-    if not stage.input_from_systemwide_settings:
+    if stage.input_from == "anchors":
         # anchor_index only needs to be defined if the stage uses anchors.
         assert anchor_index is not None, \
             "Anchor argument must match a name or index of an anchor in "\
@@ -41,7 +39,7 @@ def run(
     curdir = os.getcwd()
     complete = False
     ran_nothing = True
-
+    counter = 0
     while not complete:
         if stage.type == "md_stage":
             info_to_run = runner.choose_next_simulation_md(stage, model, anchor_index,
@@ -52,36 +50,40 @@ def run(
             raise Exception(f"Stage type not recognized: {stage.type}.")
         
         for info in info_to_run:
-            if force_overwrite and restart:
-                restart = False
-            logging.info(
-                "running anchor_index:", anchor_index, "restart:", 
-                restart, "total_simulation_length:", 
-                total_simulation_length, "num_transitions:", 
-                num_transitions, "swarm index:", swarm_index)
-            
             if stage.type == "md_stage":
                 steps_to_go_min, num_transitions, anchor_index, \
                     restart, total_simulation_length, swarm_index = info
-                logging.info(
-                    "running anchor_index:", anchor_index, "restart:", 
-                    restart, "total_simulation_length:", 
-                    total_simulation_length, "num_transitions:", 
-                    num_transitions, "swarm index:", swarm_index)
+                if force_overwrite and restart:
+                    restart = False
+                log_string = f"running anchor_index: {anchor_index} restart: "\
+                    +f"{restart} total_simulation_length: "\
+                    +f"{total_simulation_length} num_transitions: "\
+                    +f"{num_transitions} swarm index: {swarm_index}"
+                if anchor_index is None:
+                    anchor_or_systemwide = model.md_engine.systemwide_settings
+                else:
+                    anchor_or_systemwide = model.anchors[anchor_index]
+                calculation_dir = runner.get_calculation_directory_md(
+                    anchor_or_systemwide, stage_index, model.directory)
+                log_filename = os.path.join(calculation_dir, "run.log")
+                base.configure_file_and_stdout_logger(
+                    log_filename, overwrite=force_overwrite)
+                logging.info(log_string)
                 engines_runner.run_md_simulation(
                     model, stage_index, anchor_index, restart, 
-                    total_simulation_length, swarm_index, device_index,
-                    force_overwrite)
+                    swarm_index, device_index, force_overwrite)
             elif stage.type == "bd_stage":
                 if not model.using_bd():
                     raise Exception("BD engine is not enabled.")
                 trajs_to_go_min, num_transitions, b_surface_anchor_index, \
                     restart, total_num_trajs = info
-                logging.info(
-                    "running from b-surface anchor:", b_surface_anchor_index, 
-                    "restart:", restart, "trajectories to run:", trajs_to_go_min, 
-                    "trajectories so far:", total_num_trajs, 
-                    "number of transitions", num_transitions)
+                if force_overwrite and restart:
+                    restart = False
+                log_string = f"running from b-surface anchor: {b_surface_anchor_index}"\
+                    +f"restart: {restart} trajectories to run: {trajs_to_go_min}"\
+                    +f"trajectories so far: {total_num_trajs}"\
+                    +f"number of transitions: {num_transitions}"
+                logging.info(log_string)
                 engines_runner.run_bd_simulation(
                     model, trajs_to_go_min, restart, force_overwrite)
             else:
@@ -98,10 +100,12 @@ def run(
         
     os.chdir(curdir)
     if ran_nothing:
-        logging.warning(
-            "Nothing was run because all criteria are satisfied. "\
+        log_string = "Nothing was run because all criteria are satisfied. "\
             "If this is unexpected, make sure that all relevant systemwide or "\
-            "anchors have assigned starting coordinates (ex: PDB file).")
+            "anchors have assigned starting coordinates (ex: PDB file)."
+        synopsis_filename = model.get_synopsis_filename(model.directory)
+        base.configure_file_and_stdout_logger(synopsis_filename, False)
+        logging.warning(log_string)
 
 def extract_stage_index(
         model: structures.Seekr_model, 
@@ -114,8 +118,9 @@ def extract_stage_index(
         int_stage = int(stage_arg)
     except ValueError:
         return None
-    if (int_stage < len(model.stages)) and (int_stage >= 0):
-        return int_stage
+    for i, stage_obj in enumerate(model.stages):
+        if stage_obj.index == int_stage:
+            return i
     return None
 
 def extract_anchor_index(
@@ -190,8 +195,8 @@ if __name__ == "__main__":
             success = True
         except Exception:
             if num_restart_attempts < restart_attempts:
-                logging.warning("Simulation failure. Attempting restart "\
-                      f"{num_restart_attempts} of {restart_attempts}")
+                log_string = "Simulation failure. Attempting restart "\
+                      f"{num_restart_attempts} of {restart_attempts}"
                 num_restart_attempts += 1
             else:    
                 raise

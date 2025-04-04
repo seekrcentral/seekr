@@ -5,7 +5,7 @@ Structures for the OpenMM engine - anything that might appear in the model.json.
 """
 
 import typing
-from attrs import define, field, validators, Factory
+from attrs import define, field, validators
 from attrs.validators import instance_of, optional, in_, gt, and_
 import openmm.app as openmm_app
 
@@ -103,6 +103,7 @@ class Openmm_md_engine:
         assert self.integrator_settings is not None, \
             "integrator settings not provided."
         timestep: float = self.integrator_settings.timestep
+        return timestep
 
     def get_atom_indices_by_selection_name(
             self, 

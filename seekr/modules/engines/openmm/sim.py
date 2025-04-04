@@ -12,19 +12,19 @@ import openmm.unit as unit
 import openmm
 import openmm.app as openmm_app
 
-import seekr.modules.engines.base as engines_base
+import seekr.modules.engines.structures as engines_structures
 import seekr.modules.engines.openmm.base as openmm_base
 import seekr.modules.structures as structures
 import seekr.modules.sampling_methods.openmm_interface as sampling_openmm_interface
-import seekr.modules.sampling_methods.openmm_interface as completion_openmm_interface
-import seekr.modules.sampling_methods.openmm_interface as restraints_openmm_interface
+import seekr.modules.completion_criteria.openmm_interface as completion_openmm_interface
+import seekr.modules.restraints.openmm_interface as restraints_openmm_interface
 
 DEFAULT_BAROSTAT_FREQUENCY = 25
 
 kB = unit.BOLTZMANN_CONSTANT_kB * unit.AVOGADRO_CONSTANT_NA
 
 def make_topology_system_from_amber(
-        amber_parameters_topology: engines_base.Amber_parameters_topology,
+        amber_parameters_topology: engines_structures.Amber_parameters_topology,
         directory: str,
         nonbonded_method: typing.Any,
         nonbonded_cutoff: unit.Quantity | None,
@@ -46,7 +46,7 @@ def make_topology_system_from_amber(
     return system, prmtop.topology
 
 def make_topology_system_from_gromacs(
-        gromacs_parameters_topology: engines_base.Gromacs_parameters_topology,
+        gromacs_parameters_topology: engines_structures.Gromacs_parameters_topology,
         directory: str,
         nonbonded_method: typing.Any,
         nonbonded_cutoff: unit.Quantity | None,
@@ -71,7 +71,7 @@ def make_topology_system_from_gromacs(
     return system, top_file.topology
 
 def make_topology_system_from_charmm(
-        charmm_parameters_topology: engines_base.Charmm_parameters_topology,
+        charmm_parameters_topology: engines_structures.Charmm_parameters_topology,
         directory: str,
         nonbonded_method: typing.Any,
         nonbonded_cutoff: unit.Quantity | None,
@@ -85,7 +85,7 @@ def make_topology_system_from_charmm(
     psf_filename = os.path.join(
         directory, charmm_parameters_topology.psf_filename)
     param_filenames_list = []
-    for param_basename in charmm_parameters_topology.param_filenames_list:
+    for param_basename in charmm_parameters_topology.param_filename_list:
         param_filename = os.path.join(directory, param_basename)
         param_filenames_list.append(param_filename)
     psf = openmm_app.CharmmPsfFile(psf_filename)
@@ -100,7 +100,7 @@ def make_topology_system_from_charmm(
     return system, psf.topology
 
 def make_topology_system_from_forcefield(
-        forcefield_parameters_topology: engines_base.Forcefield_parameters,
+        forcefield_parameters_topology: engines_structures.Forcefield_parameters,
         topology_obj: openmm_app.PDBFile,
         directory: str,
         nonbonded_method: typing.Any,
@@ -131,7 +131,7 @@ def make_topology_system_from_forcefield(
     return system
 
 def make_topology_system_from_xml(
-        openmm_system_obj: engines_base.Openmm_system,
+        openmm_system_obj: engines_structures.Openmm_system,
         directory: str, 
         nonbonded_method: typing.Any,
         nonbonded_cutoff: unit.Quantity | None,
@@ -195,7 +195,7 @@ def create_openmm_system(
         model: structures.Seekr_model,
         directory: str,
         positions_array_or_basename: list | np.ndarray | str,
-        md_parameters_topology: engines_base.Parameters_topology,
+        md_parameters_topology: engines_structures.Parameters_topology,
         frame_index: int = 0,
         ) -> openmm.System:
     """
@@ -387,8 +387,8 @@ class Sim_openmm:
             self, 
             model: structures.Seekr_model,
             ensemble: structures.Ensemble,
-            sampling_engine_interface: openmm_interface.Sampling_md_openmm_interface,
-            completion_criteria_interface: openmm_interface.Completion_criteria_interface
+            sampling_engine_interface: sampling_openmm_interface.Sampling_md_openmm_interface,
+            completion_criteria_interface: completion_openmm_interface.Completion_criteria_openmm_interface
             ) -> None:
         """
         Assign the proper integrator to this OpenMM simulation.
@@ -400,7 +400,7 @@ class Sim_openmm:
         timestep = model.get_md_timestep()
         rigid_constraint_tolerance = integrator_settings.rigid_tolerance
         self.timestep = timestep
-        integrator = openmm.CustomIntegrator(timestep)
+        integrator = openmm.CustomIntegrator(timestep * unit.picoseconds)
         integrator_type = integrator_settings.type
         if integrator_type == "langevin":
             if ensemble is not None:
@@ -408,14 +408,17 @@ class Sim_openmm:
                     "Ensemble type not allowed or recognized for Langevin "\
                     f"integrator: {ensemble.type}"
             temperature = integrator_settings.target_temperature * unit.kelvin
-            friction = integrator_settings.friction / unit.picoseconds
+            friction = integrator_settings.friction
             integrator.addGlobalVariable("a", np.exp(-friction*timestep))
             integrator.addGlobalVariable("b", np.sqrt(1-np.exp(-2*friction*timestep)))
             integrator.addGlobalVariable("kT", kB*temperature)
-            sampling_engine_interface.add_global_variables_integrator(self.integrator)
+            sampling_engine_interface.add_global_variables_integrator(
+                integrator=integrator)
             integrator.addPerDofVariable("x1", 0)
-            sampling_engine_interface.add_per_DOF_variables_integrator(self.integrator)
-            sampling_engine_interface.pre_integration_instructions(self.integrator)
+            sampling_engine_interface.add_per_DOF_variables_integrator(
+                integrator=integrator)
+            sampling_engine_interface.pre_integration_instructions(
+                integrator=integrator)
             integrator.addUpdateContextState()
             integrator.addComputePerDof("v", "v + dt*f/m")
             integrator.addConstrainVelocities()
@@ -425,8 +428,10 @@ class Sim_openmm:
             integrator.addComputePerDof("x1", "x")
             integrator.addConstrainPositions()
             integrator.addComputePerDof("v", "v + (x-x1)/dt")
-            sampling_engine_interface.post_integration_instructions(self.integrator)
-            completion_criteria_interface.post_integration_instructions(self.integrator)
+            sampling_engine_interface.post_integration_instructions(
+                integrator=integrator)
+            #completion_criteria_interface.post_integration_instructions(
+            #    integrator=integrator)
             random_seed = integrator_settings.random_seed
             if random_seed is not None:
                 integrator.setRandomNumberSeed(random_seed)
@@ -523,12 +528,26 @@ class Sim_openmm:
                 model.md_engine.initial_temperature * unit.kelvin)
         if self.box_vectors is not None:
             self.simulation.context.setPeriodicBoxVectors(
-                *self.box_vectors.to_quantity())
-        self.simulation.context.setPositions(self.positions)
-        self.simulation.context.setVelocitiesToTemperature(
-            self.integrator.getTemperature())
-        if self.box_vectors is not None:
-            self.simulation.context.setPeriodicBoxVectors(*self.box_vectors)
+                *self.box_vectors)
+        return
+    
+    def write_pdb_file(
+            self, 
+            filename: str,
+            positions: unit.Quantity | None = None,
+            ) -> None:
+        """
+        Write the PDB file to the output directory.
+        """
+        if positions is None:
+            assert self.simulation is not None
+            state = self.simulation.context.getState(getPositions=True)
+            positions = state.getPositions()
+        assert self.topology is not None
+        with open(filename, "w") as f:
+            openmm_app.PDBFile.writeFile(
+                self.topology, positions, f, 
+                keepIds=True)
         return
 
 def write_toy_pdb_file(topology, positions, pdb_file_name):
@@ -548,11 +567,11 @@ def create_sim_openmm(
         model: structures.Seekr_model, 
         directory: str,
         positions_array_or_basename: list | np.ndarray | str,
-        md_parameters_topology: engines_base.Parameters_topology,
+        md_parameters_topology: engines_structures.Parameters_topology,
         frame: int = 0,
         ensemble: structures.Ensemble | None = None,
-        # TODO: change argument below to a sampling_method_OpenMM_intersection object
         sampling_engine_interface: sampling_openmm_interface.Sampling_md_openmm_interface | None = None,
+        completion_criteria_interface: completion_openmm_interface.Completion_criteria_openmm_interface | None = None,
         restraints_interfaces: restraints_openmm_interface.Base_restraint_openmm_interface | None = None
         ) -> Sim_openmm:
     """

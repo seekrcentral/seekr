@@ -18,7 +18,6 @@ import seekr._version as seekr_version
 import seekr.modules.base as base
 import seekr.modules.structures as structures
 import seekr.modules.preparer as preparer
-import seekr.modules.engines.preparer as engines_preparer
 
 __version__ = seekr_version.__version__
 
@@ -40,7 +39,7 @@ def prepare(
     log_directory = model.get_log_directory(directory)
     preparer.generate_directory(log_directory)
     synopsis_filename = model.get_synopsis_filename(directory)
-    base.configure_logger(synopsis_filename, False)
+    base.configure_file_only_logger(synopsis_filename, False)
     full_command = " ".join(sys.argv)
     logging.info(f"Preparing new model with command: {full_command}")
     logging.info(f"hostname: {socket.gethostname()}. username: {getpass.getuser()}. "\

@@ -5,10 +5,14 @@ Import base objects from all implemented engines.
 """
 
 import os
+import time
+import json
 import typing
+import logging
 from shutil import copyfile
 
 from attrs import define, field, validators, Factory
+import cattrs
 
 import seekr.modules.base as base
 
@@ -28,6 +32,43 @@ class Selection:
                                                     validators.ge(0)],
                                         iterable_validator=validators.instance_of(list),
                                     ))
+
+@define
+class Checkpoint_information:
+    """
+    A class to store information about the current state of a SEEKR
+    calculation.
+    """
+    current_step: int = field(default=0, 
+                              validator=[validators.instance_of(int),
+                                               validators.ge(0)])
+    
+    def save(
+            self, 
+            filename: str
+            ) -> None:
+        """
+        Write the model object to a file.
+        """
+        checkpoint_information_dict: dict = cattrs.unstructure(self)
+        checkpoint_information_dict_noindent: dict \
+            = base.wrap_noindent_integers(checkpoint_information_dict)
+        json_dump: str = json.dumps(checkpoint_information_dict_noindent,
+                                    indent=4, cls=base.NoIndentListEncoder)
+        with open(filename, "w") as file:
+            file.write(json_dump)
+
+        return
+
+def write_checkpoint_information_file(
+        step, 
+        filename) -> None:
+    """
+    Write the checkpoint information to a file.
+    """
+    checkpoint_information = Checkpoint_information(step)
+    checkpoint_information.save(filename)
+    return
 
 @define
 class Langevin_integrator_settings:
@@ -86,7 +127,10 @@ class Amber_parameters_topology:
     prmtop_filename: str = field(default="",
                                 validator=validators.instance_of(str))
     
-    def same_parameters(self, other):
+    def same_parameters(
+            self, 
+            other: "Amber_parameters_topology"
+            ) -> bool:
         if self.prmtop_filename == other.prmtop_filename:
             return True
         else:
@@ -115,7 +159,10 @@ class Gromacs_parameters_topology:
     gro_filename: str = field(default="",
                                 validator=validators.instance_of(str))
     
-    def same_parameters(self, other):
+    def same_parameters(
+            self, 
+            other: "Gromacs_parameters_topology"
+            ) -> bool:
         if (self.top_filename == other.top_filename) \
                 and (self.gro_filename == other.gro_filename):
             return True
@@ -156,7 +203,10 @@ class Charmm_parameters_topology:
             iterable_validator=validators.instance_of(list),
         ))
     
-    def same_parameters(self, other):
+    def same_parameters(
+            self, 
+            other: "Charmm_parameters_topology"
+            ) -> bool:
         if (self.psf_filename == other.psf_filename) \
                 and (self.param_filename_list == other.param_filename_list):
             return True
@@ -190,7 +240,7 @@ class Charmm_parameters_topology:
 @define
 class Forcefield_parameters:
     type: typing.Literal["OpenMM_forcefield"] = "OpenMM_forcefield"
-    build_in_forcefield_filenames: list[str] = field(
+    built_in_forcefield_filenames: list[str] = field(
         default=Factory(list),
         validator=validators.deep_iterable(
             member_validator=validators.instance_of(str),
@@ -203,8 +253,11 @@ class Forcefield_parameters:
             iterable_validator=validators.instance_of(list),
         ))
     
-    def same_parameters(self, other):
-        if (self.build_in_forcefield_filenames == other.build_in_forcefield_filenames) \
+    def same_parameters(
+            self, 
+            other: "Forcefield_parameters"
+            ) -> bool:
+        if (self.built_in_forcefield_filenames == other.built_in_forcefield_filenames) \
                 and (self.custom_forcefield_filenames == other.custom_forcefield_filenames):
             return True
         else:
@@ -241,7 +294,10 @@ class Openmm_system:
     system_filename: str = field(default="",
                                 validator=validators.instance_of(str))
     
-    def same_parameters(self, other):
+    def same_parameters(
+            self, 
+            other: "Openmm_system"
+            ) -> bool:
         if self.system_filename == other.system_filename:
             return True
         else:
@@ -349,4 +405,65 @@ class MD_systemwide_settings:
             if selection.name == name:
                 return selection.atom_indices
         raise Exception(f"Selection with name {name} not found.")
-    
+
+# These functions probably don't properly belong here, but they
+# cannot be placed in any runner modules without causing circular
+# imports. Should they be placed into an engines/base.py module?
+def make_lock_string() -> str:
+    """
+    Make a string that can be put into the LOCK file to detect race
+    conditions.
+    """
+    pid = os.getpid()
+    timestamp = time.time()
+    lock_string = "{},{:.3f}".format(pid, timestamp)
+    return lock_string
+
+def create_lock(
+        lock_filename: str, 
+        verbose: bool = False
+        ) -> tuple[str, str]:
+    """
+    Create a lock file to prevent running if a SEEKR anchor is currently being
+    run by another process.
+    """
+    directory = os.path.dirname(lock_filename)
+    if os.path.exists(lock_filename) and verbose:
+        print("Warning: a lock file was detected in directory "\
+                f"{directory}. This may happen because the a previous "\
+                "process failed suddenly, or because a process is currently "\
+                "running on this anchor.")
+    lock_string = make_lock_string()
+    with open(lock_filename, "w") as f:
+        f.write(lock_string)
+    return lock_string
+
+def update_lock(
+        lock_filename: str, 
+        lock_string: str
+        ) -> str:
+    """
+    Check the lock file for changes, and update the lock file.
+    """
+    directory = os.path.dirname(lock_filename)
+    if not os.path.exists(lock_filename):
+        raise Exception(f"The lock file was deleted for directory {directory}.")
+    with open(lock_filename, "r") as f:
+        old_lock_string = f.readline()
+    if old_lock_string != lock_string:
+        with open(lock_filename, "w") as f:
+            # kill the other process
+            f.write("ABORT")
+        abort_str = "A lock file modification was detected for directory "\
+                        f"{directory}. Another SEEKR process was "\
+                        "running on the same anchor at the same time. Both "\
+                        "processes will be killed. You must force this "\
+                        "anchor to restart from the beginning to obtain "\
+                        "correct results."
+        logging.critical(abort_str)
+        raise Exception(abort_str)
+    # otherwise all is well
+    lock_string = make_lock_string()
+    with open(lock_filename, "w") as f:
+        f.write(lock_string)
+    return lock_string

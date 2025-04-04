@@ -8,6 +8,7 @@ Imported by anything else in the seekr codebase.
 """
 
 import os
+import sys
 import re
 import json
 import typing
@@ -214,12 +215,15 @@ class NoIndentListEncoder(json.JSONEncoder):
         
         return result
 
-def configure_logger(
+def configure_file_only_logger(
         logname: str, 
         overwrite: bool=False) -> None:
     """
-    Set the logger for the seekr program.
+    Set the file-only logger for the seekr program.
     """
+    logger = logging.getLogger()
+    while logger.hasHandlers():
+        logger.removeHandler(logger.handlers[0])
     if overwrite:
         filemode = 'w'
     else:
@@ -228,6 +232,21 @@ def configure_logger(
         filename=logname, filemode=filemode,
         format="%(asctime)s,%(msecs)03d %(name)s %(levelname)s %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
+    return
+
+def configure_file_and_stdout_logger(
+        logname: str,
+        overwrite: bool=False
+        ) -> None:
+    """
+    Set the file and stdout logger for the seekr program.
+    """
+    configure_file_only_logger(logname, overwrite)
+    console = logging.StreamHandler(stream=sys.stdout)
+    console.setLevel(logging.INFO)
+    formatter = logging.Formatter("%(message)s")
+    console.setFormatter(formatter)
+    logging.getLogger().addHandler(console)
     return
 
 def order_files_numerically(

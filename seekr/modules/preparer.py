@@ -28,13 +28,8 @@ from scipy.spatial import QhullError
 import seekr.modules.base as base
 import seekr.modules.structures as structures
 import seekr.modules.collective_variables.structures as cv_structures
-#import seekr.modules.collective_variables.input as cv_input
 import seekr.modules.completion_criteria.structures as compl_crit_struct
 import seekr.modules.restraints.structures as restraints_structures
-# TODO: these don't need to be imported here, and in the future,
-#  they will be imported from a generic input.py file in the 
-#  engines directory.
-#import seekr.modules.engines.base as engines_base
 import seekr.modules.engines.browndye.structures as browndye_structures
 import seekr.modules.engines.structures as engines_structures
 import seekr.modules.engines.preparer as engines_preparer
@@ -141,21 +136,22 @@ class Input_stage_md:
                 f"Stage '{stage.name}' with sampling method '{stage.sampling_method.type}' "\
                 "must be run within one or more anchors. A stage that populates anchors "\
                 "must precede this stage."
-            stage.input_from_systemwide_settings = True
+            stage.input_from = "systemwide"
             if stage.sampling_method.input_from_systemwide_settings_output_to_anchors():
                 new_systemwide_stage_input = False
-                stage.output_to_systemwide_settings = False
+                stage.output_to = "anchors"
+                # Handle different situations?
             else:
                 new_systemwide_stage_input = True
-                stage.output_to_systemwide_settings = True
+                stage.output_to = "systemwide"
         else:
-            stage.input_from_systemwide_settings = False
+            stage.input_from = "anchors"
             if stage.sampling_method.input_from_anchors_output_to_systemwide_settings():
                 new_systemwide_stage_input = True
-                stage.output_to_systemwide_settings = True
+                stage.output_to = "systemwide"
             else:
                 new_systemwide_stage_input = False
-                stage.output_to_systemwide_settings = False
+                stage.output_to = "anchors"
         return stage, new_systemwide_stage_input
     
 
@@ -192,9 +188,9 @@ class Input_stage_bd:
         stage.n_trajectories_per_output = self.n_trajectories_per_output
         stage.n_steps_per_output = self.n_steps_per_output
         stage.completion_criteria = self.completion_criteria
-        stage.input_from_systemwide_settings = True
-        stage.output_to_systemwide_settings = True
         # At present, BD stages will always be systemwide
+        #stage.input_from = None
+        #stage.output_to = None
         return stage, systemwide_stage_input
 
 Input_stage = typing.Union[Input_stage_md, Input_stage_bd]
@@ -540,6 +536,7 @@ class Partition_input:
             anchor.stage_parameters = []
             if input_anchor.positions is not None and input_anchor.positions != "":
                 stage_parameter = {}
+                stage_parameter["index"] = 0
                 stage_parameter["directory"] = base.INITIAL_DIRECTORY
                 #stage_parameter["md_parameters_topology"] = input_anchor.md_parameters_topology
                 stage_parameter["positions"] = input_anchor.positions
@@ -1174,14 +1171,14 @@ def resolve_modifications_and_filetree(
     else:
         new_anchors_with_starting_pdbs_to_keep = None
     # Add all stages to the model anchors or systemwide
+    allowed_inputs = ["anchors", "systemwide", None]
+    allowed_outputs = ["anchors", "systemwide", None]
     for stage in model.stages:
-        assert stage.input_from_systemwide_settings is not None, \
-            "The input_from_systemwide_settings flag must be defined "\
-            "for each stage."
-        assert stage.output_to_systemwide_settings is not None, \
-            "The output_to_systemwide_settings flag must be defined "\
-            "for each stage."
-        if (not stage.output_to_systemwide_settings) \
+        assert stage.input_from in allowed_inputs, \
+            f"The input_from may not be {stage.input_from}."
+        assert stage.output_to in allowed_outputs, \
+            f"The input_from may not be {stage.output_to}."
+        if (stage.output_to == "anchors") \
                 and stage.type == "md_stage":
             # NOTE: mypy error is handled with "md_stage" type check above
             stage.add_stage_parameters_to_anchors(model)
@@ -1197,7 +1194,7 @@ def resolve_modifications_and_filetree(
             anchors[new_index].generate_filetree(root_directory)
             if (new_anchors_with_starting_pdbs_to_keep is not None) \
                     and (new_index in new_anchors_with_starting_pdbs_to_keep):
-                logging.info("Keeping starting structure for anchor:", new_index)
+                logging.info(f"Keeping starting structure for anchor: {new_index}")
             else:
                 input_anchor.copy_initial_files(anchors[new_index], root_directory, 
                                                 model.using_toy())

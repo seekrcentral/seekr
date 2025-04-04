@@ -37,7 +37,8 @@ class MD_systemwide_settings_input:
         new_md_systemwide_settings.selections = self.selections
         if self.positions is not None and self.positions != "":
             stage_parameters = \
-                [{"directory": base.INITIAL_DIRECTORY, "positions": self.positions}]
+                [{"index": 0, "directory": base.INITIAL_DIRECTORY, 
+                  "positions": self.positions}]
         else:
             stage_parameters = [None]
         new_md_systemwide_settings.stage_parameters = stage_parameters

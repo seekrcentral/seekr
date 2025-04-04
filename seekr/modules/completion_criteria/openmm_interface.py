@@ -8,7 +8,7 @@ import typing
 
 from attrs import define
 
-import seekr.modules.structure as structures
+import seekr.modules.structures as structures
 import seekr.modules.completion_criteria.structures as completion_criteria_structures
 
 # TODO: fill out an object for the anchors-filled completion criteria

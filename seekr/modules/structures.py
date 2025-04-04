@@ -18,7 +18,6 @@ import numpy as np
 import seekr.modules.base as base
 
 import seekr.modules.engines.structures as engines_structures
-#import seekr.modules.engines.openmm.base as openmm_base
 import seekr.modules.collective_variables.structures as cv_structures
 import seekr.modules.completion_criteria.structures as compl_crit_struct
 import seekr.modules.restraints.structures as restraints_structures
@@ -60,10 +59,6 @@ class Milestone:
                                        validators.ge(0)])
     variables: dict = field(default=Factory(dict),
                             validator=validators.instance_of(dict))
-    # cv_index: I chose not to include this one for SEEKR3
-    # TODO: Include the possibility for positions/parameter/topology to be
-    #  in a milestone for certain types of milestoning like Elber milestoning?
-
     def get_cv_index_from_variable(
             self,
             variable_name: str
@@ -333,18 +328,22 @@ class Stage_md:
                                                  validators.ge(0)])
     # TODO: change from "input_from_systemwide_settings" to "input_from",
     #  and set it to "anchor" or "systemwide"
+    input_from: str = field(default="systemwide", 
+                            validator=validators.instance_of(str))
+    output_to: str = field(default="anchor", 
+                           validator=validators.instance_of(str))
     # Whether this stage comes from the systemwide settings, if not,
     #  then it comes from the anchors. If None, then it is assigned automatically
-    input_from_systemwide_settings: bool | None = field(default=None,
-                                                    validator=validators.optional(
-                                                      validators.instance_of(bool)))
+    #input_from_systemwide_settings: bool | None = field(default=None,
+    #                                                validator=validators.optional(
+    #                                                  validators.instance_of(bool)))
     # TODO: change from "output_to_systemwide_settings" to "output_to",
     #  and set it to "anchor" or "systemwide"
     # Whether this stage outputs to the systemwide settings, if not,
     #  then it outputs to the anchors.  If None, then it is assigned automatically
-    output_to_systemwide_settings: bool | None = field(default=None,
-                                                validator=validators.optional(
-                                                    validators.instance_of(bool)))
+    #output_to_systemwide_settings: bool | None = field(default=None,
+    #                                            validator=validators.optional(
+    #                                                validators.instance_of(bool)))
     
     def get_directory_name(self) -> str:
         directory_name: str = f"stage_{self.index}_{self.name}"
@@ -364,6 +363,7 @@ class Stage_md:
                 continue
             directory_name: str = self.get_directory_name()
             stage_parameter = {}
+            stage_parameter["index"] = self.index
             stage_parameter["directory"] = directory_name
             # TODO: let the sampling method return different sorts of outputs
             #  beyond just positions. Like
@@ -391,6 +391,7 @@ class Stage_md:
             return
         directory_name: str = self.get_directory_name()
         stage_parameter = {}
+        stage_parameter["index"] = self.index
         stage_parameter["directory"] = directory_name
         # TODO: let the sampling method return different sorts of outputs
         #  beyond just positions. Like
@@ -468,18 +469,20 @@ class Stage_bd:
     completion_criteria: compl_crit_struct.Number_of_trajectories_completion_criteria\
          = field(default=Factory(
              compl_crit_struct.Number_of_trajectories_completion_criteria))
-    # TODO: implement?
+    # TODO: implement restraints in BD?
     #restraints: list[restraint_structures.Restraint] = field(default=Factory(list),)
     # Whether this stage comes from the systemwide settings, if not,
     #  then it comes from the anchors. If None, then it is assigned automatically
-    input_from_systemwide_settings: bool | None = field(default=None,
-                                                    validator=validators.optional(
-                                                      validators.instance_of(bool)))
+    input_from: None = None
+    output_to: None = None
+    #input_from_systemwide_settings: bool | None = field(default=None,
+    #                                                validator=validators.optional(
+    #                                                  validators.instance_of(bool)))
     # Whether this stage outputs to the systemwide settings, if not,
     #  then it outputs to the anchors.  If None, then it is assigned automatically
-    output_to_systemwide_settings: bool | None = field(default=None,
-                                                validator=validators.optional(
-                                                    validators.instance_of(bool)))
+    #output_to_systemwide_settings: bool | None = field(default=None,
+    #                                            validator=validators.optional(
+    #                                                validators.instance_of(bool)))
 
 Stage = typing.Union[Stage_md, Stage_bd]
 
@@ -648,7 +651,7 @@ class Seekr_model:
             if cv.name == cv_name:
                 return cv
         raise ValueError(f"CV with name {cv_name} not found.")
-
+    
     def save(
             self, 
             filename: str
