@@ -6,10 +6,13 @@ That is - any imaginable way to determine when a simulation is complete.
 """
 
 import typing
+import logging
 
 from attrs import define, field, validators
 
 import seekr.modules.base as base
+
+MAX_ANCHORS_FILLED_STEPS = 100000 #2000000 # ~4 ns
 
 @define
 class Number_of_steps_completion_criteria:
@@ -21,6 +24,7 @@ class Number_of_steps_completion_criteria:
                                 validator=[validators.instance_of(int),
                                            validators.gt(0)])
     
+    # NOTE: these functions are needed for chunking in runner modules
     def get_min_sim_len(self) -> int:
         """
         Return the minimum simulation length for this completion criteria.
@@ -36,7 +40,7 @@ class Number_of_steps_completion_criteria:
     def get_evaluation_interval(self) -> int:
         return 0
 
-# TODO: generalize this to a subset of anchors filled
+# TODO: generalize this to a predefined subset of anchors filled
 @define
 class All_anchors_filled_completion_criteria:
     """
@@ -47,6 +51,7 @@ class All_anchors_filled_completion_criteria:
                                 validator=[validators.instance_of(int),
                                            validators.gt(0)])
 
+    # NOTE: these functions are needed for chunking in runner modules
     def get_min_sim_len(self) -> int:
         """
         Return the minimum simulation length for this completion criteria.
@@ -57,10 +62,14 @@ class All_anchors_filled_completion_criteria:
         """
         Return the minimum simulation length for this completion criteria.
         """
-        return base.MAX_SEEKR_SIMULATION_STEPS
+        return MAX_ANCHORS_FILLED_STEPS #base.MAX_SEEKR_SIMULATION_STEPS
     
     def get_evaluation_interval(self) -> int:
         return self.eval_interval
+    
+
+#@define
+#class CV_value_attained_completion_criteria:
 
 # TODO: Maybe implement someday?
 #@define

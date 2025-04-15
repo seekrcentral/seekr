@@ -193,8 +193,9 @@ def make_toy_system_object(model):
 
 def create_openmm_system(
         model: structures.Seekr_model,
-        directory: str,
+        positions_directory: str,
         positions_array_or_basename: list | np.ndarray | str,
+        md_parameters_directory: str,
         md_parameters_topology: engines_structures.Parameters_topology,
         frame_index: int = 0,
         ) -> openmm.System:
@@ -271,7 +272,7 @@ def create_openmm_system(
         positions_filename = positions_array_or_basename
         if (positions_filename is not None) and \
                 positions_filename != "":
-            pdb_full_path = os.path.join(directory, positions_filename)
+            pdb_full_path = os.path.join(positions_directory, positions_filename)
             pdb_obj = openmm_app.PDBFile(pdb_full_path)
             box_vectors = openmm_base.get_box_vectors_from_pdb(pdb_full_path)
         else:
@@ -280,24 +281,24 @@ def create_openmm_system(
 
         if md_parameters_topology.type == "Amber":
             system, topology = make_topology_system_from_amber(
-                md_parameters_topology, directory,
+                md_parameters_topology, md_parameters_directory,
                 nonbondedMethod, model.md_engine.nonbonded_cutoff,
                 constraints, hydrogenMass)
         elif md_parameters_topology.type == "Gromacs":
             system, topology = make_topology_system_from_gromacs(
-                md_parameters_topology, directory,
+                md_parameters_topology, md_parameters_directory,
                 nonbondedMethod, model.md_engine.nonbonded_cutoff,
                 constraints, hydrogenMass)
         elif md_parameters_topology.type == "Charmm":
             system, topology = make_topology_system_from_charmm(
-                md_parameters_topology, directory,
+                md_parameters_topology, md_parameters_directory,
                 nonbondedMethod, model.md_engine.nonbonded_cutoff,
                 constraints, hydrogenMass)
         elif md_parameters_topology.type == "Forcefield":
             system = make_topology_system_from_forcefield(
                 md_parameters_topology, pdb_obj,
-                directory, nonbondedMethod, model.md_engine.nonbonded_cutoff,
-                constraints, hydrogenMass)
+                md_parameters_directory, nonbondedMethod, 
+                model.md_engine.nonbonded_cutoff, constraints, hydrogenMass)
             topology = pdb_obj.topology
 
         if pdb_obj is None:
@@ -535,15 +536,22 @@ class Sim_openmm:
             self, 
             filename: str,
             positions: unit.Quantity | None = None,
+            box_vectors: unit.Quantity | None = None
             ) -> None:
         """
         Write the PDB file to the output directory.
         """
-        if positions is None:
+        if (positions is None) or (box_vectors is None):
             assert self.simulation is not None
-            state = self.simulation.context.getState(getPositions=True)
+            state = self.simulation.context.getState(getPositions=True,
+                                                     enforcePeriodicBox=True)
+        if positions is None:
             positions = state.getPositions()
+        if box_vectors is None:
+            box_vectors = state.getPeriodicBoxVectors()
+
         assert self.topology is not None
+        self.topology.setPeriodicBoxVectors(box_vectors)
         with open(filename, "w") as f:
             openmm_app.PDBFile.writeFile(
                 self.topology, positions, f, 
@@ -565,8 +573,9 @@ def write_toy_pdb_file(topology, positions, pdb_file_name):
 
 def create_sim_openmm(
         model: structures.Seekr_model, 
-        directory: str,
+        positions_directory: str,
         positions_array_or_basename: list | np.ndarray | str,
+        md_parameters_directory: str,
         md_parameters_topology: engines_structures.Parameters_topology,
         frame: int = 0,
         ensemble: structures.Ensemble | None = None,
@@ -581,8 +590,8 @@ def create_sim_openmm(
     sim_openmm = Sim_openmm()
     system, topology, positions, box_vectors, _ \
         = create_openmm_system(
-            model, directory, positions_array_or_basename, 
-            md_parameters_topology, frame)
+            model, positions_directory, positions_array_or_basename, 
+            md_parameters_directory, md_parameters_topology, frame)
     sim_openmm.system = system
     sim_openmm.topology = topology
     sim_openmm.box_vectors = box_vectors
@@ -604,7 +613,7 @@ def create_sim_openmm(
     sim_openmm.add_restraints(restraints_interfaces, positions, periodic_system)
     sim_openmm.add_simulation(model, positions)
     if model.using_toy():
-        toy_pdb_filename = os.path.join(directory, "toy.pdb")
+        toy_pdb_filename = os.path.join(positions_directory, "toy.pdb")
         write_toy_pdb_file(topology, positions, toy_pdb_filename)
     return sim_openmm
     

@@ -924,7 +924,6 @@ class Reaction_root:
         assert self.first_state
         xmlFirstState = ET.SubElement(xmlRoot, "first_state")
         xmlFirstState.text = self.first_state
-        assert len(self.reaction_list) > 0
         xmlReactions = ET.SubElement(xmlRoot, "reactions")
         for reaction in self.reaction_list:
             xmlReaction_i = ET.SubElement(xmlReactions, "reaction")

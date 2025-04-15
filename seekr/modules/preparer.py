@@ -32,7 +32,7 @@ import seekr.modules.completion_criteria.structures as compl_crit_struct
 import seekr.modules.restraints.structures as restraints_structures
 import seekr.modules.engines.browndye.structures as browndye_structures
 import seekr.modules.engines.structures as engines_structures
-import seekr.modules.engines.preparer as engines_preparer
+import seekr.modules.engines.runner as engines_runner
 import seekr.modules.engines.openmm.preparer as openmm_preparer
 import seekr.modules.engines.browndye.preparer as browndye_preparer
 import seekr.modules.sampling_methods.preparer as sampling_methods_preparer
@@ -73,23 +73,6 @@ def anchor_has_hidr_files(model, anchor):
         return True
     else:
         return False
-
-# TODO: modify this function to include multiple stages
-"""
-def cleanse_anchor_outputs(model, anchor):
-    ""
-    Delete all simulation outputs for an existing anchor to make way
-    for new outputs.
-    ""
-    
-    if model.openmm_settings is not None:
-        import seekr2.modules.runner_openmm as runner_openmm
-        runner_openmm.cleanse_anchor_outputs(model, anchor)
-    elif model.namd_settings is not None:
-        import seekr2.modules.runner_namd as runner_namd
-        runner_namd.cleanse_anchor_outputs(model, anchor)
-    return
-"""
 
 @define
 class Input_stage_md:
@@ -899,24 +882,54 @@ def prepare_model_cvs_and_anchors(
     assign_all_state_points(state_points, model)
     return
 
-def cleanse_outputs(
+def cleanse_outputs_all(
         model: "structures.Seekr_model",
         anchor_or_systemwide: engines_structures.MD_systemwide_settings \
-            | Anchor_input, 
+            | Anchor_input
         ) -> None:
     """
     Delete all simulation outputs from systemwide or anchor.
     """
-    for stage in model.stages:
-        full_directory = os.path.join(model.directory, anchor_or_systemwide.directory, 
-                                        stage.get_directory_name())
-        if os.path.exists(full_directory):
-            file_globs = stage.sampling_method.get_output_globs()
-            for file_glob in file_globs:
-                full_glob = os.path.join(full_directory, file_glob)
-                for file in glob.glob(full_glob):
-                    os.remove(file)
 
+    for stage in model.stages:
+        cleanse_outputs_stage(model, anchor_or_systemwide, stage.index)
+    return
+
+def cleanse_outputs_stage(
+        model: "structures.Seekr_model",
+        anchor_or_systemwide: engines_structures.MD_systemwide_settings \
+            | Anchor_input, 
+        stage_index: int
+        ) -> None:
+    """
+    Delete all simulation outputs from systemwide or anchor.
+    """
+
+    stage = model.stages[stage_index]
+    full_directory = os.path.join(model.directory, anchor_or_systemwide.directory, 
+                                    stage.get_directory_name())
+    if os.path.exists(full_directory):
+        file_globs = stage.sampling_method.get_output_globs()
+        for file_glob in file_globs:
+            full_glob = os.path.join(full_directory, file_glob)
+            for file in glob.glob(full_glob):
+                os.remove(file)
+        dcd_glob = os.path.join(full_directory, "*.dcd")
+        for dcd_file in glob.glob(dcd_glob):
+            os.remove(dcd_file)
+        backup_info_glob = os.path.join(full_directory, 
+            engines_runner.INFORMATION_CHECKPOINT_FILENAME_NOEXT \
+            + "*" + engines_runner.INFORMATION_CHECKPOINT_FILENAME_EXT)
+        for backup_info_file in glob.glob(backup_info_glob):
+            os.remove(backup_info_file)
+        backup_glob = os.path.join(full_directory, 
+            engines_runner.RESTART_CHECKPOINT_FILENAME_NOEXT \
+            + "*" + engines_runner.RESTART_CHECKPOINT_FILENAME_EXT)
+        for backup_file in glob.glob(backup_glob):
+            os.remove(backup_file)
+        lock_filename = os.path.join(full_directory, "LOCK")
+        if os.path.exists(lock_filename):
+            os.remove(lock_filename)
     return
 
 # TODO: move to modules/preparer.py?
@@ -1088,11 +1101,12 @@ def modify_model(
     
     for cleansing_anchor in cleansing_anchors:
         print("removing output files from anchor:", cleansing_anchor.name)
-        cleanse_outputs(cleansing_anchor, old_model)
+        cleanse_outputs_all(cleansing_anchor, old_model)
     
     for stage_index in stages_to_delete_indices:
         stage = old_model.stages[stage_index]
         print("removing output files from stage:", stage.name)
+        # TODO: method doesn't exist: fix this
         stage.remove_directory(old_model)
 
     # Now that the equivalent anchors are known, we know which ones will
@@ -1178,14 +1192,34 @@ def resolve_modifications_and_filetree(
             f"The input_from may not be {stage.input_from}."
         assert stage.output_to in allowed_outputs, \
             f"The input_from may not be {stage.output_to}."
-        if (stage.output_to == "anchors") \
+        
+        did_anchor_stage = False
+        did_systemwide_stage = False
+        if (stage.input_from == "anchors") \
                 and stage.type == "md_stage":
             # NOTE: mypy error is handled with "md_stage" type check above
             stage.add_stage_parameters_to_anchors(model)
-            stage.add_stage_parameters_to_systemwide_settings(model, do_none=True)
-        elif stage.type == "md_stage":
-            stage.add_stage_parameters_to_anchors(model, do_none=True)
+            did_anchor_stage = True
+        elif (stage.input_from == "systemwide") \
+                and stage.type == "md_stage":
             stage.add_stage_parameters_to_systemwide_settings(model)
+            did_systemwide_stage = True
+
+        if (stage.output_to == "anchors") \
+                and stage.type == "md_stage" and not did_anchor_stage:
+            # NOTE: mypy error is handled with "md_stage" type check above
+            stage.add_stage_parameters_to_anchors(model)
+            did_anchor_stage = True
+        elif (stage.output_to == "systemwide") \
+                and stage.type == "md_stage" and not did_systemwide_stage:
+            stage.add_stage_parameters_to_systemwide_settings(model)
+            did_systemwide_stage = True
+        
+        # Add nones wherever a stage wasn't added somewhere
+        if not did_anchor_stage and stage.type == "md_stage":
+            stage.add_stage_parameters_to_anchors(model, do_none=True)
+        if not did_systemwide_stage and stage.type == "md_stage":
+            stage.add_stage_parameters_to_systemwide_settings(model, do_none=True)
     
     for old_index in index_reference:
         new_index = index_reference[old_index]

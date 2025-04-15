@@ -42,27 +42,33 @@ def run(
     counter = 0
     while not complete:
         if stage.type == "md_stage":
-            info_to_run = runner.choose_next_simulation_md(stage, model, anchor_index,
+            run_instructions = runner.choose_next_simulation_md(stage, model, anchor_index,
                                              force_overwrite, device_index)
         elif stage.type == "bd_stage":
-            info_to_run = runner.choose_next_simulation_bd(stage, model, force_overwrite)
+            run_instructions = runner.choose_next_simulation_bd(stage, model, force_overwrite)
         else:
             raise Exception(f"Stage type not recognized: {stage.type}.")
         
-        for info in info_to_run:
+        for instruction in run_instructions:
             if stage.type == "md_stage":
-                steps_to_go_min, num_transitions, anchor_index, \
-                    restart, total_simulation_length, swarm_index = info
+                current_step = instruction.current_step
+                anchor_index = instruction.anchor_index
+                restart = instruction.restart
+                swarm_index = instruction.swarm_index
+                if swarm_index is None:
+                    swarm_string = ""
+                else:
+                    swarm_string = f", swarm index: {swarm_index}"
                 if force_overwrite and restart:
                     restart = False
-                log_string = f"running anchor_index: {anchor_index} restart: "\
-                    +f"{restart} total_simulation_length: "\
-                    +f"{total_simulation_length} num_transitions: "\
-                    +f"{num_transitions} swarm index: {swarm_index}"
                 if anchor_index is None:
                     anchor_or_systemwide = model.md_engine.systemwide_settings
+                    partition_name = "systemwide"
                 else:
                     anchor_or_systemwide = model.anchors[anchor_index]
+                    partition_name = f"anchor {anchor_index}"
+                log_string = f"Running {partition_name}, restart: "\
+                    +f"{restart}{swarm_string}"
                 calculation_dir = runner.get_calculation_directory_md(
                     anchor_or_systemwide, stage_index, model.directory)
                 log_filename = os.path.join(calculation_dir, "run.log")
@@ -76,7 +82,7 @@ def run(
                 if not model.using_bd():
                     raise Exception("BD engine is not enabled.")
                 trajs_to_go_min, num_transitions, b_surface_anchor_index, \
-                    restart, total_num_trajs = info
+                    restart, total_num_trajs = instruction
                 if force_overwrite and restart:
                     restart = False
                 log_string = f"running from b-surface anchor: {b_surface_anchor_index}"\
@@ -89,7 +95,7 @@ def run(
             else:
                 raise Exception(f"Stage type not recognized: {stage.type}.")
             
-        if len(info_to_run) > 0:
+        if len(run_instructions) > 0:
             complete = False
             ran_nothing = False
         else:
@@ -97,6 +103,7 @@ def run(
         counter += 1
         if counter > MAX_ITER:
             raise Exception("While loop appears to be stuck.")
+        force_overwrite = False
         
     os.chdir(curdir)
     if ran_nothing:

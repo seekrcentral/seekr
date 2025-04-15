@@ -200,7 +200,10 @@ def make_browndye_input_xml(
         bd_engine: browndye_structures.Browndye_bd_engine,
         temperature: float,
         root_directory: str,
-        make_apbs_mode: bool = True
+        make_apbs_mode: bool = True,
+        n_trajectories: int = 1,
+        n_threads: int = 1,
+        n_steps_per_output: int = 100000
         ) -> typing.Tuple[float, str]:
     """
     Make the Browndye input XML file for the system.
@@ -209,13 +212,14 @@ def make_browndye_input_xml(
     bd_directory = os.path.join(
         root_directory, bd_engine.b_surface_directory)
     root.system.start_at_site = "False"
-    root.n_trajectories = 1
+    root.n_trajectories = n_trajectories
+    root.n_steps_per_output = n_steps_per_output
     root.seed = bd_engine.get_random_seed()
     # TODO: set default for these values and check them at the run stage
     #  or at least before input generation.
     #if root.n_trajectories_per_output > root.n_trajectories:
     #    root.n_trajectories_per_output = root.n_trajectories
-    root.n_threads = 1
+    root.n_threads = n_threads
     root.system.reaction_file = browndye_base.REACTION_FILENAME
     reaction_filename = root.system.reaction_file
     if make_apbs_mode:
@@ -266,13 +270,18 @@ def make_browndye_input_xml(
     return debye_length, reaction_filename
 
 def make_browndye_reaction_xml(
-        bd_engine: browndye_structures.Browndye_bd_engine,
-        model: structures.Seekr_model,
+        model: structures.Seekr_model | None,
         abs_reaction_path: str
         ) -> None:
     """
     Creates Browndye reaction file.
     """
+    rxnroot = xml_structures.Reaction_root()
+    rxnroot.first_state = "b_surface"
+    if model is None:
+        rxnroot.write(abs_reaction_path)
+        return
+
     bd_engine = model.bd_engine
     cvs = model.collective_variables
     bulk_anchor: structures.Anchor
@@ -281,8 +290,6 @@ def make_browndye_reaction_xml(
             bulk_anchor = anchor
 
     assert bulk_anchor is not None, "No BD anchor found"
-    rxnroot = xml_structures.Reaction_root()
-    rxnroot.first_state = "b_surface"
     for neighbor_anchor_index in bulk_anchor.neighbor_anchor_indices:
         neighbor_anchor = model.anchors[neighbor_anchor_index]
         spherical_milestones_in_this_anchor = []
@@ -418,5 +425,5 @@ def generate_bd_files(
         temperature=model.temperature, root_directory=root_directory)
     bd_engine.debye_length = float(debye_length)
     abs_reaction_path = os.path.join(b_surface_full_path, reaction_filename)
-    make_browndye_reaction_xml(bd_engine, model, abs_reaction_path)
+    make_browndye_reaction_xml(model, abs_reaction_path)
     return

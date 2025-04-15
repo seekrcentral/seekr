@@ -16,13 +16,11 @@ from attrs import define, field, validators, Factory
 import numpy as np
 
 import seekr.modules.base as base
-
 import seekr.modules.engines.structures as engines_structures
 import seekr.modules.collective_variables.structures as cv_structures
 import seekr.modules.completion_criteria.structures as compl_crit_struct
 import seekr.modules.restraints.structures as restraints_structures
 import seekr.modules.sampling_methods.structures as sampling_methods_structures
-
 import seekr.modules.engines.openmm.structures as openmm_structures
 import seekr.modules.engines.browndye.structures as browndye_structures
 
@@ -252,6 +250,30 @@ class Anchor:
             return len(self.positions)
         else:
             return 0
+        
+    def make_var_string(self) -> str:
+        """
+        Return a string of the variables in this anchor.
+        """
+        var_list = []
+        for variable_key in self.variables:
+            if variable_key in self.variables:
+                value = self.variables[variable_key]
+            var_list.append("{:.3f}".format(value))
+        var_string = "_".join(var_list)
+        return var_string
+    
+    def change_pdb_filename(
+            self,
+            new_filename: str,
+            stage_number: int) -> None:
+        """
+        Change the PDB filename for this anchor.
+        """
+        assert self.stage_parameters[stage_number+1] is not None, "Stage "\
+            f"parameters not defined for anchor {self.index} and stage {stage_number+1}."
+        self.stage_parameters[stage_number+1]["positions"] = new_filename
+        return
     
 @define
 class NVT_ensemble:
@@ -846,3 +868,27 @@ def structure_stage_type_union(
         print("data:", data)
         raise ValueError(f"Invalid type for stage_type_union: {type(data)}")
 """
+
+def check_values_within_voronoi_boundary(
+        cv_values: typing.List[float], 
+        milestone_variables: dict,
+        tolerance: float = 0.0
+        ) -> bool:
+    """
+    Check if the CV values are within the Voronoi boundary.
+    """
+    me_total_value = 0.0
+    neighbor_total_value = 0.0
+    for i, cv_value in enumerate(cv_values):
+        me_i_value = milestone_variables["me_{}".format(i)]
+        neighbor_i_value = milestone_variables["neighbor_{}".format(i)]
+        me_this_value = (me_i_value - cv_value)**2
+        neighbor_this_value = (neighbor_i_value - cv_value)**2
+        me_total_value += me_this_value
+        neighbor_total_value += neighbor_this_value
+            
+    distance = me_total_value - neighbor_total_value
+    if (distance-tolerance) > 0.0: 
+        return False
+    
+    return True

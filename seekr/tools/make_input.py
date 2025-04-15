@@ -142,6 +142,7 @@ def create_host_guest_example_input(
     stage2.ensemble = structures.NVT_ensemble()
     stage2.sampling_method = sampling_preparer.Metadynamics_md_input()
     stage2.sampling_method.gaussian_height = 1.0
+    stage2.sampling_method.cv_names = ["distance_host_guest"]
     stage2.completion_criteria = compl_crit_struct.All_anchors_filled_completion_criteria()
 
     stage3 = preparer.Input_stage_md()
@@ -165,6 +166,7 @@ def create_host_guest_example_input(
     seekr_input.stages = [stage1, stage2, stage3, stage4]
     seekr_input.partitions = [preparer.Partition_input()]
     distance_cv_input = distance_cv.Distance_cv_input()
+    distance_cv_input.name = "distance_host_guest"
     distance_cv_input.group1_name = "host"
     distance_cv_input.group2_name = "guest"
     seekr_input.partitions[0].cvs = [distance_cv_input]

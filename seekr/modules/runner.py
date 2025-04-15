@@ -6,7 +6,9 @@ Base objects and functions for running SEEKR calculations.
 
 import os
 import json
+import typing
 import logging
+from collections import namedtuple
 
 import cattrs
 
@@ -14,24 +16,18 @@ import seekr.modules.base as base
 import seekr.modules.engines.structures as engines_structures
 import seekr.modules.structures as structures
 import seekr.modules.engines.runner as engines_runner
+import seekr.modules.completion_criteria.runner as completion_criteria_runner
 
-STEP_TOLERANCE = 5
 MAX_RESTART_ATTEMPTS = 3
 
-def load_checkpoint_information(
-        filename: str
-        ) -> engines_structures.Checkpoint_information:
-    """
-    Load a model object from a file.
-    """
-    with open(filename, "r") as file:
-        json_string: str = json.load(file)
-    
-    # Use a cattrs Converter to define how to structure the dictionary input
-    converter: cattrs.Converter = cattrs.Converter()
-    checkpoint_information: engines_structures.Checkpoint_information \
-        = converter.structure(json_string, engines_structures.Checkpoint_information)
-    return checkpoint_information
+Run_instruction_md = namedtuple(
+    "Run_instruction_md",
+    [
+        "current_step",
+        "anchor_index",
+        "restart",
+        "swarm_index"
+    ])
 
 def get_current_md_step(
         anchor_or_systemwide: engines_structures.MD_systemwide_settings \
@@ -55,7 +51,7 @@ def get_current_md_step(
     checkpoint_information_filename = os.path.join(
         full_directory, checkpoint_info_basename)
     if os.path.exists(checkpoint_information_filename):
-        checkpoint_information = load_checkpoint_information(
+        checkpoint_information = engines_runner.load_checkpoint_information(
             checkpoint_information_filename)
         current_step = checkpoint_information.current_step
     else: 
@@ -70,13 +66,14 @@ def get_calculation_directory_md(
     """
     Return the calculation directory for a given MD stage index.
     """
-    assert len(anchor_or_systemwide.stage_parameters) > stage_index\
+    stage_list_index = stage_index + 1
+    assert len(anchor_or_systemwide.stage_parameters) > stage_list_index\
         and stage_index >= 0, "Stage index provided is out of range."
-    assert anchor_or_systemwide.stage_parameters[stage_index] is not None
+    assert anchor_or_systemwide.stage_parameters[stage_list_index] is not None
     if isinstance(anchor_or_systemwide, structures.Anchor):
         if not anchor_or_systemwide.md:
             raise NotImplementedError("MD not running in this anchor/systemwide.")
-    stage_directory = anchor_or_systemwide.stage_parameters[stage_index+1]["directory"]
+    stage_directory = anchor_or_systemwide.stage_parameters[stage_list_index]["directory"]
     full_directory = os.path.join(root_directory, anchor_or_systemwide.directory, stage_directory)
     return full_directory
 
@@ -123,51 +120,10 @@ def choose_next_simulation_md(
         model.md_engine.platform_settings.device_index = \
             device_index
     
-    min_total_sim_len = stage_md.completion_criteria.get_min_sim_len()
-    max_total_sim_len = stage_md.completion_criteria.get_max_sim_len()
-    
-    anchor_info_to_run_unsorted: list = []
+    #run_instructions_unsorted: list = []
+    anchor_or_systemwide_index_list: list[int | None] = []
     if stage_md.input_from == "systemwide":
-        systemwide = model.md_engine.systemwide_settings
-        num_swarm_frames = systemwide.get_starting_structure_num_frames(
-            model.directory, stage_md.input_stage_index)
-        calculation_dir = get_calculation_directory_md(
-            systemwide, stage_md.index-1, model.directory)
-        log_filename = os.path.join(calculation_dir, "run.log")
-        base.configure_file_and_stdout_logger(
-            log_filename, overwrite=force_overwrite)
-        for swarm_frame in range(num_swarm_frames):
-            if num_swarm_frames <= 1:
-                swarm_frame = None
-            current_step = get_current_md_step(systemwide,
-                stage_md.index, swarm_frame, model.directory)
-            restart_checkpoint_filename \
-                = get_restart_checkpoint_filename(
-                    systemwide, stage_md.index, swarm_frame, model.directory)
-            if (not os.path.exists(restart_checkpoint_filename)) \
-                    or force_overwrite: # or umbrella_restart_mode:
-                    # TODO: extract from sampling method whether restarts will be done
-                restart = False
-                current_step = 0
-            else:
-                restart = True
-            if current_step > max_total_sim_len:
-                # this simulation has run long enough
-                continue
-            steps_to_go_to_min = min_total_sim_len - current_step
-            if steps_to_go_to_min > STEP_TOLERANCE:
-                logging.info(
-                      "Systemwide has not run the minimum number of steps"\
-                    +f"{current_step} of {min_total_sim_len}"\
-                    +f"in swarm index {swarm_frame}")
-                total_simulation_length = min_total_sim_len
-                num_transitions = 0
-                alpha = None
-                anchor_info = [steps_to_go_to_min, num_transitions, 
-                            alpha, restart, total_simulation_length,
-                            swarm_frame]
-                anchor_info_to_run_unsorted.append(anchor_info)
-
+        anchor_or_systemwide_index_list.append(None)
     elif stage_md.input_from == "anchors":
         for alpha, anchor in enumerate(model.anchors):
             if not anchor.md:
@@ -179,58 +135,58 @@ def choose_next_simulation_md(
                     return []
                 if alpha != anchor_index_int:
                     continue
-            
-            num_swarm_frames = anchor.get_starting_structure_num_frames(
-                model.directory, stage_md.input_stage_index)
-            calculation_dir = get_calculation_directory_md(
-                anchor, stage_md.index-1, model.directory)
-            log_filename = os.path.join(calculation_dir, "run.log")
-            base.configure_file_and_stdout_logger(
-                log_filename, overwrite=force_overwrite)
-            for swarm_frame in range(num_swarm_frames):
-                if num_swarm_frames <= 1:
-                    swarm_frame = None
-                current_step = get_current_md_step(anchor,
-                    stage_md.index, swarm_frame, model.directory)
-                restart_checkpoint_filename = get_restart_checkpoint_filename(
-                        anchor, stage_md.index, swarm_frame, model.directory)
-                if (not os.path.exists(restart_checkpoint_filename)) \
-                        or force_overwrite: # or umbrella_restart_mode:
-                        # TODO: extract from sampling method whether restarts will be done
-                    restart = False
-                    current_step = 0
-                else:
-                    restart = True
-                    assert current_step > 0, "Restart checkpoint file "\
-                        "exists, but current step is 0, possibly because "\
-                        "the checkpoint information file is missing."
-                if current_step > max_total_sim_len:
-                    # this simulation has run long enough
-                    continue
-                steps_to_go_to_min = min_total_sim_len - current_step
-                steps_to_go_to_min = min_total_sim_len - current_step
-                if steps_to_go_to_min > STEP_TOLERANCE:
-                    logging.info(
-                          "Systemwide has not run the minimum number of steps "\
-                        +f"{current_step} of {min_total_sim_len} " 
-                        +f"in swarm index {swarm_frame}")
-                    total_simulation_length = min_total_sim_len
-                    num_transitions = 0
-                    anchor_info = [steps_to_go_to_min, num_transitions, 
-                                alpha, restart, total_simulation_length,
-                                swarm_frame]
-                    anchor_info_to_run_unsorted.append(anchor_info)
-    else:
-        raise Exception("MD stage input_from not recognized: "\
-                        f"{stage_md.input_from}.")
+            anchor_or_systemwide_index_list.append(alpha)
 
-    # sort anchors first by how many steps still to run, then by how many
-    # transitions have been completed.    
-    anchor_info_to_run = sorted(
-        anchor_info_to_run_unsorted, 
-        key=lambda item: (min_total_sim_len-item[0], item[1]))
-    
-    return anchor_info_to_run
+    run_instructions_unsorted: list[typing.NamedTuple] = []
+    for anchor_or_systemwide_index in anchor_or_systemwide_index_list:
+        if anchor_or_systemwide_index is None:
+            anchor_or_systemwide = model.md_engine.systemwide_settings
+            partition_name = "systemwide"
+        else:
+            anchor_or_systemwide = model.anchors[anchor_or_systemwide_index]
+            partition_name = f"anchor {anchor_or_systemwide_index}"
+        num_swarm_frames = anchor_or_systemwide.get_starting_structure_num_frames(
+            model.directory, stage_md.input_stage_index)
+        calculation_dir = get_calculation_directory_md(
+            anchor_or_systemwide, stage_md.index-1, model.directory)
+        log_filename = os.path.join(calculation_dir, "run.log")
+        base.configure_file_and_stdout_logger(
+            log_filename, overwrite=force_overwrite)
+        for swarm_frame in range(num_swarm_frames):
+            swarm_string = f" swarm {swarm_frame}"
+            if num_swarm_frames <= 1:
+                swarm_frame = None
+                swarm_string = ""
+            current_step = get_current_md_step(anchor_or_systemwide,
+                stage_md.index, swarm_frame, model.directory)
+            restart_checkpoint_filename \
+                = get_restart_checkpoint_filename(
+                    anchor_or_systemwide, stage_md.index, swarm_frame, model.directory)
+            if (not os.path.exists(restart_checkpoint_filename)) \
+                    or force_overwrite: # or umbrella_restart_mode:
+                    # TODO: extract from sampling method whether restarts will be done
+                restart = False
+                current_step = 0
+            else:
+                restart = True
+            
+            if not force_overwrite:
+                run_finished, message = completion_criteria_runner.is_finished_md(
+                    model, stage_md, current_step, return_message=True)
+            else:
+                run_finished = False
+                message = "Force overwrite."
+            logging.info(f"{partition_name}{swarm_string}: {message}")
+            if not run_finished:
+                run_instruction = Run_instruction_md(
+                    current_step, anchor_or_systemwide_index, restart, swarm_frame)
+                run_instructions_unsorted.append(run_instruction)
+
+    # sort the run instructions by current step to run the laggers first
+    run_instructions = sorted(
+        run_instructions_unsorted,
+        key=lambda item: item.current_step)
+    return run_instructions
     
 def choose_next_simulation_bd(
         stage_bd: structures.Stage_bd, 
@@ -256,7 +212,7 @@ def choose_next_simulation_bd(
         bulk_anchor = model.anchors[bulk_index]
         engines_runner.cleanse_outputs_bd(bulk_anchor, model)
 
-    info_to_run_unsorted: list = []
+    run_instructions_unsorted: list = []
     bd_transition_counts = model.bd_engine.get_bd_transition_counts(model.directory)
     if "b_surface" not in bd_transition_counts:
         info_to_run_unsorted.append(

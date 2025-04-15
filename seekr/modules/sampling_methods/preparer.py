@@ -46,6 +46,8 @@ class Metadynamics_md_input:
     steps_per_update: int = field(default=250,
                                     validator=[validators.instance_of(int),
                                                validators.gt(0)])
+    cv_names: typing.List[str] = field(default=field(factory=list),
+                                        validator=validators.instance_of(list))
     
     def make_model_sampling_method(self):
         """
@@ -57,6 +59,7 @@ class Metadynamics_md_input:
         metaD.gaussian_height = self.gaussian_height
         metaD.gaussian_width = self.gaussian_width
         metaD.steps_per_update = self.steps_per_update
+        metaD.cv_names = self.cv_names
         return metaD
 
 @define

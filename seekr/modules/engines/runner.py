@@ -5,9 +5,12 @@ Functions usable by any type of engine for running.
 """
 
 import os
-import time
+import json
+
+import cattrs
 
 import seekr.modules.structures as structures
+import seekr.modules.engines.structures as engines_structures
 import seekr.modules.engines.openmm.runner as runner_openmm
 import seekr.modules.engines.browndye.runner as runner_browndye
 
@@ -15,6 +18,21 @@ INFORMATION_CHECKPOINT_FILENAME_NOEXT = "checkpoint_information"
 INFORMATION_CHECKPOINT_FILENAME_EXT = ".json"
 RESTART_CHECKPOINT_FILENAME_NOEXT = "backup"
 RESTART_CHECKPOINT_FILENAME_EXT = ".checkpoint"
+
+def load_checkpoint_information(
+        filename: str
+        ) -> engines_structures.Checkpoint_information:
+    """
+    Load a model object from a file.
+    """
+    with open(filename, "r") as file:
+        json_string: str = json.load(file)
+    
+    # Use a cattrs Converter to define how to structure the dictionary input
+    converter: cattrs.Converter = cattrs.Converter()
+    checkpoint_information: engines_structures.Checkpoint_information \
+        = converter.structure(json_string, engines_structures.Checkpoint_information)
+    return checkpoint_information
 
 def run_md_simulation(
         model: structures.Seekr_model, 

@@ -55,6 +55,9 @@ class Browndye_molecule:
         pqr2xml_binary = os.path.join(browndye_bin, "pqr2xml")
         pqr2xml_command = pqr2xml_binary + " < " + input_pqr_filename + " > " \
             + output_xml_filename
+        # NOTE: to filter out CRYST and other problematic lines
+        #pqr2xml_command = "grep -e ATOM -e HETATM " + input_pqr_filename + " | " \
+        #    + pqr2xml_binary + " > " + output_xml_filename
         logging.info("running command: " + pqr2xml_command)
         os.system(pqr2xml_command)
         assert os.path.exists(output_xml_filename), "Problem generating XML from "\

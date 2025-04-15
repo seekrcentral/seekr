@@ -42,6 +42,9 @@ class Checkpoint_information:
     current_step: int = field(default=0, 
                               validator=[validators.instance_of(int),
                                                validators.ge(0)])
+    restart_index: int = field(default=1,
+                                validator=[validators.instance_of(int),
+                                           validators.ge(1)])
     
     def save(
             self, 
@@ -61,12 +64,13 @@ class Checkpoint_information:
         return
 
 def write_checkpoint_information_file(
-        step, 
-        filename) -> None:
+        step: int, 
+        restart_index: int,
+        filename: str) -> None:
     """
     Write the checkpoint information to a file.
     """
-    checkpoint_information = Checkpoint_information(step)
+    checkpoint_information = Checkpoint_information(step, restart_index)
     checkpoint_information.save(filename)
     return
 

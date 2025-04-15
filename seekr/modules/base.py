@@ -22,6 +22,7 @@ XML_ROOT = "seekr_model"
 INITIAL_DIRECTORY = "stage_0_initial"
 MAX_SEEKR_SIMULATION_STEPS = 100000000000 # ~100 us
 SYSTEMWIDE_DIRECTORY = "systemwide"
+STEP_TOLERANCE = 5
 
 Positions_type = typing.Union[typing.List, str, None]
 Float_or_list_type = typing.Union[typing.List, float, None]
@@ -178,6 +179,7 @@ class NoIndentListEncoder(json.JSONEncoder):
     A custom JSON encoder that encodes NoIndent-wrapped objects as a single
     line, while still pretty-printing everything else with indent=4.
     """
+    MAX_LINE_WIDTH = 50
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # Store a map from "placeholder" -> JSON fragment
@@ -190,8 +192,29 @@ class NoIndentListEncoder(json.JSONEncoder):
         if isinstance(obj, NoIndent):
             # Encode the *contents* of obj normally
             encoded = super().encode(obj.value)
-            encoded = encoded.replace("\n", "")
-            encoded = encoded.replace(" ", "")
+            new_str_list = []
+            linewidth = 0
+            inserted_newline_at_beginning = False
+            for char in encoded:
+                if char in ["\n", " "]:
+                    continue
+                if char == ",":
+                    if linewidth > self.MAX_LINE_WIDTH:
+                        new_str_list.append(",\n")
+                        linewidth = 0
+                        if not inserted_newline_at_beginning:
+                            new_str_list.insert(0, "\n")
+                            inserted_newline_at_beginning = True
+                    else:
+                        new_str_list.append(",")
+                        linewidth += 1
+                else:
+                    new_str_list.append(char)
+                    linewidth += 1
+            
+            encoded = "".join(new_str_list)
+            #encoded = encoded.replace("\n", "")
+            #encoded = encoded.replace(" ", "")
             # Create a unique placeholder string
             placeholder = f"__NoIndent_{id(obj)}__"
             # Store the final JSON string for that placeholder
@@ -247,6 +270,20 @@ def configure_file_and_stdout_logger(
     formatter = logging.Formatter("%(message)s")
     console.setFormatter(formatter)
     logging.getLogger().addHandler(console)
+    return
+
+def configure_stdout_only_logger() -> None:
+    """
+    Set the file and stdout logger for the seekr program.
+    """
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+    while logger.hasHandlers():
+        logger.removeHandler(logger.handlers[0])
+    console = logging.StreamHandler(stream=sys.stdout)
+    formatter = logging.Formatter("%(message)s")
+    console.setFormatter(formatter)
+    logger.addHandler(console)
     return
 
 def order_files_numerically(

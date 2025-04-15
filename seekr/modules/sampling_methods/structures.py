@@ -40,17 +40,29 @@ class Conventional_md_sampling_method:
     def get_output_extension(self) -> str:
         return "out"
     
-    def get_output_glob(self) -> str:
+    def get_output_glob(self, swarm_index) -> str:
         basename = self.get_output_basename()
         extension = self.get_output_extension()
-        return f"{basename}*.{extension}"
+        if swarm_index is None:
+            swarm_string = ""
+        else:
+            swarm_string = ".swarm_{}".format(swarm_index)
+        return f"{basename}{swarm_string}*.{extension}"
+    
+    def get_final_pdb_output_glob(self) -> str:
+        basename = self.get_output_basename()
+        return f"{basename}*.pdb"
+    
+    def get_final_pdb_output_basename(self) -> str:
+        basename = self.get_output_basename()
+        return f"{basename}.pdb"
     
     # TODO: update
     def get_output_globs(self) -> typing.List[str]:
         """
         Used for detecting any output files for an stage directory.
         """
-        return ["conventional.*"]
+        return ["conventional.pdb"]
     
     def get_output_md_parameters_topology(self) -> None:
         return None
@@ -61,7 +73,7 @@ class Metadynamics_md_sampling_method:
     A Metadynamics MD sampling method.
     """
     type: typing.Literal["metadynamics"] = "metadynamics"
-    cv_name_list: typing.List[str] = field(default=Factory(list),
+    cv_names: typing.List[str] = field(default=Factory(list),
                                             validator=validators.instance_of(list))
     number_of_points: base.Int_or_list_type = field(default=101)
     bias_factor: float = field(default=10.0,
@@ -74,6 +86,8 @@ class Metadynamics_md_sampling_method:
     steps_per_update: int = field(default=250,
                                     validator=[validators.instance_of(int),
                                                validators.gt(0)])
+    write_biases: bool = field(default=False,
+                                validator=validators.instance_of(bool))
     
     def input_from_systemwide_settings_output_to_anchors(self) -> bool:
         return True
@@ -91,19 +105,31 @@ class Metadynamics_md_sampling_method:
         return "metadynamics"
     
     def get_output_extension(self) -> str:
-        return "out"
+        return "pdb"
     
-    def get_output_glob(self) -> str:
+    def get_output_glob(self, swarm_index) -> str:
         basename = self.get_output_basename()
         extension = self.get_output_extension()
-        return f"{basename}*.{extension}"
+        if swarm_index is None:
+            swarm_string = ""
+        else:
+            swarm_string = ".swarm_{}".format(swarm_index)
+        return f"{basename}{swarm_string}*.{extension}"
     
+    def get_final_pdb_output_glob(self) -> str:
+        basename = self.get_output_basename()
+        return f"{basename}*.pdb"
+    
+    def get_final_pdb_output_basename(self) -> str:
+        basename = self.get_output_basename()
+        return f"{basename}.pdb"
+
     # TODO: update
     def get_output_globs(self) -> typing.List[str]:
         """
         Used for detecting any output files for an stage directory.
         """
-        return ["metadynamics.*"]
+        return ["metadynamics*.pdb"]
     
     def get_output_md_parameters_topology(self) -> None:
         return None
@@ -136,11 +162,23 @@ class Milestoning_md_sampling_method:
     def get_output_extension(self) -> str:
         return "out"
     
-    def get_output_glob(self) -> str:
+    def get_output_glob(self, swarm_index) -> str:
         basename = self.get_output_basename()
         extension = self.get_output_extension()
-        return f"{basename}*.{extension}"
+        if swarm_index is None:
+            swarm_string = ""
+        else:
+            swarm_string = ".swarm_{}".format(swarm_index)
+        return f"{basename}{swarm_string}*.{extension}"
     
+    def get_final_pdb_output_glob(self) -> str:
+        basename = self.get_output_basename()
+        return f"{basename}*.pdb"
+    
+    def get_final_pdb_output_basename(self) -> str:
+        basename = self.get_output_basename()
+        return f"{basename}.pdb"
+
     # TODO: update
     def get_output_globs(self) -> typing.List[str]:
         """
