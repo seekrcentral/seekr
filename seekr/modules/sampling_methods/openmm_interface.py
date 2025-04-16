@@ -27,6 +27,7 @@ import seekr.modules.collective_variables.openmm_interface \
 
 BIAS_DIR_NAME = "metad_bias"
 METADYN_NAME = "metadynamics_{}_{}.pdb"
+BUFFER_FRAMES = 1 # How many positions variables to store for bounce positions.
 
 # TODO: put into a lower-level module?
 def write_pdb_file_from_simulation(
@@ -432,28 +433,30 @@ class Milestoning_md_openmm_interface:
         """
         integrator: openmm.System = kwargs["integrator"]
         anchor: structures.Anchor = kwargs["anchor"]
-        # Temporary: this represents the possible number of bounces
-        # we can keep track of within the evaluation interval. 
-        # Try setting it to the number of steps in the interval?
-        BUFFER_SIZE = 10
-        # TODO:
-        #  1. Force groups representing milestones
-        #  2. Whether bounces have occurred in this interval, and which ones.
-        #     Have enough ready to store for all steps within an interval.
-        #  3. Intervals between bounce checks.
+        # TODO: create variables to handle bootstrapping with replacement.
+        num_included_milestones = 0
         for i, milestone in enumerate(anchor.milestones):
+            alias_index_i = milestone.alias_index
             if milestone.boundary:
-                integrator.addGlobalVariable(f"milestone_{i}_alias_index", milestone.alias_index)
+                integrator.addGlobalVariable(f"milestone_{num_included_milestones}_alias_index", alias_index_i)
+                integrator.addGlobalVariable(f"value_{num_included_milestones}", 0)
+                num_included_milestones += 1
                 for key, value in milestone.variables.items():
-                    integrator.addGlobalVariable(f"milestone_{i}_{key}", value)
-        # Milestone encounter information
-        # NOTE: do we actually want to do it this way? Or do we want to 
-        # increment bounces and total times for individual milestones?
-        integrator.addGlobalVariable(f"num_encounters_in_interval", 0)
-        for i in range(BUFFER_SIZE):
-            integrator.addGlobalVariable(f"bounce_{i}_alias_index", 0)
-            integrator.addGlobalVariable(f"bounce_{i}_time", 0)
-            
+                    integrator.addGlobalVariable(f"milestone_{alias_index_i}_{key}", value)
+                for j, milestone2 in enumerate(anchor.milestones):
+                    alias_index_j = milestone2.alias_index
+                    if milestone2.boundary:
+                        integrator.addGlobalVariable(f"milestone_{alias_index_i}_{alias_index_j}_count", 0)
+                integrator.addGlobalVariable(f"milestone_{alias_index_i}_time", 0)
+        
+        integrator.addGlobalVariable("num_milestones", num_included_milestones)
+        integrator.addGlobalVariable("step_count", 0)
+        integrator.addGlobalVariable("buffer_frames", BUFFER_FRAMES)
+        integrator.addGlobalVariable("last_milestone_alias_touched", 0)
+        integrator.addGlobalVariable("last_milestone_time_touched", 0)
+        integrator.addGlobalVariable("first_crossing_time", 0)
+        integrator.addGlobalVariable("first_step_bounce", 0)
+
         return None
     
     def add_per_DOF_variables_integrator(
@@ -465,8 +468,12 @@ class Milestoning_md_openmm_interface:
 
         Some per-DOF variables for MetaD.
         """
+        
+        integrator: openmm.System = kwargs["integrator"]
         # TODO:
         #  1. Storage of position information (optionally)
+        for i in range(BUFFER_FRAMES):
+            integrator.addPerDofVariable(f"bounce_pos_{i}", 0)
         return None
     
     def pre_integration_instructions(
@@ -478,8 +485,15 @@ class Milestoning_md_openmm_interface:
 
         Some steps to do for milestoning.
         """
-        # TODO:
-        # 1. Check to make sure no bounce on first step.
+        integrator: openmm.System = kwargs["integrator"]
+        integrator.addComputeGlobal("value", "dt/friction_coeff")
+        # Check to make sure no bounce on first step.
+        integrator.beginIfBlock("step_count = 0")
+        integrator.beginIfBlock("value > 0")
+        integrator.addComputeGlobal("first_step_bounce", 1)
+        integrator.endBlock()
+        integrator.endBlock()
+        
         return None
     
     def post_integration_instructions(
