@@ -390,7 +390,10 @@ class Stage_md:
             # TODO: let the sampling method return different sorts of outputs
             #  beyond just positions. Like
             #  self.sampling_method.update_stage_parameter(stage_parameter)
-            stage_parameter["positions"] = self.sampling_method.get_output_positions_pdb_glob()
+            if model.is_toy_system():
+                stage_parameter["positions"] = "positions.txt"
+            else:
+                stage_parameter["positions"] = self.sampling_method.get_output_positions_pdb_glob()
             #stage_parameter["md_parameters_topology"] \
             #    = self.sampling_method.get_output_md_parameters_topology()
             anchor.stage_parameters.append(stage_parameter)
@@ -418,7 +421,10 @@ class Stage_md:
         # TODO: let the sampling method return different sorts of outputs
         #  beyond just positions. Like
         #  self.sampling_method.update_stage_parameter(stage_parameter)
-        stage_parameter["positions"] = self.sampling_method.get_output_positions_pdb_glob()
+        if model.is_toy_system():
+            stage_parameter["positions"] = "positions.txt"
+        else:
+            stage_parameter["positions"] = self.sampling_method.get_output_positions_pdb_glob()
         #stage_parameter["md_parameters_topology"] \
         #    = self.sampling_method.get_output_md_parameters_topology()
         model.md_engine.systemwide_settings.stage_parameters.append(stage_parameter)
@@ -436,6 +442,8 @@ class Stage_md:
         my_directory = self.get_directory_name()
         for anchor in model.anchors:
             for stage_parameter in anchor.stage_parameters:
+                if stage_parameter is None:
+                    continue
                 stage_directory = stage_parameter["directory"]
                 if stage_directory == my_directory:
                     for stage_output_glob in stage_output_globs:
@@ -445,6 +453,8 @@ class Stage_md:
                         if len(glob.glob(output_files_glob)) > 0:
                             return True
         for stage_parameter in model.md_engine.systemwide_settings.stage_parameters:
+            if stage_parameter is None:
+                continue
             stage_directory = stage_parameter["directory"]
             if stage_directory == my_directory:
                 for stage_output_glob in stage_output_globs:

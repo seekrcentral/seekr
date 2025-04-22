@@ -207,13 +207,17 @@ class Distance_cv_input:
     """
     name: str = field(default="",
                         validator=validators.instance_of(str))
-    #_index: int = field(default=0,
-    #                      validator=validators.instance_of(int))
     group1_name: str = field(default="",
                              validator=validators.instance_of(str))
     group2_name: str = field(default="",
                              validator=validators.instance_of(str))
     type: typing.Literal["distance"] = "distance"
+    _index: int = field(default=0,
+                          validator=validators.instance_of(int))
+    min_value: float = field(default=0.0,
+                             validator=validators.instance_of(float))
+    max_value: float = field(default=3.0,
+                                validator=validators.instance_of(float))
     
     def make_cv_object(
             self, 
@@ -222,12 +226,14 @@ class Distance_cv_input:
         Create a Distance_CV object from the Input to be placed into
         the Model.
         """
-        #self._index = index
+        self._index = index
         cv = Distance_CV(index, self.group1_name, self.group2_name)
         if self.name == "":
             cv.name = f"distance_{self.group1_name}_{self.group2_name}"
         else:
             cv.name = self.name
+        cv.min_value = self.min_value
+        cv.max_value = self.max_value
         return cv
     
     # TODO: move this sort of check to another object? An external function?

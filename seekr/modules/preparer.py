@@ -39,6 +39,7 @@ import seekr.modules.sampling_methods.preparer as sampling_methods_preparer
 import seekr.modules.collective_variables.preparer as cv_preparer
 
 KEEP_ANCHOR_RE = "hidr*|string*"
+TOY_POSITIONS_BASENAME = "positions.txt"
 
 MD_settings_input = typing.Union[openmm_preparer.Openmm_settings_input]
 # TODO: add SDA
@@ -415,7 +416,11 @@ class Anchor_input:
             anchor_initial_directory: str = os.path.join(
                 root_directory, anchor.directory, anchor.stage_parameters[0]["directory"])
             if toy_mode:
-                anchor.stage_parameters[0]["positions"] = self.positions
+                #anchor.stage_parameters[0]["positions"] = self.positions
+                anchor.stage_parameters[0]["positions"] = TOY_POSITIONS_BASENAME
+                full_positions_path = os.path.join(anchor_initial_directory,
+                                                   TOY_POSITIONS_BASENAME)
+                np.savetxt(full_positions_path, self.positions)
             else:
                 if self.md_parameters_topology is not None:
                     self.md_parameters_topology.copy_files(anchor_initial_directory)

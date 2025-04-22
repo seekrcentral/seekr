@@ -342,7 +342,7 @@ def convert_openmm_to_python_expr(
     new_function_str = re.sub(r"\^", "**", old_function_str)
     return new_function_str
 
-# Recursively wrap "lists of integers" in NoIndent
+# Recursively wrap "lists of integers" (or floats) in NoIndent
 def wrap_noindent_integers(obj):
     """
     Recursively go through a data structure (dict/list/whatever),
@@ -353,6 +353,8 @@ def wrap_noindent_integers(obj):
     """
     if isinstance(obj, list):
         if len(obj) > 0 and all(isinstance(x, int) for x in obj):
+            return NoIndent(obj)
+        if len(obj) > 0 and all(isinstance(x, float) for x in obj):
             return NoIndent(obj)
         else:
             # Recursively check each element

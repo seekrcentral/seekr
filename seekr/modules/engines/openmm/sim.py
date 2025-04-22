@@ -161,7 +161,9 @@ def make_topology_system_from_xml(
         system = openmm.XmlSerializer.deserialize(input.read())
     return system
 
-def make_toy_system_object(model):
+def make_toy_system_object(
+        model: structures.Seekr_model
+        ) -> typing.Tuple[openmm.System, openmm_app.Topology]:
     """
     Make openmm system and topology files for use with a toy system.
     """

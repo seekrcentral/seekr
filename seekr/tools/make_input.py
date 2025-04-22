@@ -9,9 +9,11 @@ import sys
 import json
 
 from cattrs import unstructure
+import numpy as np
 
 import seekr.modules.base as base
 import seekr.modules.collective_variables.distance_cv as distance_cv
+import seekr.modules.collective_variables.external_cv as external_cv
 import seekr.modules.engines.structures as engines_structures
 import seekr.modules.engines.browndye.structures as browndye_structures
 import seekr.modules.completion_criteria.structures as compl_crit_struct
@@ -20,12 +22,89 @@ import seekr.modules.engines.preparer as engines_preparer
 import seekr.modules.engines.openmm.preparer as openmm_preparer
 import seekr.modules.engines.browndye.preparer as browndye_preparer
 import seekr.modules.sampling_methods.preparer as sampling_preparer
-
 import seekr.modules.preparer as preparer
 
 TOOLS_DIRECTORY = os.path.dirname(__file__)
 DATA_DIRECTORY = os.path.abspath(os.path.join(TOOLS_DIRECTORY, "..", "data"))
 HOSTGUEST_DIRECTORY = os.path.join(DATA_DIRECTORY, "hostguest_files")
+
+def create_toy_model_input(
+        root_dir: str
+    ) -> preparer.Seekr_input:
+    """
+    Create a toy model input.
+    
+    This is the Entropy barrier system.
+    """
+    values_list = [-0.7, -0.5, -0.3, -0.1, 0.1, 0.3, 0.5, 0.7]
+    positions_list = [
+        [[[0.0, -0.7, 0.0]]], # [[0.3, -0.7, 0.0]]],
+        [[[0.0, -0.5, 0.0]]],
+        [[[0.0, -0.3, 0.0]]],
+        [[[0.0, -0.1, 0.0]]],
+        [[[0.0, 0.1, 0.0]]],
+        [[[0.0, 0.3, 0.0]]],
+        [[[0.0, 0.5, 0.0]]],
+        [[[0.0, 0.7, 0.0]]]]
+
+    seekr_input = preparer.Seekr_input()
+    seekr_input.directory = root_dir
+    seekr_input.temperature = 298.15
+    seekr_input.random_seed = 111
+    seekr_input.md_settings = openmm_preparer.Openmm_settings_input()
+    seekr_input.md_settings.platform_type = "reference"
+    seekr_input.md_settings.systemwide_settings \
+        = engines_preparer.MD_systemwide_settings_input()
+    selection = engines_structures.Selection()
+    selection.name = "particle0"
+    selection.atom_indices = [0]
+    seekr_input.md_settings.systemwide_settings.selections\
+        = [selection]
+
+    stage1 = preparer.Input_stage_md()
+    stage1.name = "MMVT"
+    stage1.run_minimization = False
+    stage1.output_interval = 50
+    stage1.ensemble = structures.NVT_ensemble()
+    stage1.sampling_method = sampling_preparer.Milestoning_md_input()
+    stage1.sampling_method.milestoning_method = "MMVT"
+    stage1.completion_criteria = compl_crit_struct.Number_of_steps_completion_criteria()
+    stage1.completion_criteria.number_of_steps = 5000
+
+    seekr_input.stages = [stage1,]
+    seekr_input.partitions = [preparer.Partition_input()]
+    external_cv_input = external_cv.External_cv_input()
+    external_cv_input.name = "progress_coordinate"
+    external_cv_input.expression = "y1"
+    external_cv_input.group_names = ["particle0"]
+    external_cv_input.min_value = -1.0
+    external_cv_input.max_value = 1.0
+    seekr_input.partitions[0].cvs = [external_cv_input]
+    
+    state_point1 = preparer.State_point()
+    state_point1.name = "stateA"
+    state_point1.value = [-0.7]
+    state_point1.end_state = True
+    state_point2 = preparer.State_point()
+    state_point2.name = "stateB"
+    state_point2.value = [0.7]
+    state_point2.end_state = True
+    seekr_input.partitions[0].state_points = [state_point1, state_point2]
+    
+    seekr_input.partitions[0].anchors = []
+    for i, (value, position) in enumerate(zip(values_list, positions_list)):
+        input_anchor = preparer.Anchor_input()
+        input_anchor.value = [value]
+        input_anchor.positions = [position]
+        seekr_input.partitions[0].anchors.append(input_anchor)
+
+    seekr_input.toy_settings = preparer.Toy_settings_input()
+    seekr_input.toy_settings.potential_energy_expression \
+        = "5*(x1^6+y1^6+exp(-(10*y1)^2)*(1-exp(-(10*x1)^2)))"
+    seekr_input.toy_settings.num_particles = 1
+    seekr_input.toy_settings.masses = [10.0]
+    
+    return seekr_input
 
 def create_host_guest_example_input(
         root_dir: str, 
@@ -199,10 +278,22 @@ def create_host_guest_example_input(
     return seekr_input
     
 if __name__ == "__main__":
-    assert len(sys.argv) == 2, "Please provide a filename for the output JSON."
+    assert len(sys.argv) >= 2, "Please provide a filename for the output JSON."
+    toy_mode = False
     json_filename = sys.argv[1]
-    root_dir = "~/tmp/seekr3_test"
-    seekr_input = create_host_guest_example_input(root_dir, bd=True)
+    if len(sys.argv) == 3:
+        if sys.argv[2] == "toy":
+            toy_mode = True
+        else:
+            raise Exception(f"Option not recognized: {sys.argv[2]}.")
+        
+    if toy_mode:
+        root_dir = "~/tmp/seekr3_test_toy"
+        seekr_input = create_toy_model_input(root_dir)
+    else:
+        root_dir = "~/tmp/seekr3_test"
+        seekr_input = create_host_guest_example_input(root_dir, bd=True, toy_mode=toy_mode)
+    
     seekr_input_dict = unstructure(seekr_input)
     seekr_input_dict = base.wrap_noindent_integers(seekr_input_dict)
     json_dump = json.dumps(seekr_input_dict, indent=4, cls=base.NoIndentListEncoder)

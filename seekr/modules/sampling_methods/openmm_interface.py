@@ -432,15 +432,16 @@ class Milestoning_md_openmm_interface:
         Some global variables for milestoning method.
         """
         integrator: openmm.System = kwargs["integrator"]
+        # TODO: make anchor and/or integrator an attribute of this class?
         anchor: structures.Anchor = kwargs["anchor"]
         # TODO: create variables to handle bootstrapping with replacement.
-        num_included_milestones = 0
+        #num_included_milestones = 0
         for i, milestone in enumerate(anchor.milestones):
             alias_index_i = milestone.alias_index
             if milestone.boundary:
-                integrator.addGlobalVariable(f"milestone_{num_included_milestones}_alias_index", alias_index_i)
-                integrator.addGlobalVariable(f"value_{num_included_milestones}", 0)
-                num_included_milestones += 1
+                #integrator.addGlobalVariable(f"milestone_{num_included_milestones}_alias_index", alias_index_i)
+                integrator.addGlobalVariable(f"value_{alias_index_i}", 0)
+                #num_included_milestones += 1
                 for key, value in milestone.variables.items():
                     integrator.addGlobalVariable(f"milestone_{alias_index_i}_{key}", value)
                 for j, milestone2 in enumerate(anchor.milestones):
@@ -449,12 +450,12 @@ class Milestoning_md_openmm_interface:
                         integrator.addGlobalVariable(f"milestone_{alias_index_i}_{alias_index_j}_count", 0)
                 integrator.addGlobalVariable(f"milestone_{alias_index_i}_time", 0)
         
-        integrator.addGlobalVariable("num_milestones", num_included_milestones)
+        #integrator.addGlobalVariable("num_milestones", num_included_milestones)
         integrator.addGlobalVariable("step_count", 0)
         integrator.addGlobalVariable("buffer_frames", BUFFER_FRAMES)
-        integrator.addGlobalVariable("last_milestone_alias_touched", 0)
-        integrator.addGlobalVariable("last_milestone_time_touched", 0)
-        integrator.addGlobalVariable("first_crossing_time", 0)
+        integrator.addGlobalVariable("last_milestone_alias_touched", -1)
+        integrator.addGlobalVariable("last_milestone_time_touched", -1)
+        integrator.addGlobalVariable("first_crossing_time", -1)
         integrator.addGlobalVariable("first_step_bounce", 0)
 
         return None
@@ -485,14 +486,6 @@ class Milestoning_md_openmm_interface:
 
         Some steps to do for milestoning.
         """
-        integrator: openmm.System = kwargs["integrator"]
-        integrator.addComputeGlobal("value", "dt/friction_coeff")
-        # Check to make sure no bounce on first step.
-        integrator.beginIfBlock("step_count = 0")
-        integrator.beginIfBlock("value > 0")
-        integrator.addComputeGlobal("first_step_bounce", 1)
-        integrator.endBlock()
-        integrator.endBlock()
         
         return None
     
@@ -509,6 +502,45 @@ class Milestoning_md_openmm_interface:
         # 1. Obtain values of relevant force groups
         # 2. Detect bounces based on this
         # 3. If a bounce occurred, reverse velocities
+        integrator: openmm.System = kwargs["integrator"]
+        anchor: structures.Anchor = kwargs["anchor"]
+        for i, milestone in enumerate(anchor.milestones):
+            alias_index_i = milestone.alias_index
+            integrator.addComputeGlobal(f"value_{alias_index_i}", 
+                                        f"energy{alias_index_i}")
+        
+        # Check to make sure no bounce on first step.
+        integrator.beginIfBlock("step_count = 0")
+        for i, milestone in enumerate(anchor.milestones):
+            alias_index_i = i+1
+            integrator.beginIfBlock(f"value_{alias_index_i} > 0")
+            integrator.addComputeGlobal("first_step_bounce", "1")
+            integrator.endBlock()
+        integrator.endBlock()
+
+        for i, milestone in enumerate(anchor.milestones):
+            alias_index_i = i+1
+            integrator.beginIfBlock(f"value_{alias_index_i} > 0")
+            
+            integrator.beginIfBlock(f"last_milestone_alias_touched > -1")
+            for j, milestone2 in enumerate(anchor.milestones):
+                alias_index_j = j+1
+                integrator.beginIfBlock(f"last_milestone_alias_touched = {alias_index_j}")
+                integrator.addComputeGlobal(f"milestone_{alias_index_i}_{alias_index_j}_count", f"milestone_{alias_index_i}_{alias_index_j}_count + 1")
+                integrator.endBlock()
+            integrator.addComputeGlobal(f"milestone_{alias_index_i}_steps", f"milestone_{alias_index_i}_steps + step_count - last_milestone_step_touched")
+            integrator.addComputeGlobal("last_milestone_step_touched", "step_count")
+            integrator.endBlock() # End If last_milestone_alias_touched > -1
+            
+            integrator.beginIfBlock("last_milestone_alias_touched = -1")
+            integrator.addComputeGlobal("last_milestone_alias_touched", f"{alias_index_i}")
+            integrator.addComputeGlobal("last_milestone_step_touched", "step_count")
+            integrator.endBlock() # End If last_milestone_alias_touched = -1
+            
+            integrator.endBlock() # End If value_{alias_index_i} > 0
+
+        integrator.addComputeGlobal("step_count", "step_count + 1")
+
         return None
     
 Sampling_md_openmm_interface = typing.Union[Conventional_md_openmm_interface,

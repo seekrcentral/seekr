@@ -4,7 +4,7 @@ Inputs for different available sampling methods
 
 import typing
 
-from attrs import define, field, validators
+from attrs import define, field, validators, Factory
 
 import seekr.modules.sampling_methods.structures as sampling_method_structures
 
@@ -46,7 +46,7 @@ class Metadynamics_md_input:
     steps_per_update: int = field(default=250,
                                     validator=[validators.instance_of(int),
                                                validators.gt(0)])
-    cv_names: typing.List[str] = field(default=field(factory=list),
+    cv_names: typing.List[str] = field(default=Factory(list),
                                         validator=validators.instance_of(list))
     
     def make_model_sampling_method(self):

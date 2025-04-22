@@ -87,14 +87,15 @@ class Openmm_settings_input:
             = self.systemwide_settings.make_systemwide_settings_for_model()
         return openmm_engine
     
-    def assign_toy_settings(
-            self, 
-            seekr_model_toy_settings : engines_structures.Toy_settings) -> None:
-        """
-        Assign the toy settings to the model engine.
-        """
-        seekr_model_toy_settings.toy_settings = engines_structures.Toy_settings()
-        seekr_model_toy_settings.toy_settings.potential_energy_expression = self.potential_energy_expression
-        seekr_model_toy_settings.toy_settings.num_particles = self.num_particles
-        seekr_model_toy_settings.toy_settings.masses = self.masses
-        return
+    # TODO: marked for removal - redudant
+    #def assign_toy_settings(
+    #        self, 
+    #        seekr_model_toy_settings : engines_structures.Toy_settings) -> None:
+    #    """
+    #    Assign the toy settings to the model engine.
+    #    """
+    #    seekr_model_toy_settings.toy_settings = engines_structures.Toy_settings()
+    #    seekr_model_toy_settings.toy_settings.potential_energy_expression = self.potential_energy_expression
+    #    seekr_model_toy_settings.toy_settings.num_particles = self.num_particles
+    #    seekr_model_toy_settings.toy_settings.masses = self.masses
+    #    return
