@@ -11,6 +11,7 @@ import os
 import sys
 import re
 import json
+import glob
 import typing
 import logging
 
@@ -417,3 +418,14 @@ def get_pdb_num_frames(full_pdb_filename: str) -> int:
     mdtraj_obj = mdtraj.load(full_pdb_filename)
     num_frames = mdtraj_obj.n_frames
     return num_frames
+
+def glob_or(
+        patterns: typing.List[str],
+        directory: str = ".") -> str:
+    """
+    Find files matching any of the patterns in the list.
+    """
+    result = []
+    for pattern in patterns:
+        result.extend(glob.glob(os.path.join(directory, pattern)))
+    return result

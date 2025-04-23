@@ -21,7 +21,7 @@ def filled_and_unfilled_anchors(
     filled_anchors = []
     unfilled_anchors = []
     stage_index = stage.index
-    stage_output_globs: list[str] = stage.sampling_method.get_output_globs()
+    stage_output_globs: list[str] = stage.sampling_method.get_output_positions_glob_list()
     for anchor in model.anchors:
         if not anchor.md:
             continue

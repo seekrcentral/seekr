@@ -390,10 +390,7 @@ class Stage_md:
             # TODO: let the sampling method return different sorts of outputs
             #  beyond just positions. Like
             #  self.sampling_method.update_stage_parameter(stage_parameter)
-            if model.is_toy_system():
-                stage_parameter["positions"] = "positions.txt"
-            else:
-                stage_parameter["positions"] = self.sampling_method.get_output_positions_pdb_glob()
+            stage_parameter["positions"] = self.sampling_method.get_output_positions_basename_noext()
             #stage_parameter["md_parameters_topology"] \
             #    = self.sampling_method.get_output_md_parameters_topology()
             anchor.stage_parameters.append(stage_parameter)
@@ -421,10 +418,7 @@ class Stage_md:
         # TODO: let the sampling method return different sorts of outputs
         #  beyond just positions. Like
         #  self.sampling_method.update_stage_parameter(stage_parameter)
-        if model.is_toy_system():
-            stage_parameter["positions"] = "positions.txt"
-        else:
-            stage_parameter["positions"] = self.sampling_method.get_output_positions_pdb_glob()
+        stage_parameter["positions"] = self.sampling_method.get_output_positions_basename_noext()
         #stage_parameter["md_parameters_topology"] \
         #    = self.sampling_method.get_output_md_parameters_topology()
         model.md_engine.systemwide_settings.stage_parameters.append(stage_parameter)
@@ -438,7 +432,7 @@ class Stage_md:
         Returns true if any of the stage directories contain
         outputs from any of the stages.
         """
-        stage_output_globs: list[str] = self.sampling_method.get_output_globs()
+        stage_output_globs: list[str] = self.sampling_method.get_output_positions_glob_list()
         my_directory = self.get_directory_name()
         for anchor in model.anchors:
             for stage_parameter in anchor.stage_parameters:

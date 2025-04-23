@@ -31,38 +31,25 @@ class Conventional_md_sampling_method:
     def needs_to_be_in_anchor(self) -> bool:
         return False
     
-    def get_output_positions_pdb_glob(self) -> str:
-        return "conventional.pdb"
-    
-    def get_output_basename(self) -> str:
+    def get_output_positions_basename_noext(self) -> str:
         return "conventional"
+
+    def get_output_positions_glob_list(self) -> list[str]:
+        return ["conventional*.pdb", "conventional*.txt"]
     
-    def get_output_extension(self) -> str:
-        return "out"
-    
-    def get_output_glob(self, swarm_index) -> str:
-        basename = self.get_output_basename()
-        extension = self.get_output_extension()
-        if swarm_index is None:
-            swarm_string = ""
+    def get_final_pdb_output_basename(
+            self, 
+            toy_mode: bool,
+            frame_number: int | None = None,
+            ) -> str:
+        if toy_mode:
+            extension = "txt"
         else:
-            swarm_string = ".swarm_{}".format(swarm_index)
-        return f"{basename}{swarm_string}*.{extension}"
-    
-    def get_final_pdb_output_glob(self) -> str:
-        basename = self.get_output_basename()
-        return f"{basename}*.pdb"
-    
-    def get_final_pdb_output_basename(self) -> str:
-        basename = self.get_output_basename()
-        return f"{basename}.pdb"
-    
-    # TODO: update
-    def get_output_globs(self) -> typing.List[str]:
-        """
-        Used for detecting any output files for an stage directory.
-        """
-        return ["conventional.pdb"]
+            extension = "pdb"
+        if frame_number is None:
+            return f"conventional.{extension}"
+        else:
+            return f"conventional.swarm_{frame_number}.{extension}"
     
     def get_output_md_parameters_topology(self) -> None:
         return None
@@ -100,6 +87,9 @@ class Metadynamics_md_sampling_method:
     
     def get_output_positions_pdb_glob(self) -> str:
         return "metadynamics*.pdb"
+    
+    def get_output_positions_txt_glob(self) -> str:
+        return "metadynamics*.txt"
     
     def get_output_basename(self) -> str:
         return "metadynamics"
@@ -155,6 +145,9 @@ class Milestoning_md_sampling_method:
     
     def get_output_positions_pdb_glob(self) -> str:
         return "milestoning*.pdb"
+    
+    def get_output_positions_txt_glob(self) -> str:
+        return "milestoning*.txt"
     
     def get_output_basename(self) -> str:
         return "milestoning"

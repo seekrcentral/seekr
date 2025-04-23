@@ -89,7 +89,9 @@ class Runner_openmm():
         self._ensemble = stage_output.ensemble
         # Sampling method interfaces
         sampling_method = stage_output.sampling_method
-        self._output_positions_basename = sampling_method.get_final_pdb_output_basename()
+        self._output_positions_basename = sampling_method.get_final_pdb_output_basename(
+            toy_mode=self._model.is_toy_system(),
+            frame_number=swarm_index)
         self.sampling_engine_interface = sampling_openmm_interface\
             .assign_sampling_method_interface(
                 self._stage_output_index, sampling_method, self._model.md_engine)
@@ -136,20 +138,20 @@ class Runner_openmm():
             self._model.directory, anchor_systemwide_dir, input_stage_directory)
         self._running_directory = os.path.join(
             self._model.directory, anchor_systemwide_dir, stage_output_directory)
-        self._basename = stage_output.sampling_method.get_output_basename()
-        extension = stage_output.sampling_method.get_output_extension()
-        glob_ = stage_output.sampling_method.get_output_glob(swarm_index)
+        self._basename = stage_output.sampling_method.get_output_positions_basename_noext()
+        # TODO: replace with 
+        glob_ = stage_output.sampling_method.get_output_positions_glob_list(swarm_index)
         
         if stage_output.input_from == "systemwide":
             if stage_output.output_to == "systemwide":
-                output_files_glob = os.path.join(
-                    self._running_directory, glob_)
+                output_files_glob_dir = os.path.join(
+                    self._running_directory)
 
             elif stage_output.output_to == "anchors":
                 anchor_dirs_glob = os.path.join(
                     self._model.directory, "anchor_*", stage_output_directory)
-                output_files_glob = os.path.join(
-                    anchor_dirs_glob, glob_)
+                output_files_glob_dir = os.path.join(
+                    anchor_dirs_glob)
 
             else:
                 raise Exception("Invalid output_to")
@@ -157,12 +159,12 @@ class Runner_openmm():
             if stage_output.output_to == "systemwide":
                 systemwide_dir_glob = os.path.join(
                     self._model.directory, "systemwide", stage_output_directory)
-                output_files_glob = os.path.join(
-                    systemwide_dir_glob, glob_)
+                output_files_glob_dir = os.path.join(
+                    systemwide_dir_glob)
 
             elif stage_output.output_to == "anchors":
-                output_files_glob = os.path.join(
-                    self._running_directory, glob_)
+                output_files_glob_dir = os.path.join(
+                    self._running_directory)
 
             else:
                 raise Exception("Invalid output_to")
@@ -184,7 +186,8 @@ class Runner_openmm():
             #            f"{self._swarm_string}*."\
             #            f"{output_stage.sampling_method.get_output_extension()}"
         
-        output_files_list = glob.glob(output_files_glob)
+        #output_files_list = glob.glob(output_files_glob)
+        output_files_list = base.glob_or(glob_, output_files_glob_dir)
         checkpoint_information_basename = engines_runner\
             .get_checkpoint_information_basename(swarm_index)
         restart_checkpoint_basename = engines_runner\

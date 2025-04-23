@@ -914,7 +914,7 @@ def cleanse_outputs_stage(
     full_directory = os.path.join(model.directory, anchor_or_systemwide.directory, 
                                     stage.get_directory_name())
     if os.path.exists(full_directory):
-        file_globs = stage.sampling_method.get_output_globs()
+        file_globs = stage.sampling_method.get_output_positions_glob_list()
         for file_glob in file_globs:
             full_glob = os.path.join(full_directory, file_glob)
             for file in glob.glob(full_glob):
