@@ -52,7 +52,10 @@ class Runner_openmm():
         This function gets run before the sim_openmm object is created
         so that the proper paths can be found, etc.
         """
-        md_parameters_directory = None
+        # TODO: find a better way to deal with the swarm index that eliminates the None
+        if swarm_index is None:
+            swarm_index = 0
+        md_parameters_half_directory = None
         if self._anchor_index is None:
             anchor = None
             anchor_systemwide = self._model.md_engine.systemwide_settings
@@ -61,25 +64,33 @@ class Runner_openmm():
             # TODO: handle the situation where the md_parameters_topology changes across stages
             assert self._model.md_engine.systemwide_settings.stage_parameters[0] is not None, \
                 "Systemwide lacks an initial stage set of parameters."
-            md_parameters_directory = self._model.md_engine.systemwide_settings\
-                .stage_parameters[0]["directory"]
+            md_parameters_half_directory = os.path.join(
+                    self._model.md_engine.systemwide_settings.directory, 
+                    self._model.md_engine.systemwide_settings.stage_parameters[0]["directory"])
         else:
             anchor = self._model.anchors[self._anchor_index]
             anchor_systemwide = anchor
-            self.md_parameters_topology = anchor.md_parameters_topology
-            if anchor.stage_parameters[0] is None:
+            
+            if anchor.md_parameters_topology is None:
                 assert self._model.md_engine.systemwide_settings.stage_parameters[0] is not None, \
                     "Systemwide lacks an initial stage set of parameters."
-                md_parameters_directory = self._model.md_engine.systemwide_settings\
-                    .stage_parameters[0]["directory"]
+                md_parameters_half_directory = os.path.join(
+                    self._model.md_engine.systemwide_settings.directory, 
+                    self._model.md_engine.systemwide_settings\
+                    .stage_parameters[0]["directory"])
+                self.md_parameters_topology = self._model.md_engine.systemwide_settings\
+                    .md_parameters_topology
             else:
-                md_parameters_directory = anchor.stage_parameters[0]["directory"]
+                assert anchor.stage_parameters[0] is not None, \
+                    "Anchor lacks an initial stage set of parameters."
+                md_parameters_half_directory = os.path.join(
+                    anchor.directory, anchor.stage_parameters[0]["directory"])
+                self.md_parameters_topology = anchor.md_parameters_topology
             
-        assert md_parameters_directory is not None, \
+        assert md_parameters_half_directory is not None, \
             "No initial directory from which to take MD parameters/topology."
         self.md_parameters_directory = os.path.join(
-            self._model.directory, anchor_systemwide.directory, 
-            md_parameters_directory)
+            self._model.directory, md_parameters_half_directory)
         stage_output = self._model.stages[self._stage_output_index]
         anchor_systemwide_dir = anchor_systemwide.directory
         stage_output_directory \
@@ -90,7 +101,7 @@ class Runner_openmm():
         # Sampling method interfaces
         sampling_method = stage_output.sampling_method
         self._output_positions_basename = sampling_method.get_final_pdb_output_basename(
-            toy_mode=self._model.is_toy_system(),
+            toy_mode=self._model.using_toy(),
             frame_number=swarm_index)
         self.sampling_engine_interface = sampling_openmm_interface\
             .assign_sampling_method_interface(
@@ -105,7 +116,7 @@ class Runner_openmm():
         for restraint in stage_output.restraints:
             self.restraints_interfaces.append(
                 restraints_openmm_interface.assign_restraints_interface(
-                    restraint, self._model)
+                    restraint, self._model.md_engine)
             )
         # TODO: check in loaded modules from model JSON to see if any of these
         #  modules contain a "assign_interface" function, and run them.
@@ -132,15 +143,28 @@ class Runner_openmm():
             raise Exception("Invalid input stage type: "\
                 f"{stage_output.input_from}.")
         
-        self.input_positions = input_stage_parameter["positions"]
+        if self._model.using_toy():
+            extension = "txt"
+        else:
+            extension = "pdb"
+        
         input_stage_directory = input_stage_parameter["directory"]
         self.input_directory = os.path.join(
             self._model.directory, anchor_systemwide_dir, input_stage_directory)
         self._running_directory = os.path.join(
             self._model.directory, anchor_systemwide_dir, stage_output_directory)
         self._basename = stage_output.sampling_method.get_output_positions_basename_noext()
-        # TODO: replace with 
-        glob_ = stage_output.sampling_method.get_output_positions_glob_list(swarm_index)
+        
+        input_positions_glob_basename = f"{input_stage_parameter['positions']}*.swarm_{swarm_index}.{extension}"
+        input_positions_glob = os.path.join(
+            self.input_directory, input_positions_glob_basename)
+        input_positions_filenames = glob.glob(input_positions_glob)
+        assert len(input_positions_filenames) == 1, \
+            "Ambiguity detected in input positions glob: "\
+            f"{input_positions_glob}. "
+        self.input_positions = os.path.basename(input_positions_filenames[0])
+
+        glob_ = stage_output.sampling_method.get_output_positions_glob_list()
         
         if stage_output.input_from == "systemwide":
             if stage_output.output_to == "systemwide":
@@ -173,6 +197,7 @@ class Runner_openmm():
         self._start_step = None
         self._min_steps = None
         self._max_steps = None
+        self._swarm_index = swarm_index
         self._swarm_string = ""
         #output_stage = self._model.stages[self._stage_output_index]
         assert self._model.md_engine.type == "openmm", \
@@ -297,6 +322,7 @@ class Runner_openmm():
             steps_between_evals=steps_between_evals,
             start_step=self._start_step, min_steps=self._min_steps, 
             max_steps=self._max_steps, restart_index=restart_index,
+            swarm_index=self._swarm_index,
             checkpoint_filename=self.restart_checkpoint_filename,
             checkpoint_info_filename=self.checkpoint_information_filename,
             lock_filename=lock_filename,
@@ -309,9 +335,15 @@ class Runner_openmm():
         logging.info(f"Final benchmark (ns/day): {ns_per_day}")
         # Write final PDB file
         if self._output_positions_basename is not None:
-            pdb_filename = os.path.join(
+            final_positions_filename = os.path.join(
                 self._running_directory, self._output_positions_basename)
-            self.sim_openmm.write_pdb_file(pdb_filename)
+            if self._model.using_toy():
+                sampling_openmm_interface.write_txt_file_from_simulation(
+                    final_positions_filename, simulation)
+            else:
+                sampling_openmm_interface.write_pdb_file_from_simulation(
+                    final_positions_filename, simulation)
+                #self.sim_openmm.write_pdb_file(final_positions_filename)
         return
     
     def add_state_reporter(self) -> None:
@@ -384,8 +416,9 @@ def run_simulation(
     if sim_openmm_obj is None:
         sim_openmm_obj = sim_openmm.create_sim_openmm(
             model=model, 
+            anchor_index=anchor_index,
             positions_directory=runner.input_directory, 
-            positions_array_or_basename=runner.input_positions, 
+            positions_basename=runner.input_positions, 
             md_parameters_directory=runner.md_parameters_directory,
             md_parameters_topology=runner.md_parameters_topology, 
             frame=frame, 

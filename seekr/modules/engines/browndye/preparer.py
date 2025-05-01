@@ -131,6 +131,37 @@ class Browndye_settings_input:
         bd_engine.systemwide_settings = browndye_structures.Browndye_systemwide_settings()
         bd_engine.systemwide_settings.molecules = []
         return bd_engine
+    
+    def copy_bd_files(
+            self,
+            model: structures.Seekr_model, 
+            root_directory: str
+            ) -> None:
+        """
+        Copy the BD files into the anchor directory.
+        """
+        assert model.bd_engine is not None, \
+            "BD engine must be defined to copy BD files."
+        assert model.bd_engine.systemwide_settings is not None, \
+            "BD systemwide settings must be defined - anchor-by-anchor " \
+            "not yet implemented."
+        for anchor in model.anchors:
+            if anchor.bd and not anchor.md:
+                # If anchor.bd is True, while anchor.md is False, then this
+                # must be the b-surface directory - "bulk anchor"
+                b_surface_directory = os.path.join(
+                    root_directory, anchor.directory)
+                for molecule in self.molecules:
+                    pqr_filename = os.path.basename(molecule.pqr_filename)
+                    new_bd_molecule = browndye_structures.Browndye_molecule()
+                    new_bd_molecule.name = os.path.splitext(pqr_filename)[0]
+                    new_bd_molecule.pqr_filename = pqr_filename
+                    pqr_new_filename = os.path.join(b_surface_directory, pqr_filename)
+                    ghost_site_indices = molecule.add_ghost_atoms_to_pqr(pqr_new_filename)
+                    new_bd_molecule.ghost_site_indices = ghost_site_indices
+                    model.bd_engine.systemwide_settings.molecules.append(new_bd_molecule)
+                    
+        return
 
 def make_and_run_apbs(
         root: xml_structures.Root, 
@@ -411,19 +442,19 @@ def make_browndye_reaction_xml(
     return
 
 def generate_bd_files(
-        bd_engine: browndye_structures.Browndye_bd_engine, 
         model: structures.Seekr_model,
         root_directory: str
         ) -> None:
+    
     b_surface_full_path = os.path.join(
-        root_directory, bd_engine.b_surface_directory)
-    assert bd_engine.systemwide_settings is not None, \
+        root_directory, model.bd_engine.b_surface_directory)
+    assert model.bd_engine.systemwide_settings is not None, \
         "Systemwide settings must be set to generate BD files."
-    for molecule in bd_engine.systemwide_settings.molecules:
-        molecule.generate_pqrxml_file(b_surface_full_path, bd_engine.binary_directory)
-    debye_length, reaction_filename = make_browndye_input_xml(bd_engine,
+    for molecule in model.bd_engine.systemwide_settings.molecules:
+        molecule.generate_pqrxml_file(b_surface_full_path, model.bd_engine.binary_directory)
+    debye_length, reaction_filename = make_browndye_input_xml(model.bd_engine,
         temperature=model.temperature, root_directory=root_directory)
-    bd_engine.debye_length = float(debye_length)
+    model.bd_engine.debye_length = float(debye_length)
     abs_reaction_path = os.path.join(b_surface_full_path, reaction_filename)
     make_browndye_reaction_xml(model, abs_reaction_path)
     return

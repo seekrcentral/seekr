@@ -12,7 +12,6 @@ import openmm.app as openmm_app
 import seekr.modules.base as base
 import seekr.modules.engines.structures as engines_structures
 
-# TODO: move to OpenMM structures file
 @define
 class Monte_carlo_barostat_settings:
     target_pressure: float = field(default=1.0,

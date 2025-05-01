@@ -196,7 +196,7 @@ def make_toy_system_object(
 def create_openmm_system(
         model: structures.Seekr_model,
         positions_directory: str,
-        positions_array_or_basename: list | np.ndarray | str,
+        positions_basename: str,
         md_parameters_directory: str,
         md_parameters_topology: engines_structures.Parameters_topology,
         frame_index: int = 0,
@@ -261,20 +261,19 @@ def create_openmm_system(
         hydrogenMass = None
 
     if model.using_toy():
-        positions_array = positions_array_or_basename
-        assert positions_array is not None, \
-            "No starting starting positions were provided."
-        positions_frames = np.array(positions_array) \
-            * openmm.unit.nanometers
-        positions = positions_frames[frame_index]
-        num_frames = len(positions_frames)
+        if (positions_basename is not None) and \
+                positions_basename != "":
+            toy_full_path = os.path.join(positions_directory, positions_basename)
+            positions = np.loadtxt(toy_full_path, ndmin=2)
+            num_frames = 1 #len(positions_frames)
+        else:
+            num_frames = 0
         system, topology = make_toy_system_object(model)
         box_vectors = None
     else:
-        positions_filename = positions_array_or_basename
-        if (positions_filename is not None) and \
-                positions_filename != "":
-            pdb_full_path = os.path.join(positions_directory, positions_filename)
+        if (positions_basename is not None) and \
+                positions_basename != "":
+            pdb_full_path = os.path.join(positions_directory, positions_basename)
             pdb_obj = openmm_app.PDBFile(pdb_full_path)
             box_vectors = openmm_base.get_box_vectors_from_pdb(pdb_full_path)
         else:
@@ -389,6 +388,7 @@ class Sim_openmm:
     def add_integrator(
             self, 
             model: structures.Seekr_model,
+            anchor_index: int | None,
             ensemble: structures.Ensemble,
             sampling_engine_interface: sampling_openmm_interface.Sampling_md_openmm_interface,
             completion_criteria_interface: completion_openmm_interface.Completion_criteria_openmm_interface
@@ -399,6 +399,12 @@ class Sim_openmm:
         assert model.md_engine is not None
         assert model.md_engine.type == "openmm"
         assert model.md_engine.integrator_settings is not None
+        if anchor_index is None:
+            assert not sampling_engine_interface.sampling_method.needs_to_be_in_anchor(), \
+                "This sampling method must be run within an anchor, not systemwide."
+            anchor = model.md_engine.systemwide_settings
+        else:
+            anchor = model.anchors[anchor_index]
         integrator_settings = model.md_engine.integrator_settings
         timestep = model.get_md_timestep()
         rigid_constraint_tolerance = integrator_settings.rigid_tolerance
@@ -416,7 +422,7 @@ class Sim_openmm:
             integrator.addGlobalVariable("b", np.sqrt(1-np.exp(-2*friction*timestep)))
             integrator.addGlobalVariable("kT", kB*temperature)
             sampling_engine_interface.add_global_variables_integrator(
-                integrator=integrator)
+                integrator=integrator, anchor=anchor)
             integrator.addPerDofVariable("x1", 0)
             sampling_engine_interface.add_per_DOF_variables_integrator(
                 integrator=integrator)
@@ -432,7 +438,7 @@ class Sim_openmm:
             integrator.addConstrainPositions()
             integrator.addComputePerDof("v", "v + (x-x1)/dt")
             sampling_engine_interface.post_integration_instructions(
-                integrator=integrator)
+                integrator=integrator, anchor=anchor)
             #completion_criteria_interface.post_integration_instructions(
             #    integrator=integrator)
             random_seed = integrator_settings.random_seed
@@ -575,8 +581,9 @@ def write_toy_pdb_file(topology, positions, pdb_file_name):
 
 def create_sim_openmm(
         model: structures.Seekr_model, 
+        anchor_index: int | None,
         positions_directory: str,
-        positions_array_or_basename: list | np.ndarray | str,
+        positions_basename: list | np.ndarray | str,
         md_parameters_directory: str,
         md_parameters_topology: engines_structures.Parameters_topology,
         frame: int = 0,
@@ -592,7 +599,7 @@ def create_sim_openmm(
     sim_openmm = Sim_openmm()
     system, topology, positions, box_vectors, _ \
         = create_openmm_system(
-            model, positions_directory, positions_array_or_basename, 
+            model, positions_directory, positions_basename, 
             md_parameters_directory, md_parameters_topology, frame)
     sim_openmm.system = system
     sim_openmm.topology = topology
@@ -606,7 +613,7 @@ def create_sim_openmm(
             periodic_system = True
     # TODO: replace with adding integrator from sampling method
     # A sampling method of None will be conventional MD.
-    sim_openmm.add_integrator(model, ensemble, sampling_engine_interface,
+    sim_openmm.add_integrator(model, anchor_index, ensemble, sampling_engine_interface,
                               completion_criteria_interface)
     if ensemble is not None:
         sim_openmm.add_barostat(model, ensemble)

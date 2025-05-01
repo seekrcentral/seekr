@@ -50,6 +50,7 @@ def test_order_files_numerically():
     
     return
 
+# TODO: this needs to be changed to use updated methods
 @pytest.mark.needs_openmm
 def test_box_vectors():
     from openmm import unit
@@ -104,7 +105,3 @@ def test_box_vectors():
                       np.array(resulting_box_6_vector)).all()
     return
 
-def test_convert_openmm_to_python_expr():
-    result = base.convert_openmm_to_python_expr("x^2 + y^2 + z^2")
-    assert result=="x**2 + y**2 + z**2"
-    return

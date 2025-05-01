@@ -124,13 +124,24 @@
                 "bias_factor": 10.0,
                 "gaussian_height": 1.0,
                 "gaussian_width": 0.1,
-                "steps_per_update": 250
+                "steps_per_update": 250,
+                "cv_names": [
+                    "distance_host_guest"
+                ]
             },
             "completion_criteria": {
                 "type": "all_anchors_filled",
                 "eval_interval": 250
             },
-            "restraints": []
+            "restraints": [
+                {
+                    "type": "proximity",
+                    "selection1_name": "host",
+                    "selection2_name": "guest",
+                    "radius": 1.25,
+                    "force_constant": 400.0
+                }
+            ]
         },
         {
             "type": "md_stage",
@@ -169,34 +180,31 @@
         {
             "cvs": [
                 {
-                    "_index": 0,
+                    "name": "distance_host_guest",
                     "group1_name": "host",
                     "group2_name": "guest",
-                    "type": "distance"
+                    "type": "distance",
+                    "_index": 0,
+                    "min_value": 0.0,
+                    "max_value": 3.0
                 }
             ],
             "state_points": [
                 {
                     "name": "bound",
-                    "value": [
-                        0.05
-                    ],
+                    "value": [0.05],
                     "end_state": true
                 },
                 {
                     "name": "bulk",
-                    "value": [
-                        1.35
-                    ],
+                    "value": [1.35],
                     "end_state": true
                 }
             ],
             "anchors": [
                 {
                     "name": "",
-                    "value": [
-                        0.05
-                    ],
+                    "value": [0.05],
                     "md_parameters_topology": null,
                     "positions": "",
                     "selections": null,
@@ -206,9 +214,7 @@
                 },
                 {
                     "name": "",
-                    "value": [
-                        0.15
-                    ],
+                    "value": [0.15],
                     "md_parameters_topology": null,
                     "positions": "",
                     "selections": null,
@@ -218,9 +224,7 @@
                 },
                 {
                     "name": "",
-                    "value": [
-                        0.25
-                    ],
+                    "value": [0.25],
                     "md_parameters_topology": null,
                     "positions": "",
                     "selections": null,
@@ -230,9 +234,7 @@
                 },
                 {
                     "name": "",
-                    "value": [
-                        0.35
-                    ],
+                    "value": [0.35],
                     "md_parameters_topology": null,
                     "positions": "",
                     "selections": null,
@@ -242,9 +244,7 @@
                 },
                 {
                     "name": "",
-                    "value": [
-                        0.45
-                    ],
+                    "value": [0.45],
                     "md_parameters_topology": null,
                     "positions": "",
                     "selections": null,
@@ -254,9 +254,7 @@
                 },
                 {
                     "name": "",
-                    "value": [
-                        0.55
-                    ],
+                    "value": [0.55],
                     "md_parameters_topology": null,
                     "positions": "",
                     "selections": null,
@@ -266,9 +264,7 @@
                 },
                 {
                     "name": "",
-                    "value": [
-                        0.65
-                    ],
+                    "value": [0.65],
                     "md_parameters_topology": null,
                     "positions": "",
                     "selections": null,
@@ -278,9 +274,7 @@
                 },
                 {
                     "name": "",
-                    "value": [
-                        0.75
-                    ],
+                    "value": [0.75],
                     "md_parameters_topology": null,
                     "positions": "",
                     "selections": null,
@@ -290,9 +284,7 @@
                 },
                 {
                     "name": "",
-                    "value": [
-                        0.85
-                    ],
+                    "value": [0.85],
                     "md_parameters_topology": null,
                     "positions": "",
                     "selections": null,
@@ -302,9 +294,7 @@
                 },
                 {
                     "name": "",
-                    "value": [
-                        0.95
-                    ],
+                    "value": [0.95],
                     "md_parameters_topology": null,
                     "positions": "",
                     "selections": null,
@@ -314,9 +304,7 @@
                 },
                 {
                     "name": "",
-                    "value": [
-                        1.05
-                    ],
+                    "value": [1.05],
                     "md_parameters_topology": null,
                     "positions": "",
                     "selections": null,
@@ -326,9 +314,7 @@
                 },
                 {
                     "name": "",
-                    "value": [
-                        1.15
-                    ],
+                    "value": [1.15],
                     "md_parameters_topology": null,
                     "positions": "",
                     "selections": null,
@@ -338,9 +324,7 @@
                 },
                 {
                     "name": "",
-                    "value": [
-                        1.25
-                    ],
+                    "value": [1.25],
                     "md_parameters_topology": null,
                     "positions": "",
                     "selections": null,
@@ -350,9 +334,7 @@
                 },
                 {
                     "name": "",
-                    "value": [
-                        1.35
-                    ],
+                    "value": [1.35],
                     "md_parameters_topology": null,
                     "positions": "",
                     "selections": null,

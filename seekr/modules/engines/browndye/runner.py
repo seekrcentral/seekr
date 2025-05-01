@@ -48,13 +48,19 @@ def run_bd_top(
     """
     Prepare Browndye input files for simulation.
     """
-    bd_directory = os.path.join(model.directory, model.bd_engine.directory)
+    bd_directory = os.path.join(model.directory, model.bd_engine.b_surface_directory)
     browndye_bin_dir = model.bd_engine.binary_directory
     curdir = os.getcwd()
     logging.info("moving to directory:", bd_directory)
     os.chdir(bd_directory)
-    simulation_filename = browndye_base.BROWNDYE_RECEPTOR + "_" \
-        + browndye_base.BROWNDYE_LIGAND + "_simulation.xml"
+    simulation_glob = "*_simulation.xml"
+    simulation_files = glob.glob(simulation_glob)
+    assert len(simulation_files) == 1, \
+        "There should be exactly one simulation file in the "\
+        "browndye directory. Found %d files." % len(simulation_files)
+    simulation_filename = simulation_files[0]
+    #simulation_filename = browndye_base.BROWNDYE_RECEPTOR + "_" \
+    #    + browndye_base.BROWNDYE_LIGAND + "_simulation.xml"
     if os.path.exists(simulation_filename) and not restart:
         if force_overwrite:
             logging.warning("force_overwrite set to True: existing files will be "\
@@ -88,12 +94,19 @@ def modify_variables(model: structures.Seekr_model,
     Modify several variables within the *_simulation.xml file at 
     runtime based on user inputs.
     """
-    bd_directory = os.path.join(model.directory, model.bd_engine.directory)
+    bd_directory = os.path.join(model.directory, model.bd_engine.b_surface_directory)
     bd_output_glob = model.bd_engine.results_glob
-    simulation_filename_base = browndye_base.BROWNDYE_RECEPTOR + "_" \
-        + browndye_base.BROWNDYE_LIGAND + "_simulation.xml"
-    simulation_filename = os.path.join(bd_directory, 
-                                       simulation_filename_base)
+    simulation_filename_glob_base = "*_simulation.xml"
+    simulation_filename_base = os.path.join(bd_directory, simulation_filename_glob_base)
+    simulation_files = glob.glob(simulation_filename_base)
+    assert len(simulation_files) == 1, \
+        "There should be exactly one simulation file in the "\
+        "browndye directory. Found %d files." % len(simulation_files)
+    simulation_filename = simulation_files[0]
+    #simulation_filename_base = browndye_base.BROWNDYE_RECEPTOR + "_" \
+    #    + browndye_base.BROWNDYE_LIGAND + "_simulation.xml"
+    #simulation_filename = os.path.join(bd_directory, 
+    #                                   simulation_filename_base)
     sim_file_old_lines = []
     sim_file_new_lines = []
     with open(simulation_filename, 'r') as f:
@@ -160,20 +173,26 @@ def modify_variables(model: structures.Seekr_model,
     return
 
 def run_nam_simulation(
-        model: browndye_structures.Browndye_bd_engine
+        model: structures.Seekr_model
     ) -> None:
     """
     Run the Browndye2 simulation.
     """
-    bd_directory = os.path.join(model.directory, model.bd_engine.directory)
+    bd_directory = os.path.join(model.directory, model.bd_engine.b_surface_directory)
     browndye_bin_dir = model.bd_engine.binary_directory
     bd_output_glob = model.bd_engine.results_glob
     curdir = os.getcwd()
     logging.info("moving to directory:", bd_directory)
     os.chdir(bd_directory)
     bd_command = os.path.join(browndye_bin_dir, "nam_simulation")
-    simulation_filename = browndye_base.BROWNDYE_RECEPTOR + "_" \
-        + browndye_base.BROWNDYE_LIGAND + "_simulation.xml"
+    simulation_glob = "*_simulation.xml"
+    simulation_files = glob.glob(simulation_glob)
+    assert len(simulation_files) == 1, \
+        "There should be exactly one simulation file in the "\
+        "browndye directory. Found %d files." % len(simulation_files)
+    simulation_filename = simulation_files[0]
+    #simulation_filename = browndye_base.BROWNDYE_RECEPTOR + "_" \
+    #    + browndye_base.BROWNDYE_LIGAND + "_simulation.xml"
     command = bd_command + " " + simulation_filename
     logging.info("running command:", command)
     os.system(command)

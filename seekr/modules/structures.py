@@ -31,7 +31,6 @@ DONT_MODIFY_WARNING: typing.Final \
 
 MD_engine = typing.Union[openmm_structures.Openmm_md_engine]
 BD_engine = typing.Union[browndye_structures.Browndye_bd_engine]
-
 BD_systemwide_settings = typing.Union[browndye_structures.Browndye_systemwide_settings]
 
 @define
@@ -74,8 +73,9 @@ class Milestone:
         """
         cv_indices: list[int] = []
         for variable_name in self.variables:
-            cv_index: int = self.get_cv_index_from_variable(variable_name)
-            cv_indices.append(cv_index)
+            if variable_name.startswith("me_"):
+                cv_index: int = self.get_cv_index_from_variable(variable_name)
+                cv_indices.append(cv_index)
         return cv_indices
     
     def is_point_within(
@@ -158,21 +158,37 @@ class Anchor:
         Returns true if any of the anchor's stage directories contain
         outputs from any of the stages.
         """
-        for stage_parameter in self.stage_parameters:
-            stage_directory = stage_parameter["directory"]
-            stage_directory = os.path.join(
-                root_directory, self.directory, stage_directory)
-            if os.path.exists(stage_directory):
-                # TODO: is this too general? Should the glob specify a more
-                # specific pattern? Perhaps from the stage object itself?
-                glob_str = "*"
-                output_files_glob = os.path.join(stage_directory, glob_str)
-                if len(glob.glob(output_files_glob)) > 0:
-                    return True
+        if self.md:
+            for stage_parameter in self.stage_parameters:
+                if stage_parameter is None:
+                    continue
+                stage_directory = stage_parameter["directory"]
+                stage_directory = os.path.join(
+                    root_directory, self.directory, stage_directory)
+                if os.path.exists(stage_directory):
+                    # TODO: is this too general? Should the glob specify a more
+                    # specific pattern? Perhaps from the stage object itself?
+                    glob_str = "*"
+                    output_files_glob = os.path.join(stage_directory, glob_str)
+                    if len(glob.glob(output_files_glob)) > 0:
+                        return True
+                    else:
+                        continue
                 else:
                     continue
+        elif self.bd:
+            # If anchor.bd is True, while anchor.md is False, then this
+            # must be the b-surface directory
+            b_surface_directory = os.path.join(
+                root_directory, self.directory)
+            assert os.path.exists(b_surface_directory)
+            glob_str = "*"
+            output_files_glob = os.path.join(b_surface_directory, glob_str)
+            if len(glob.glob(output_files_glob)) > 0:
+                return True
             else:
-                continue
+                return False
+            
         return False
     
     def generate_filetree(
@@ -213,23 +229,25 @@ class Anchor:
                     return False
         return True
     
-    def get_positions_pdb_full_path(
+    def get_positions_full_paths(
             self,
             root_directory: str,
             input_stage_index: int
-            ) -> str:
+            ) -> list[str]:
         """
-        Construct the full path to the PDB for this anchor and stage.
+        Construct the full path to the PDB/TXT for this anchor and stage.
         """
         assert len(self.stage_parameters) > input_stage_index, "Stage index "\
             "provided is out of range."
         assert self.stage_parameters[input_stage_index] is not None
-        positions = self.stage_parameters[input_stage_index]["positions"]
-        assert isinstance(positions, str), "Positions must be a filename str."
+        positions_base_noext = self.stage_parameters[input_stage_index]["positions"]
+        assert isinstance(positions_base_noext, str), "Positions must be a filename str."
         input_stage_dir = self.stage_parameters[input_stage_index]["directory"]
-        positions_full_path: str = os.path.join(
-            root_directory, self.directory, input_stage_dir, positions)
-        return positions_full_path
+        glob_base = [f"{positions_base_noext}*.pdb", f"{positions_base_noext}*.txt"]
+        glob_path = os.path.join(
+            root_directory, self.directory, input_stage_dir)
+        positions_full_paths = base.glob_or(glob_base, glob_path)
+        return positions_full_paths
 
     def get_starting_structure_num_frames(
             self,
@@ -240,16 +258,12 @@ class Anchor:
         Return the number of frames within a starting structure
         for this anchor. AKA: swarm size.
         """
-        if isinstance(self.positions, str):
-            # Load the PDB file and count the number of frames
-            pdb_full_path = self.get_positions_pdb_full_path(
-                root_directory, input_stage_index)
-            num_frames = base.get_pdb_num_frames(pdb_full_path)
-            return num_frames
-        elif isinstance(self.positions, list):
-            return len(self.positions)
-        else:
-            return 0
+        # Load the PDB or TXT file and count the number of frames
+        # NOTE: this used to be the code to handle multiple frames in a single PDB file
+        pdb_full_paths = self.get_positions_full_paths(
+            root_directory, input_stage_index)
+        num_frames = len(pdb_full_paths)
+        return num_frames
         
     def make_var_string(self) -> str:
         """
@@ -263,12 +277,12 @@ class Anchor:
         var_string = "_".join(var_list)
         return var_string
     
-    def change_pdb_filename(
+    def change_positions_filename(
             self,
             new_filename: str,
             stage_number: int) -> None:
         """
-        Change the PDB filename for this anchor.
+        Change the positions filename for this anchor.
         """
         assert self.stage_parameters[stage_number+1] is not None, "Stage "\
             f"parameters not defined for anchor {self.index} and stage {stage_number+1}."
@@ -327,16 +341,16 @@ class Stage_md:
     name: str = field(default="equilibration", 
                       validator=validators.instance_of(str))
     run_minimization: bool = field(default=False,
-                                      validator=validators.instance_of(bool))
+                                   validator=validators.instance_of(bool))
     md_state_output_interval: int = field(default=0,
                                           validator=[validators.instance_of(int),
-                                                        validators.ge(0)])
+                                                     validators.ge(0)])
     md_trajectory_output_interval: int = field(default=0,
-                                                validator=[validators.instance_of(int),
-                                                            validators.ge(0)])
+                                               validator=[validators.instance_of(int),
+                                                          validators.ge(0)])
     md_restart_checkpoint_interval: int = field(default=0,
                                                 validator=[validators.instance_of(int),
-                                                            validators.ge(0)])
+                                                           validators.ge(0)])
     ensemble: Ensemble = field(default=Factory(NVT_ensemble))
     sampling_method: sampling_methods_structures.MD_sampling_method = field(
         default=Factory(sampling_methods_structures.Conventional_md_sampling_method))
@@ -348,26 +362,15 @@ class Stage_md:
     input_stage_index: int = field(default=0,
                                       validator=[validators.instance_of(int),
                                                  validators.ge(0)])
-    # TODO: change from "input_from_systemwide_settings" to "input_from",
-    #  and set it to "anchor" or "systemwide"
     input_from: str = field(default="systemwide", 
                             validator=validators.instance_of(str))
     output_to: str = field(default="anchor", 
                            validator=validators.instance_of(str))
-    # Whether this stage comes from the systemwide settings, if not,
-    #  then it comes from the anchors. If None, then it is assigned automatically
-    #input_from_systemwide_settings: bool | None = field(default=None,
-    #                                                validator=validators.optional(
-    #                                                  validators.instance_of(bool)))
-    # TODO: change from "output_to_systemwide_settings" to "output_to",
-    #  and set it to "anchor" or "systemwide"
-    # Whether this stage outputs to the systemwide settings, if not,
-    #  then it outputs to the anchors.  If None, then it is assigned automatically
-    #output_to_systemwide_settings: bool | None = field(default=None,
-    #                                            validator=validators.optional(
-    #                                                validators.instance_of(bool)))
     
     def get_directory_name(self) -> str:
+        """
+        Get the directory of this stage.
+        """
         directory_name: str = f"stage_{self.index}_{self.name}"
         return directory_name
 
@@ -387,9 +390,6 @@ class Stage_md:
             stage_parameter = {}
             stage_parameter["index"] = self.index
             stage_parameter["directory"] = directory_name
-            # TODO: let the sampling method return different sorts of outputs
-            #  beyond just positions. Like
-            #  self.sampling_method.update_stage_parameter(stage_parameter)
             stage_parameter["positions"] = self.sampling_method.get_output_positions_basename_noext()
             #stage_parameter["md_parameters_topology"] \
             #    = self.sampling_method.get_output_md_parameters_topology()
@@ -415,9 +415,6 @@ class Stage_md:
         stage_parameter = {}
         stage_parameter["index"] = self.index
         stage_parameter["directory"] = directory_name
-        # TODO: let the sampling method return different sorts of outputs
-        #  beyond just positions. Like
-        #  self.sampling_method.update_stage_parameter(stage_parameter)
         stage_parameter["positions"] = self.sampling_method.get_output_positions_basename_noext()
         #stage_parameter["md_parameters_topology"] \
         #    = self.sampling_method.get_output_md_parameters_topology()
@@ -482,7 +479,7 @@ class Stage_bd:
     index: int = field(default=0,
                         validator=[validators.instance_of(int),
                                    validators.ge(0)])
-    name: str = field(default="equilibration", 
+    name: str = field(default="encounter", 
                       validator=validators.instance_of(str))
     n_trajectories_per_output: int = field(default=1000,
                                             validator=[validators.instance_of(int),
@@ -497,19 +494,9 @@ class Stage_bd:
              compl_crit_struct.Number_of_trajectories_completion_criteria))
     # TODO: implement restraints in BD?
     #restraints: list[restraint_structures.Restraint] = field(default=Factory(list),)
-    # Whether this stage comes from the systemwide settings, if not,
-    #  then it comes from the anchors. If None, then it is assigned automatically
     input_from: None = None
     output_to: None = None
-    #input_from_systemwide_settings: bool | None = field(default=None,
-    #                                                validator=validators.optional(
-    #                                                  validators.instance_of(bool)))
-    # Whether this stage outputs to the systemwide settings, if not,
-    #  then it outputs to the anchors.  If None, then it is assigned automatically
-    #output_to_systemwide_settings: bool | None = field(default=None,
-    #                                            validator=validators.optional(
-    #                                                validators.instance_of(bool)))
-
+    
 Stage = typing.Union[Stage_md, Stage_bd]
 
 @define
@@ -587,10 +574,8 @@ class Seekr_model:
         """
         Return the timestep used in this model
         """
-        if self.md_engine is not None:
-            timestep: float = self.md_engine.get_timestep()
-        else:
-            raise Exception("MD engine settings not provided.")
+        assert self.md_engine is not None, "MD engine settings not provided."
+        timestep: float = self.md_engine.get_timestep()
         return timestep
     
     def get_bulk_index(self) -> int | None:
@@ -605,7 +590,7 @@ class Seekr_model:
                 # for simulation purposes, but is convenient for analysis to have
                 # just one. Perhaps, we need a compromise where the anchors are modified
                 # or copied over somehow with modifications and that contain only
-                # one bulk anchor.
+                # one bulk anchor to the analysis.
                 assert bulk_index is None, "Only one bulk state is allowed "\
                     "in model"
                 bulk_index = alpha
@@ -763,8 +748,6 @@ def load_model(
                                       structure_float_or_list_type_union)
     converter.register_structure_hook(base.Int_or_list_type, 
                                       structure_int_or_list_type_union)
-    # TODO: remove
-    #converter.register_structure_hook(Stage, structure_stage_type_union)
     model: Seekr_model = converter.structure(json_string, Seekr_model)
     if model.directory == ".":
         model_dir = os.path.dirname(filename)
@@ -834,65 +817,27 @@ def structure_int_or_list_type_union(
     else:
         raise ValueError(f"Invalid type for positions: {type(data)}")
 
-# TODO: remove?
-def structure_completion_criteria_type_union(
-        data: typing.Any, 
-        type_: typing.Any
-        ) -> typing.Any:
-    """
-    Define a structure hook to provide cattrs with a strategy
-    for how to unpack a union of possible types that are used
-    to describe a set of positions.
-    """
-    if isinstance(data, compl_crit_struct.Number_of_steps_completion_criteria):
-        return data
-    elif isinstance(data, compl_crit_struct.All_anchors_filled_completion_criteria):
-        return data
-    else:
-        raise ValueError(f"Invalid type for completion_criteria: {type(data)}")
-
 # TODO: remove
-"""
-def structure_stage_type_union(
-        data: typing.Any, 
-        type_: typing.Any
-        ) -> typing.Any:
-    ""
-    Define a structure hook to provide cattrs with a strategy
-    for how to unpack a union of possible types that are used
-    to describe a set of positions.
-    ""
-    if isinstance(data, Stage_md):
-        # This is a list of positions for a Toy system, probably
-        return data
-    elif isinstance(data, Stage_bd):
-        # This is a filename for a PDB file
-        return data
-    else:
-        print("data:", data)
-        raise ValueError(f"Invalid type for stage_type_union: {type(data)}")
-"""
-
-def check_values_within_voronoi_boundary(
-        cv_values: typing.List[float], 
-        milestone_variables: dict,
-        tolerance: float = 0.0
-        ) -> bool:
-    """
-    Check if the CV values are within the Voronoi boundary.
-    """
-    me_total_value = 0.0
-    neighbor_total_value = 0.0
-    for i, cv_value in enumerate(cv_values):
-        me_i_value = milestone_variables["me_{}".format(i)]
-        neighbor_i_value = milestone_variables["neighbor_{}".format(i)]
-        me_this_value = (me_i_value - cv_value)**2
-        neighbor_this_value = (neighbor_i_value - cv_value)**2
-        me_total_value += me_this_value
-        neighbor_total_value += neighbor_this_value
-            
-    distance = me_total_value - neighbor_total_value
-    if (distance-tolerance) > 0.0: 
-        return False
-    
-    return True
+#def check_values_within_voronoi_boundary(
+#        cv_values: typing.List[float], 
+#        milestone_variables: dict,
+#        tolerance: float = 0.0
+#        ) -> bool:
+#    """
+#    Check if the CV values are within the Voronoi boundary.
+#    """
+#    me_total_value = 0.0
+#    neighbor_total_value = 0.0
+#    for i, cv_value in enumerate(cv_values):
+#        me_i_value = milestone_variables["me_{}".format(i)]
+#        neighbor_i_value = milestone_variables["neighbor_{}".format(i)]
+#        me_this_value = (me_i_value - cv_value)**2
+#        neighbor_this_value = (neighbor_i_value - cv_value)**2
+#        me_total_value += me_this_value
+#        neighbor_total_value += neighbor_this_value
+#            
+#    distance = me_total_value - neighbor_total_value
+#    if (distance-tolerance) > 0.0: 
+#        return False
+#    
+#    return True

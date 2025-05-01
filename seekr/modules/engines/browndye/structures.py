@@ -75,6 +75,19 @@ class Browndye_systemwide_settings:
                             Browndye_molecule),
                         iterable_validator=instance_of(list),
                     ))
+    
+    def get_atom_indices_by_selection_name(
+            self,
+            name: str
+            ) -> list[int]:
+        """
+        Get the atom indices for a given selection name.
+        """
+        for molecule in self.molecules:
+            for selection in molecule.selections:
+                if selection.name == name:
+                    return selection.atom_indices
+        raise ValueError(f"Selection name {name} not found in any molecule.")
 
 @define
 class Browndye_bd_engine:

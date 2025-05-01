@@ -5,10 +5,8 @@ Import base objects from all implemented engines.
 """
 
 import os
-import time
 import json
 import typing
-import logging
 from shutil import copyfile
 
 from attrs import define, field, validators, Factory
@@ -45,6 +43,9 @@ class Checkpoint_information:
     restart_index: int = field(default=1,
                                 validator=[validators.instance_of(int),
                                            validators.ge(1)])
+    timestep: float = field(default=0.002,
+                            validator=[validators.instance_of(float),
+                                       validators.gt(0)])
     
     def save(
             self, 
@@ -66,11 +67,12 @@ class Checkpoint_information:
 def write_checkpoint_information_file(
         step: int, 
         restart_index: int,
+        timestep: float,
         filename: str) -> None:
     """
     Write the checkpoint information to a file.
     """
-    checkpoint_information = Checkpoint_information(step, restart_index)
+    checkpoint_information = Checkpoint_information(step, restart_index, timestep)
     checkpoint_information.save(filename)
     return
 
@@ -92,7 +94,6 @@ class Langevin_integrator_settings:
                                    validator=[validators.instance_of(float),
                                               validators.gt(0)])
 
-# TODO: make a typing.Union here for other types of integrators?
 Integrator_settings = typing.Union[Langevin_integrator_settings]
 
 @define
@@ -108,7 +109,6 @@ class Cuda_platform_settings:
                                                       "mixed",
                                                       "double"])])
 
-# TODO: make a typing.Union here for other types of platforms?
 Platform_settings = typing.Union[Cuda_platform_settings]
 
 @define
@@ -187,7 +187,6 @@ class Gromacs_parameters_topology:
                                             top_basename)
         copyfile(os.path.expanduser(self.top_filename), anchor_top_full_path)
         new_md_parameters_topology.top_filename = top_basename
-
         gro_basename = os.path.basename(self.gro_filename)
         anchor_gro_full_path = os.path.join(dest_directory,
                                             gro_basename)
@@ -231,7 +230,6 @@ class Charmm_parameters_topology:
                                             psf_basename)
         copyfile(os.path.expanduser(self.psf_filename), anchor_psf_full_path)
         new_md_parameters_topology.psf_filename = psf_basename
-
         new_md_parameters_topology.param_filename_list = []
         for param_filename in self.param_filename_list:
             param_basename = os.path.basename(param_filename)
@@ -348,6 +346,7 @@ class MD_systemwide_settings:
             iterable_validator=validators.instance_of(list),
         ))
     
+    # TODO: move to preparer module - and combine with anchor generate_filetree()?
     def generate_filetree(
             self, 
             root_directory: str
@@ -363,20 +362,25 @@ class MD_systemwide_settings:
         base.make_tree(root_directory, systemwide_dict)
         return
 
-    def _get_positions_pdb_full_path(
+    def get_positions_full_paths(
             self,
             root_directory: str,
             input_stage_index: int
-            ) -> str:
+            ) -> list[str]:
         """
-        Construct the full path to the PDB for this systemwide and stage.
+        Construct the full path to the PDB/TXT for this systemwide and a given stage.
         """
-        positions = self.stage_parameters[input_stage_index]["positions"]
-        assert isinstance(positions, str), "Positions must be a filename str."
+        assert len(self.stage_parameters) > input_stage_index, "Stage index "\
+            "provided is out of range."
+        assert self.stage_parameters[input_stage_index] is not None
+        positions_base_noext = self.stage_parameters[input_stage_index]["positions"]
+        assert isinstance(positions_base_noext, str), "Positions must be a filename str."
         input_stage_dir = self.stage_parameters[input_stage_index]["directory"]
-        positions_full_path: str = os.path.join(
-            root_directory, self.directory, input_stage_dir, positions)
-        return positions_full_path
+        glob_base = [f"{positions_base_noext}*.pdb", f"{positions_base_noext}*.txt"]
+        glob_path = os.path.join(
+            root_directory, self.directory, input_stage_dir)
+        positions_full_paths = base.glob_or(glob_base, glob_path)
+        return positions_full_paths
 
     def get_starting_structure_num_frames(
             self,
@@ -387,17 +391,12 @@ class MD_systemwide_settings:
         Return the number of frames within a starting structure
         for this systemwide. AKA: swarm size.
         """
-        positions = self.stage_parameters[input_stage_index]["positions"]
-        if isinstance(positions, str):
-            pdb_full_path = self._get_positions_pdb_full_path(
-                root_directory, input_stage_index)
-            num_frames = base.get_pdb_num_frames(pdb_full_path)
-            return num_frames
-        elif isinstance(positions, list):
-            return len(positions)
-        else:
-            return 0
-        
+        pdb_full_paths = self.get_positions_full_paths(
+            root_directory, input_stage_index)
+        num_frames = len(pdb_full_paths)
+        return num_frames
+    
+    # TODO: remove? Handled by the input object.
     def get_atom_indices_by_selection_name(
             self,
             name: str
@@ -409,65 +408,3 @@ class MD_systemwide_settings:
             if selection.name == name:
                 return selection.atom_indices
         raise Exception(f"Selection with name {name} not found.")
-
-# These functions probably don't properly belong here, but they
-# cannot be placed in any runner modules without causing circular
-# imports. Should they be placed into an engines/base.py module?
-def make_lock_string() -> str:
-    """
-    Make a string that can be put into the LOCK file to detect race
-    conditions.
-    """
-    pid = os.getpid()
-    timestamp = time.time()
-    lock_string = "{},{:.3f}".format(pid, timestamp)
-    return lock_string
-
-def create_lock(
-        lock_filename: str, 
-        verbose: bool = False
-        ) -> tuple[str, str]:
-    """
-    Create a lock file to prevent running if a SEEKR anchor is currently being
-    run by another process.
-    """
-    directory = os.path.dirname(lock_filename)
-    if os.path.exists(lock_filename) and verbose:
-        print("Warning: a lock file was detected in directory "\
-                f"{directory}. This may happen because the a previous "\
-                "process failed suddenly, or because a process is currently "\
-                "running on this anchor.")
-    lock_string = make_lock_string()
-    with open(lock_filename, "w") as f:
-        f.write(lock_string)
-    return lock_string
-
-def update_lock(
-        lock_filename: str, 
-        lock_string: str
-        ) -> str:
-    """
-    Check the lock file for changes, and update the lock file.
-    """
-    directory = os.path.dirname(lock_filename)
-    if not os.path.exists(lock_filename):
-        raise Exception(f"The lock file was deleted for directory {directory}.")
-    with open(lock_filename, "r") as f:
-        old_lock_string = f.readline()
-    if old_lock_string != lock_string:
-        with open(lock_filename, "w") as f:
-            # kill the other process
-            f.write("ABORT")
-        abort_str = "A lock file modification was detected for directory "\
-                        f"{directory}. Another SEEKR process was "\
-                        "running on the same anchor at the same time. Both "\
-                        "processes will be killed. You must force this "\
-                        "anchor to restart from the beginning to obtain "\
-                        "correct results."
-        logging.critical(abort_str)
-        raise Exception(abort_str)
-    # otherwise all is well
-    lock_string = make_lock_string()
-    with open(lock_filename, "w") as f:
-        f.write(lock_string)
-    return lock_string

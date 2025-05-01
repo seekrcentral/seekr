@@ -8,10 +8,14 @@ for easy access here.
 import os
 from shutil import copyfile
 
+import numpy as np
 from attrs import define, field, validators, Factory
+import mdtraj
 
 import seekr.modules.base as base
 import seekr.modules.engines.structures as engines_structures
+
+POSITIONS_BASENAME = "positions"
 
 @define
 class MD_systemwide_settings_input:
@@ -55,28 +59,47 @@ class MD_systemwide_settings_input:
         Copy the files for the initial 'stage' from this Anchor_input
         to the actual anchor.
         """
-        systemwide_initial_directory = os.path.join(
-            root_directory, self.directory, base.INITIAL_DIRECTORY)
-        if toy_mode:
-            pass
-
-        else:
+        if new_systemwide_settings.stage_parameters[0] is not None:
+            systemwide_initial_directory = os.path.join(
+                root_directory, self.directory, base.INITIAL_DIRECTORY)
             if self.md_parameters_topology is not None \
                     or (self.positions is not None \
                         and self.positions != ""):
                 new_systemwide_settings.generate_filetree(root_directory)
+            new_systemwide_settings.stage_parameters[0]["positions"] = POSITIONS_BASENAME
+            if toy_mode:
+                for frame_id, frame_positions in enumerate(self.positions):
+                    full_positions_path = os.path.join(systemwide_initial_directory,
+                                                    f"{POSITIONS_BASENAME}.swarm_{frame_id}.txt")
+                    np.savetxt(full_positions_path, np.array(frame_positions))
 
-            if self.md_parameters_topology is not None:
-                new_systemwide_settings.md_parameters_topology = self.md_parameters_topology
-                self.md_parameters_topology.copy_files(
-                    systemwide_initial_directory,
-                    new_systemwide_settings.md_parameters_topology)
+            else:
+                if self.md_parameters_topology is not None:
+                    new_systemwide_settings.md_parameters_topology = self.md_parameters_topology
+                    self.md_parameters_topology.copy_files(
+                        systemwide_initial_directory,
+                        new_systemwide_settings.md_parameters_topology)
 
-            if (self.positions is not None) and (self.positions != ""):
-                assert isinstance(self.positions, str), \
-                    "MD_systemwide_settings.positions must be a string."
-                pdb_basename = os.path.basename(self.positions)
-                anchor_pdb_full_path = os.path.join(systemwide_initial_directory,
-                                                    pdb_basename)
-                copyfile(os.path.expanduser(self.positions), anchor_pdb_full_path)
-                new_systemwide_settings.stage_parameters[0]["positions"] = pdb_basename
+                if (self.positions is not None) and (self.positions != ""):
+                    assert isinstance(self.positions, str), \
+                        "MD_systemwide_settings.positions must be a string."
+                    mdtraj_obj = mdtraj.load(self.positions)
+                    num_frames = mdtraj_obj.n_frames
+                    for frame_id in range(num_frames):
+                        output_pdb_full_path = os.path.join(
+                            systemwide_initial_directory,
+                            f"{POSITIONS_BASENAME}.swarm_{frame_id}.pdb")
+                        mdtraj_obj[frame_id].save(output_pdb_full_path)
+
+    def get_atom_indices_by_selection_name(
+            self,
+            selection_name: str
+            ) -> list[int]:
+        """
+        Get the atom indices for a selection by its name.
+        """
+        for selection in self.selections:
+            if selection.name == selection_name:
+                return selection.atom_indices
+        raise ValueError(f"Selection with name {selection_name} not found.")
+                        

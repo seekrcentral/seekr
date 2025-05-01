@@ -24,6 +24,7 @@ from cattrs import Converter
 import numpy as np
 from scipy.spatial import Delaunay
 from scipy.spatial import QhullError
+import mdtraj
 
 import seekr.modules.base as base
 import seekr.modules.structures as structures
@@ -32,48 +33,17 @@ import seekr.modules.completion_criteria.structures as compl_crit_struct
 import seekr.modules.restraints.structures as restraints_structures
 import seekr.modules.engines.browndye.structures as browndye_structures
 import seekr.modules.engines.structures as engines_structures
+import seekr.modules.engines.preparer as engines_preparer
+import seekr.modules.restraints.preparer as restraints_preparer
 import seekr.modules.engines.runner as engines_runner
 import seekr.modules.engines.openmm.preparer as openmm_preparer
 import seekr.modules.engines.browndye.preparer as browndye_preparer
 import seekr.modules.sampling_methods.preparer as sampling_methods_preparer
 import seekr.modules.collective_variables.preparer as cv_preparer
 
-KEEP_ANCHOR_RE = "hidr*|string*"
-TOY_POSITIONS_BASENAME = "positions.txt"
-
 MD_settings_input = typing.Union[openmm_preparer.Openmm_settings_input]
 # TODO: add SDA
 BD_settings_input = typing.Union[browndye_preparer.Browndye_settings_input]
-
-# TODO: modify this function to include multiple stages
-def anchor_has_files(model, anchor):
-    """
-    Returns True if seekr simulations have already been run in this anchor.
-    """
-    
-    output_directory = os.path.join(
-        model.anchor_rootdir, anchor.directory, anchor.production_directory)
-    output_files_glob = os.path.join(output_directory, anchor.md_output_glob)
-    output_restarts_list = glob.glob(output_files_glob)
-    if len(output_restarts_list) > 0:
-        return True
-    else:
-        return False
-
-# TODO: Combine with function above to handle multiple stages
-def anchor_has_hidr_files(model, anchor):
-    """
-    Returns True if HIDR has already been run in this anchor.
-    """
-    
-    building_directory = os.path.join(
-        model.anchor_rootdir, anchor.directory, anchor.building_directory)
-    input_files_glob = os.path.join(building_directory, "hidr*")
-    input_files_list = glob.glob(input_files_glob)
-    if len(input_files_list) > 0:
-        return True
-    else:
-        return False
 
 @define
 class Input_stage_md:
@@ -95,12 +65,13 @@ class Input_stage_md:
     sampling_method: sampling_methods_preparer.MD_sampling_method_input = field(
         default=Factory(sampling_methods_preparer.Conventional_md_input))
     completion_criteria: compl_crit_struct.MD_completion_criteria | None = None
-    restraints: list[restraints_structures.Restraint] = field(default=Factory(list))
+    restraints: list[restraints_preparer.Restraint_input] = field(default=Factory(list))
     
     def make_model_stage(
             self, 
             index: int,
-            systemwide_stage_input: bool
+            systemwide_stage_input: bool,
+            systemwide_settings_input: engines_preparer.MD_systemwide_settings_input
             ) -> typing.Tuple[structures.Stage_md, bool]:
         """
         Given this input stage object, create the model's Stage object.
@@ -136,9 +107,11 @@ class Input_stage_md:
             else:
                 new_systemwide_stage_input = False
                 stage.output_to = "anchors"
+        for restraint_input in self.restraints:
+            restraint = restraint_input.make_restraint(systemwide_settings_input)
+            stage.restraints.append(restraint)
         return stage, new_systemwide_stage_input
     
-
 @define
 class Input_stage_bd:
     """
@@ -161,7 +134,8 @@ class Input_stage_bd:
     def make_model_stage(
             self, 
             index: int,
-            systemwide_stage_input: bool
+            systemwide_stage_input: bool,
+            bd_settings: BD_settings_input
             ) -> typing.Tuple[structures.Stage_bd, bool]:
         """
         Given this input stage object, create the model's Stage object.
@@ -175,6 +149,7 @@ class Input_stage_bd:
         # At present, BD stages will always be systemwide
         #stage.input_from = None
         #stage.output_to = None
+        # TODO: implement restraints in BD - that will use bd_settings argument
         return stage, systemwide_stage_input
 
 Input_stage = typing.Union[Input_stage_md, Input_stage_bd]
@@ -223,6 +198,9 @@ class State_point:
     end_state: bool = field(default=True,
                             validator=validators.instance_of(bool))
 
+# TODO: change this function to accept a list of positions, not
+#  Anchor objects, since anchors might not be the voronoi cells necessarily.
+#  Part of the broader attempt to enable Voronoi edges as anchors.
 def find_voronoi_anchor_neighbors(
         anchors: list[structures.Anchor]
         ) -> dict[int, set[int]]:
@@ -287,7 +265,7 @@ def make_milestone_between_two_voronoi_anchors(
         milestone2.index = milestone_index
         milestone2.neighbor_anchor_index = anchor.index
         milestone2.alias_index = len(neighbor_anchor.milestones)+1
-        milestone2.variables = {"k": 1.0}
+        milestone2.variables = {"k": -1.0}
         for i, cv_index in enumerate(cv_indices):
             me_key = f"me_{i}"
             neighbor_key = f"neighbor_{i}"
@@ -298,7 +276,7 @@ def make_milestone_between_two_voronoi_anchors(
             milestone1.variables[neighbor_key] = neighbor_value
             milestone2.variables[me_key] = neighbor_value
             milestone2.variables[neighbor_key] = me_value
-            if (len(cv_indices) == 1): # And is a spherical CV
+            if (len(cv_indices) == 1):
                 avg_value = (me_value + neighbor_value) / 2.0
                 milestone1.variables["avg_value"] = avg_value
                 milestone2.variables["avg_value"] = avg_value
@@ -324,6 +302,8 @@ def make_milestone_between_two_voronoi_anchors(
         
         return milestone_index
 
+# TODO: rethink this naming - this is a set of Voronoi points, and the anchors might be
+#  assigned differently
 @define
 class Anchor_input:
     """
@@ -415,12 +395,13 @@ class Anchor_input:
         if anchor.stage_parameters[0] is not None:
             anchor_initial_directory: str = os.path.join(
                 root_directory, anchor.directory, anchor.stage_parameters[0]["directory"])
+            anchor.stage_parameters[0]["positions"] = engines_preparer.POSITIONS_BASENAME
             if toy_mode:
-                #anchor.stage_parameters[0]["positions"] = self.positions
-                anchor.stage_parameters[0]["positions"] = TOY_POSITIONS_BASENAME
-                full_positions_path = os.path.join(anchor_initial_directory,
-                                                   TOY_POSITIONS_BASENAME)
-                np.savetxt(full_positions_path, self.positions)
+                for frame_id, frame_positions in enumerate(self.positions):
+                    full_positions_path = os.path.join(
+                        anchor_initial_directory,
+                        f"{engines_preparer.POSITIONS_BASENAME}.swarm{frame_id}.txt")
+                    np.savetxt(full_positions_path, np.array(frame_positions))
             else:
                 if self.md_parameters_topology is not None:
                     self.md_parameters_topology.copy_files(anchor_initial_directory)
@@ -430,9 +411,18 @@ class Anchor_input:
                     pdb_basename: str = os.path.basename(self.positions)
                     anchor_pdb_full_path: str = os.path.join(anchor_initial_directory,
                                                             pdb_basename)
-                    shutil.copyfile(os.path.expanduser(self.positions), anchor_pdb_full_path)
-                    anchor.stage_parameters[0]["positions"] = pdb_basename
+                    mdtraj_obj = mdtraj.load(anchor_pdb_full_path)
+                    num_frames = mdtraj_obj.n_frames
+                    for frame_id in range(num_frames):
+                        output_pdb_full_path = os.path.join(
+                            anchor_initial_directory,
+                            f"{engines_preparer.POSITIONS_BASENAME}.swarm_{frame_id}.pdb")
+                        mdtraj_obj[frame_id].save(output_pdb_full_path)
 
+# TODO: implement different types of partitions for different
+#  sampling methods: I.E.: Elber milestoning will need different ways
+#  of defining anchors than MMVT.
+# Is this going to require a new type of Partition_input class?
 @define
 class Partition_input:
     """
@@ -452,6 +442,8 @@ class Partition_input:
                                     State_point),
                                 iterable_validator=validators.instance_of(list),
                             ))
+    # TODO: How are we going to define Voronoi points independently from
+    #  anchor information such as structures, etc.?
     anchors: list[Anchor_input] = field(default=Factory(list),
                             validator=validators.deep_iterable(
                                 member_validator=validators.instance_of(
@@ -497,7 +489,6 @@ class Partition_input:
             associated_input_anchor[anchor.index] = input_anchor
             cv_indices = []
             for j, cv_input in enumerate(self.cvs):
-                #variable_name = f"{self.cvs[j]._variable_name}_{cv_input._index}"
                 variable_name = f"value_{cv_input._index}"
                 variable_value = input_anchor.get_variable_value(j)
                 anchor.variables[variable_name] = variable_value
@@ -591,14 +582,13 @@ class Seekr_input:
     
     def create_model(
             self, 
-            use_absolute_directory: bool=False
+            use_absolute_directory: bool = False
             ) -> structures.Seekr_model:
         """
         Given the Seekr_input object, which contains the settings, 
         create the Model object which contains more detailed 
         information.
         """
-        
         model = structures.Seekr_model()
         if use_absolute_directory:
             model.directory = self.directory
@@ -632,11 +622,14 @@ class Seekr_input:
         
         last_md_stage_index = 0
         for i, stage_input in enumerate(self.stages):
-            stage, systemwide_stage_input = stage_input.make_model_stage(
-                i+1, systemwide_stage_input)
-            if stage.type == "md_stage":
+            if stage_input.type == "md_stage":
+                stage, systemwide_stage_input = stage_input.make_model_stage(
+                    i+1, systemwide_stage_input, self.md_settings.systemwide_settings)
                 stage.input_stage_index = last_md_stage_index
                 last_md_stage_index = stage.index
+            elif stage_input.type == "bd_stage":
+                stage, systemwide_stage_input = stage_input.make_model_stage(
+                    i+1, systemwide_stage_input, self.bd_settings)
             model.stages.append(stage)  
         if self.random_seed is not None:
             model.set_random_seeds(self.random_seed)
@@ -645,7 +638,10 @@ class Seekr_input:
         
         return model
 
-def generate_directory(directory, empty_dir=False):
+def generate_directory(
+        directory: str, 
+        empty_dir: bool = False
+        ) -> None:
     """
     Create (or recreate) a directory, optionally overwrite.
     
@@ -668,7 +664,7 @@ def generate_directory(directory, empty_dir=False):
     
     return
 
-def read_input(input_filename):
+def read_input(input_filename: str) -> Seekr_input:
     """
     Read the input JSON file into the input object.
     """
@@ -684,45 +680,8 @@ def read_input(input_filename):
                                       structures.structure_float_or_list_type_union)
     converter.register_structure_hook(base.Int_or_list_type, 
                                       structures.structure_int_or_list_type_union)
-    #converter.register_structure_hook(data_structures.Completion_criteria, 
-    #                                  data_structures.structure_completion_criteria_type_union)
-    #converter.register_structure_hook(data_structures.Stage, 
-    #                                  data_structures.structure_stage_type_union)
     seekr_input = converter.structure(json_string, Seekr_input)
     return seekr_input
-
-def copy_bd_files(
-        model: structures.Seekr_model, 
-        seekr_input: Seekr_input,
-        root_directory: str
-        ) -> None:
-    """
-    Copy the BD files into the anchor directory.
-    """
-    assert seekr_input.bd_settings is not None, \
-        "BD settings must be defined to copy BD files."
-    assert model.bd_engine is not None, \
-        "BD engine must be defined to copy BD files."
-    assert model.bd_engine.systemwide_settings is not None, \
-        "BD systemwide settings must be defined - anchor-by-anchor " \
-        "not yet implemented."
-    for anchor in model.anchors:
-        if anchor.bd and not anchor.md:
-            # If anchor.bd is True, while anchor.md is False, then this
-            # must be the b-surface directory - "bulk anchor"
-            b_surface_directory = os.path.join(
-                root_directory, anchor.directory)
-            for molecule in seekr_input.bd_settings.molecules:
-                pqr_filename = os.path.basename(molecule.pqr_filename)
-                new_bd_molecule = browndye_structures.Browndye_molecule()
-                new_bd_molecule.name = os.path.splitext(pqr_filename)[0]
-                new_bd_molecule.pqr_filename = pqr_filename
-                pqr_new_filename = os.path.join(b_surface_directory, pqr_filename)
-                ghost_site_indices = molecule.add_ghost_atoms_to_pqr(pqr_new_filename)
-                new_bd_molecule.ghost_site_indices = ghost_site_indices
-                model.bd_engine.systemwide_settings.molecules.append(new_bd_molecule)
-                
-    return
 
 def create_cvs(
         seekr_input: Seekr_input, 
@@ -738,7 +697,7 @@ def create_cvs(
             "Collective variables must be defined if a partition exists."
         for cv_input in partition.cvs:
             # TODO: remove - or put into partition for checking
-            cv_input.check()
+            #cv_input.check()
             cv: cv_structures.Collective_variable \
                 = cv_input.make_cv_object(index=cv_counter)
             cv.fill_input_values_from_model(root_directory)
@@ -840,7 +799,7 @@ def assign_all_state_points(
         if not already_found_anchor:
             raise Exception(
                 f"Cannot assign state point named {state_point.name}: no suitable "\
-                "anchors found. The point might be located on a milestone.")
+                "anchors found. The point might be located on a boundary.")
     return
 
 def prepare_model_cvs_and_anchors(
@@ -895,9 +854,8 @@ def cleanse_outputs_all(
     """
     Delete all simulation outputs from systemwide or anchor.
     """
-
     for stage in model.stages:
-        cleanse_outputs_stage(model, anchor_or_systemwide, stage.index)
+        cleanse_outputs_stage(model, anchor_or_systemwide, stage.index-1)
     return
 
 def cleanse_outputs_stage(
@@ -909,35 +867,58 @@ def cleanse_outputs_stage(
     """
     Delete all simulation outputs from systemwide or anchor.
     """
-
     stage = model.stages[stage_index]
-    full_directory = os.path.join(model.directory, anchor_or_systemwide.directory, 
+    if stage.type == "md_stage":
+        full_directory = os.path.join(model.directory, anchor_or_systemwide.directory, 
                                     stage.get_directory_name())
-    if os.path.exists(full_directory):
-        file_globs = stage.sampling_method.get_output_positions_glob_list()
-        for file_glob in file_globs:
-            full_glob = os.path.join(full_directory, file_glob)
-            for file in glob.glob(full_glob):
-                os.remove(file)
-        dcd_glob = os.path.join(full_directory, "*.dcd")
-        for dcd_file in glob.glob(dcd_glob):
-            os.remove(dcd_file)
-        backup_info_glob = os.path.join(full_directory, 
-            engines_runner.INFORMATION_CHECKPOINT_FILENAME_NOEXT \
-            + "*" + engines_runner.INFORMATION_CHECKPOINT_FILENAME_EXT)
-        for backup_info_file in glob.glob(backup_info_glob):
-            os.remove(backup_info_file)
-        backup_glob = os.path.join(full_directory, 
-            engines_runner.RESTART_CHECKPOINT_FILENAME_NOEXT \
-            + "*" + engines_runner.RESTART_CHECKPOINT_FILENAME_EXT)
-        for backup_file in glob.glob(backup_glob):
-            os.remove(backup_file)
-        lock_filename = os.path.join(full_directory, "LOCK")
-        if os.path.exists(lock_filename):
-            os.remove(lock_filename)
+        if os.path.exists(full_directory):
+            file_globs = stage.sampling_method.get_output_positions_glob_list()
+            for file_glob in file_globs:
+                full_glob = os.path.join(full_directory, file_glob)
+                for file in glob.glob(full_glob):
+                    os.remove(file)
+            dcd_glob = os.path.join(full_directory, "*.dcd")
+            for dcd_file in glob.glob(dcd_glob):
+                os.remove(dcd_file)
+            out_glob = os.path.join(full_directory, "*.out")
+            for out_file in glob.glob(out_glob):
+                os.remove(out_file)
+            log_glob = os.path.join(full_directory, "*.log")
+            for log_file in glob.glob(log_glob):
+                os.remove(log_file)
+            backup_info_glob = os.path.join(full_directory, 
+                engines_runner.INFORMATION_CHECKPOINT_FILENAME_NOEXT \
+                + "*" + engines_runner.INFORMATION_CHECKPOINT_FILENAME_EXT)
+            for backup_info_file in glob.glob(backup_info_glob):
+                os.remove(backup_info_file)
+            backup_glob = os.path.join(full_directory, 
+                engines_runner.RESTART_CHECKPOINT_FILENAME_NOEXT \
+                + "*" + engines_runner.RESTART_CHECKPOINT_FILENAME_EXT)
+            for backup_file in glob.glob(backup_glob):
+                os.remove(backup_file)
+            lock_filename = os.path.join(full_directory, "LOCK")
+            if os.path.exists(lock_filename):
+                os.remove(lock_filename)
+    elif stage.type == "bd_stage":
+        if anchor_or_systemwide.directory == model.bd_engine.b_surface_directory:
+            full_directory = os.path.join(model.directory, model.bd_engine.b_surface_directory)
+            if os.path.exists(full_directory):
+                output_files_glob = os.path.join(full_directory, model.bd_engine.results_glob)
+                output_files_list = glob.glob(output_files_glob)
+                for output_file in output_files_list:
+                    os.remove(output_file)
+                
+                simulation_file_glob = os.path.join(full_directory, "*_simulation.xml")
+                for simulation_file in glob.glob(simulation_file_glob):
+                    os.remove(simulation_file)
+                
+                traj_file_glob = os.path.join(full_directory, "traj*.xml")
+                for traj_file in glob.glob(traj_file_glob):
+                    os.remove(traj_file)
+    else:
+        raise Exception(f"Unknown stage type: {stage.type}")
     return
 
-# TODO: move to modules/preparer.py?
 def modify_model(
         old_model: structures.Seekr_model, 
         new_model: structures.Seekr_model, 
@@ -955,30 +936,32 @@ def modify_model(
     old_anchors_to_delete: list[int] = []
     new_anchors_to_create: list[int] = []
     
-    index_where_stages_begin_to_differ = None
-    for i, (old_stage, new_stage) in enumerate(zip(old_model.stages, new_model.stages)):
-        if old_stage != new_stage:
-            index_where_stages_begin_to_differ = i
+    #index_where_stages_begin_to_differ = None
+    # NOTE: I think we don't want to do this - if the stage settings change
+    # I think it is up to the user to choose whether to force overwrite subsequent
+    # stages.
+    #for i, (old_stage, new_stage) in enumerate(zip(old_model.stages, new_model.stages)):
+    #    if old_stage != new_stage:
+    #        index_where_stages_begin_to_differ = i
     
-    stages_to_delete_indices = []
-    if index_where_stages_begin_to_differ is not None:
-        for i in range(index_where_stages_begin_to_differ, len(old_model.stages)):
-            stages_to_delete_indices.append(i)
+    #stages_to_delete_indices = []
+    #if index_where_stages_begin_to_differ is not None:
+    #    for i in range(index_where_stages_begin_to_differ, len(old_model.stages)):
+    #        stages_to_delete_indices.append(i)
     
     stages_to_delete_indices_with_files = []
-    for i in stages_to_delete_indices:
-        if old_model.stages[i].has_files(old_model):
-            stages_to_delete_indices_with_files.append(i)
+    stages_to_delete_names_with_files = []
+    #for i in stages_to_delete_indices:
+    #    old_model_stage = old_model.stages[i]
+    #    if old_model_stage.has_files(old_model):
+    #        stages_to_delete_indices_with_files.append(old_model_stage.index)
+    #        stages_to_delete_names_with_files.append(old_model_stage.name)
             
     # Look through the new and old milestones and pair them up by the value
     #  of their variables
     for alpha, anchor_alpha in enumerate(new_model.anchors):
-        #if anchor1.bulkstate:
-        #    continue
         alpha_paired: bool = False
         for beta, anchor_beta in enumerate(old_model.anchors):
-            #if anchor_beta.bulkstate:
-            #    continue
             if anchor_alpha.variables == anchor_beta.variables:
                 pair = (alpha, beta)
                 anchor_pairs.append(pair)
@@ -988,8 +971,6 @@ def modify_model(
             new_anchors_to_create.append(alpha)
         
     for beta, anchor_beta in enumerate(old_model.anchors):
-        #if anchor2.bulkstate:
-        #    continue
         beta_paired = False
         for pair in anchor_pairs:
             if beta == pair[1]:
@@ -1028,33 +1009,8 @@ def modify_model(
         if milestones_changed:
             old_anchors_with_changed_milestones.append(beta)
             
-        # See whether the starting structures have changed
-        # TODO: old_anchors_with_starting_pdbs_to_keep this is probably now irrelevant
-        if not new_model.using_toy():
-            # TODO: this originally looked to see whether hidr or string
-            #  PDB output files were present, but that was a hacky solution.
-            #  This time, examine whether the anchor has a stage with a PDB
-            #  file defined.
-            pass
-            #old_anchor_starting = base.get_anchor_pdb_filename(anchor2)
-            #if re.match(KEEP_ANCHOR_RE, old_anchor_starting):
-            #    old_anchors_with_starting_pdbs_to_keep.append(beta)
-    
-    # TODO: examine whether stages or structures have changed in the systemwide settings
-
+    # NOTE: no need to worry about systemwide because there are no values or milestones.
     warning_msg = ""
-    # TODO: old_anchors_with_starting_pdbs_to_keep this is probably now irrelevant
-    # check whether any anchors have been given new starting structures
-    if len(old_anchors_with_starting_pdbs_to_keep) > 0:
-        warning_msg+=f"The anchor(s) {old_anchors_with_starting_pdbs_to_keep}"\
-            +"have been given new starting structures (from a simulation stage) "\
-            "and the entered command mismatches the new structure file names. "\
-            "If you desire to ignore this message, then use the "\
-            "--force_overwrite (-f) option, and the existing structures from the stage "\
-            "will be kept in the new model. If you wish to overwrite these, you "\
-            "will need to change the model.xml file or write the root directory "\
-            "to a new location.\n\n"
-    
     # check whether deleting directories contain simulation files
     deleting_directories_with_files = []
     for del_anchor_index in old_anchors_to_delete:
@@ -1088,7 +1044,8 @@ def modify_model(
             f"deleted in directory: {root_directory}\n\n"
     
     if len(stages_to_delete_indices_with_files) > 0:
-        warning_msg+=f"The stage(s) {stages_to_delete_indices_with_files} "\
+        warning_msg+=f"The stage(s) with indices {stages_to_delete_indices_with_files} "\
+            +f"(and names {stages_to_delete_names_with_files}) "\
             +"already have existing output files and the entered command "\
             "would overwrite them. If you desire to overwrite the existing "\
             "files, then use the --force_overwrite (-f) option, and these "\
@@ -1106,13 +1063,15 @@ def modify_model(
     
     for cleansing_anchor in cleansing_anchors:
         print("removing output files from anchor:", cleansing_anchor.name)
-        cleanse_outputs_all(cleansing_anchor, old_model)
+        cleanse_outputs_all(old_model, cleansing_anchor)
     
-    for stage_index in stages_to_delete_indices:
-        stage = old_model.stages[stage_index]
-        print("removing output files from stage:", stage.name)
-        # TODO: method doesn't exist: fix this
-        stage.remove_directory(old_model)
+    # NOTE: remove this block because we want to trust the users to re-run
+    # the necessary stages if they want to overwrite the files.
+    #for stage_index in stages_to_delete_indices:
+    #    stage = old_model.stages[stage_index]
+    #    print("removing output files from stage:", stage.name)
+    #    # TODO: method doesn't exist: fix this
+    #    stage.remove_directory(old_model)
 
     # Now that the equivalent anchors are known, we know which ones will
     # be deleted, and which ones are being changed, with or without
@@ -1165,7 +1124,6 @@ def modify_model(
     
     return new_anchors_with_starting_pdbs_to_keep
 
-# TODO: move to modules/preparer.py?
 def resolve_modifications_and_filetree(
         model: structures.Seekr_model, 
         anchors: list[structures.Anchor], 
@@ -1196,7 +1154,7 @@ def resolve_modifications_and_filetree(
         assert stage.input_from in allowed_inputs, \
             f"The input_from may not be {stage.input_from}."
         assert stage.output_to in allowed_outputs, \
-            f"The input_from may not be {stage.output_to}."
+            f"The output_to may not be {stage.output_to}."
         
         did_anchor_stage = False
         did_systemwide_stage = False
@@ -1220,7 +1178,7 @@ def resolve_modifications_and_filetree(
             stage.add_stage_parameters_to_systemwide_settings(model)
             did_systemwide_stage = True
         
-        # Add nones wherever a stage wasn't added somewhere
+        # Add Nones wherever a stage wasn't added somewhere
         if not did_anchor_stage and stage.type == "md_stage":
             stage.add_stage_parameters_to_anchors(model, do_none=True)
         if not did_systemwide_stage and stage.type == "md_stage":
@@ -1240,7 +1198,6 @@ def resolve_modifications_and_filetree(
     return
 
 def generate_bd_files(
-        bd_engine: structures.BD_engine, 
         model: structures.Seekr_model, 
         directory: str
         ) -> None:
@@ -1248,16 +1205,16 @@ def generate_bd_files(
     Determine the BD engine and prepare the necessary files for it.
     """
     found_function = False
-    if bd_engine.type == "browndye":
-        browndye_preparer.generate_bd_files(bd_engine, model, directory)
+    if model.bd_engine.type == "browndye":
+        browndye_preparer.generate_bd_files(model, directory)
         found_function = True
     # TODO: implement SDA
     else:
         # implement check of installed plugins for other BD engines
-        pass
+        pass#
 
     if not found_function:
-        raise Exception(f"BD engine type {bd_engine.type} not recognized.")
+        raise Exception(f"BD engine type {model.bd_engine.type} not recognized.")
     
 def resolve_connections(
         connection_flag_dict: dict, 

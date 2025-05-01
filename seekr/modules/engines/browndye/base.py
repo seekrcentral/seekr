@@ -33,7 +33,6 @@ def compute_transition_counts(results_filename_list):
         results_root = ET.parse(results_filename)
         reactions = results_root.find("reactions")
         n_trajectories = int(reactions.find("n_trajectories").text.strip())
-        #total_n_trajectories += n_trajectories
         stuck = int(reactions.find("stuck").text.strip())
         escaped = int(reactions.find("escaped").text.strip())
         for completed in reactions.iter("completed"):

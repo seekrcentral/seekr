@@ -50,7 +50,7 @@ def prepare(
             model, seekr_input, force_overwrite)
     else:
         raise Exception("Partition must be defined in input file, "\
-                        "A partition of None is not yet implemented.")
+                        "empty partitions are not yet implemented.")
     
     if model.using_md():
         assert seekr_input.md_settings is not None
@@ -63,10 +63,9 @@ def prepare(
     if model.using_bd():
         assert seekr_input.bd_settings is not None
         assert model.bd_engine is not None
-        preparer.copy_bd_files(model, seekr_input, directory)
-        # TODO: must be determined using an existing BD engine or
-        #  from a plugin
-        preparer.generate_bd_files(model.bd_engine, model, directory)
+        seekr_input.bd_settings.copy_bd_files(model, directory)
+        # NOTE: this is the best place for this function
+        preparer.generate_bd_files(model, directory)
         
     model.save(file_path)
     os.chdir(curdir)

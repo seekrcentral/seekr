@@ -27,10 +27,10 @@ def run(
     assert stage_index is not None, \
         "Stage argument must match a name or index of a stage in the model."
     stage = model.stages[stage_index]
-    anchor_index = extract_anchor_index(model, anchor_arg)
+    anchor_index_instruction = extract_anchor_index(model, anchor_arg)
     if stage.input_from == "anchors":
         # anchor_index only needs to be defined if the stage uses anchors.
-        assert anchor_index is not None, \
+        assert anchor_index_instruction is not None, \
             "Anchor argument must match a name or index of an anchor in "\
             "the model."
     assert (device_index is None) \
@@ -42,8 +42,8 @@ def run(
     counter = 0
     while not complete:
         if stage.type == "md_stage":
-            run_instructions = runner.choose_next_simulation_md(stage, model, anchor_index,
-                                             force_overwrite, device_index)
+            run_instructions = runner.choose_next_simulation_md(
+                stage, model, anchor_index_instruction, force_overwrite, device_index)
         elif stage.type == "bd_stage":
             run_instructions = runner.choose_next_simulation_bd(stage, model, force_overwrite)
         else:
@@ -81,13 +81,16 @@ def run(
             elif stage.type == "bd_stage":
                 if not model.using_bd():
                     raise Exception("BD engine is not enabled.")
-                trajs_to_go_min, num_transitions, b_surface_anchor_index, \
-                    restart, total_num_trajs = instruction
+                trajs_to_go_min = instruction.trajs_to_go_minimum
+                trajs_so_far = instruction.trajs_so_far
+                b_surface_anchor_index = instruction.anchor_index
+                restart = instruction.restart
+                num_transitions = instruction.num_transitions
                 if force_overwrite and restart:
                     restart = False
                 log_string = f"running from b-surface anchor: {b_surface_anchor_index}"\
                     +f"restart: {restart} trajectories to run: {trajs_to_go_min}"\
-                    +f"trajectories so far: {total_num_trajs}"\
+                    +f"trajectories so far: {trajs_so_far}"\
                     +f"number of transitions: {num_transitions}"
                 logging.info(log_string)
                 engines_runner.run_bd_simulation(

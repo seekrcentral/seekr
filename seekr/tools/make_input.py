@@ -17,6 +17,7 @@ import seekr.modules.collective_variables.external_cv as external_cv
 import seekr.modules.engines.structures as engines_structures
 import seekr.modules.engines.browndye.structures as browndye_structures
 import seekr.modules.completion_criteria.structures as compl_crit_struct
+import seekr.modules.restraints.preparer as restraints_preparer
 import seekr.modules.structures as structures
 import seekr.modules.engines.preparer as engines_preparer
 import seekr.modules.engines.openmm.preparer as openmm_preparer
@@ -38,14 +39,14 @@ def create_toy_model_input(
     """
     values_list = [-0.7, -0.5, -0.3, -0.1, 0.1, 0.3, 0.5, 0.7]
     positions_list = [
-        [[[0.0, -0.7, 0.0]]], # [[0.3, -0.7, 0.0]]],
-        [[[0.0, -0.5, 0.0]]],
-        [[[0.0, -0.3, 0.0]]],
-        [[[0.0, -0.1, 0.0]]],
-        [[[0.0, 0.1, 0.0]]],
-        [[[0.0, 0.3, 0.0]]],
-        [[[0.0, 0.5, 0.0]]],
-        [[[0.0, 0.7, 0.0]]]]
+        [[0.0, -0.7, 0.0]], # [[0.3, -0.7, 0.0]]],
+        [[0.0, -0.5, 0.0]],
+        [[0.0, -0.3, 0.0]],
+        [[0.0, -0.1, 0.0]],
+        [[0.0, 0.1, 0.0]],
+        [[0.0, 0.3, 0.0]],
+        [[0.0, 0.5, 0.0]],
+        [[0.0, 0.7, 0.0]]]
 
     seekr_input = preparer.Seekr_input()
     seekr_input.directory = root_dir
@@ -60,18 +61,40 @@ def create_toy_model_input(
     selection.atom_indices = [0]
     seekr_input.md_settings.systemwide_settings.selections\
         = [selection]
+    seekr_input.md_settings.systemwide_settings.positions\
+            = [[[0.0, -0.7, 0.0]]]
 
     stage1 = preparer.Input_stage_md()
-    stage1.name = "MMVT"
+    stage1.name = "equilibration"
     stage1.run_minimization = False
-    stage1.output_interval = 50
+    stage1.output_interval = 10
     stage1.ensemble = structures.NVT_ensemble()
-    stage1.sampling_method = sampling_preparer.Milestoning_md_input()
-    stage1.sampling_method.milestoning_method = "MMVT"
+    stage1.sampling_method = sampling_preparer.Conventional_md_input()
     stage1.completion_criteria = compl_crit_struct.Number_of_steps_completion_criteria()
-    stage1.completion_criteria.number_of_steps = 5000
+    stage1.completion_criteria.number_of_steps = 10000
 
-    seekr_input.stages = [stage1,]
+    stage2 = preparer.Input_stage_md()
+    stage2.name = "metadynamics"
+    stage2.run_minimization = False
+    stage2.output_interval = 10
+    stage2.ensemble = structures.NVT_ensemble()
+    stage2.sampling_method = sampling_preparer.Metadynamics_md_input()
+    stage2.sampling_method.gaussian_height = 1.0
+    stage2.sampling_method.cv_names = ["progress_coordinate"]
+    stage2.completion_criteria = compl_crit_struct.All_anchors_filled_completion_criteria()
+    stage2.completion_criteria.eval_interval = 10
+
+    stage3 = preparer.Input_stage_md()
+    stage3.name = "MMVT"
+    stage3.run_minimization = False
+    stage3.output_interval = 50
+    stage3.ensemble = structures.NVT_ensemble()
+    stage3.sampling_method = sampling_preparer.Milestoning_md_input()
+    stage3.sampling_method.milestoning_method = "MMVT"
+    stage3.completion_criteria = compl_crit_struct.Number_of_steps_completion_criteria()
+    stage3.completion_criteria.number_of_steps = 5000
+
+    seekr_input.stages = [stage1, stage2, stage3]
     seekr_input.partitions = [preparer.Partition_input()]
     external_cv_input = external_cv.External_cv_input()
     external_cv_input.name = "progress_coordinate"
@@ -95,7 +118,9 @@ def create_toy_model_input(
     for i, (value, position) in enumerate(zip(values_list, positions_list)):
         input_anchor = preparer.Anchor_input()
         input_anchor.value = [value]
-        input_anchor.positions = [position]
+        #input_anchor.positions = [position]
+        input_anchor.positions = ""
+
         seekr_input.partitions[0].anchors.append(input_anchor)
 
     seekr_input.toy_settings = preparer.Toy_settings_input()
@@ -223,6 +248,11 @@ def create_host_guest_example_input(
     stage2.sampling_method.gaussian_height = 1.0
     stage2.sampling_method.cv_names = ["distance_host_guest"]
     stage2.completion_criteria = compl_crit_struct.All_anchors_filled_completion_criteria()
+    proximity_restraint_input = restraints_preparer.Proximity_restraint_input()
+    proximity_restraint_input.selection1_name = "host"
+    proximity_restraint_input.selection2_name = "guest"
+    proximity_restraint_input.radius = 1.25
+    stage2.restraints = [proximity_restraint_input]
 
     stage3 = preparer.Input_stage_md()
     stage3.name = "MMVT"
@@ -292,7 +322,7 @@ if __name__ == "__main__":
         seekr_input = create_toy_model_input(root_dir)
     else:
         root_dir = "~/tmp/seekr3_test"
-        seekr_input = create_host_guest_example_input(root_dir, bd=True, toy_mode=toy_mode)
+        seekr_input = create_host_guest_example_input(root_dir, bd=True)
     
     seekr_input_dict = unstructure(seekr_input)
     seekr_input_dict = base.wrap_noindent_integers(seekr_input_dict)

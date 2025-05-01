@@ -58,7 +58,7 @@ class Proximity_restraint:
     radius: float = field(default=2.0,
                         validator=[validators.instance_of(float),
                                     validators.gt(0)])
-    force_constant: float = field(default=400.0,
+    force_constant: float = field(default=10000.0,
                                 validator=[validators.instance_of(float),
                                             validators.gt(0)])
 

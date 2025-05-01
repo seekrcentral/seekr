@@ -6,7 +6,7 @@ Restraints that interface with OpenMM.
 
 import typing
 
-from attrs import define
+from attrs import define, field
 
 import openmm
 import openmm.unit as unit
@@ -33,11 +33,15 @@ class Base_restraint_openmm_interface:
         """
         return
 
+@define
 class Positional_restraint_openmm_interface:
     """
-    A Positional restraint using the OpenMM engine.
+    A Positional restraint using the OpenMM engine. This keeps
+    the set of atoms or groups close to their starting positions.
+    This keeps a receptor at the same position and orientation in
+    Cartesian space, for example.
     """
-    _restraint: restraints_structures.Positional_restraint
+    _restraint: restraints_structures.Positional_restraint = field()
     def add_forces_to_system(
             self, 
             **kwargs: typing.Dict[str, typing.Any]
@@ -65,12 +69,15 @@ class Positional_restraint_openmm_interface:
             
         system.addForce(force)
         return None
-    
+
+@define
 class Pairwise_restraint_openmm_interface:
     """
-    A Pairwise restraint using the OpenMM engine.
+    A Pairwise restraint using the OpenMM engine. Keep pairs of
+    atoms or groups at an approximately constant distance - to
+    prevent unfolding, for example.
     """
-    _restraint: restraints_structures.Pairwise_restraint
+    _restraint: restraints_structures.Pairwise_restraint = field()
     def add_forces_to_system(
             self, 
             **kwargs: typing.Dict[str, typing.Any]
@@ -100,12 +107,15 @@ class Pairwise_restraint_openmm_interface:
         
         system.addForce(pairwiseForce)
         return None
-    
+
+@define
 class Proximity_restraint_openmm_interface:
     """
-    A Proximity restraint using the OpenMM engine.
+    A Proximity restraint using the OpenMM engine. Keep two groups of
+    atoms within a certain distance - to prevent the ligand from escaping too
+    far from the receptor, for example.
     """
-    _restraint: restraints_structures.Proximity_restraint
+    _restraint: restraints_structures.Proximity_restraint = field()
     def add_forces_to_system(
             self, 
             **kwargs: typing.Dict[str, typing.Any]
@@ -141,10 +151,10 @@ def assign_restraints_interface(
     assert md_engine.type == "openmm", \
         "Only OpenMM engines can be used in the openmm_interface module."
     if restraint.type == "positional":
-        return Positional_restraint_openmm_interface()
+        return Positional_restraint_openmm_interface(restraint)
     elif restraint.type == "pairwise":
-        return Pairwise_restraint_openmm_interface()
+        return Pairwise_restraint_openmm_interface(restraint)
     elif restraint.type == "proximity":
-        return Proximity_restraint_openmm_interface()
+        return Proximity_restraint_openmm_interface(restraint)
     else:
         return None

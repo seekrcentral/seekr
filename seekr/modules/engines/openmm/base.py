@@ -8,7 +8,7 @@ and external libraries.
 Imported by anything in the modules/engines/openmm subdirectory.
 """
 
-
+import re
 
 import numpy as np
 import openmm.unit as unit
@@ -32,3 +32,12 @@ def get_box_vectors_from_pdb(pdb_filename: str) -> unit.Quantity:
         "Box vector length(s) of zero detected. Please check box vectors in " \
         "input PDB."
     return box_vectors
+
+def convert_openmm_to_python_expr(
+        old_function_str: str) -> str:
+    """
+    Convert the expression from a form used by OpenMM
+    to a form used by Python.
+    """
+    new_function_str = re.sub(r"\^", "**", old_function_str)
+    return new_function_str

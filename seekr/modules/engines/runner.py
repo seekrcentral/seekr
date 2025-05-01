@@ -117,12 +117,18 @@ def cleanse_outputs_bd(
 def get_checkpoint_information_basename(
         swarm_index: int | None
         ) -> str:
+    #if swarm_index is None:
+    #    checkpoint_information_filename \
+    #        = INFORMATION_CHECKPOINT_FILENAME_NOEXT \
+    #            + INFORMATION_CHECKPOINT_FILENAME_EXT
+    #else:
+    #    checkpoint_information_filename \
+    #        = INFORMATION_CHECKPOINT_FILENAME_NOEXT \
+    #        + f".swarm_{swarm_index}" \
+    #        + INFORMATION_CHECKPOINT_FILENAME_EXT
     if swarm_index is None:
-        checkpoint_information_filename \
-            = INFORMATION_CHECKPOINT_FILENAME_NOEXT \
-                + INFORMATION_CHECKPOINT_FILENAME_EXT
-    else:
-        checkpoint_information_filename \
+        swarm_index = 0
+    checkpoint_information_filename \
             = INFORMATION_CHECKPOINT_FILENAME_NOEXT \
             + f".swarm_{swarm_index}" \
             + INFORMATION_CHECKPOINT_FILENAME_EXT
@@ -131,10 +137,14 @@ def get_checkpoint_information_basename(
 def get_restart_checkpoint_basename(
         swarm_index: int | None
         ) -> str:
+    #if swarm_index is None:
+    #    restart_checkpoint_filename = RESTART_CHECKPOINT_FILENAME_NOEXT\
+    #        + RESTART_CHECKPOINT_FILENAME_EXT
+    #else:
+    #    restart_checkpoint_filename = RESTART_CHECKPOINT_FILENAME_NOEXT\
+    #        + str(swarm_index) + RESTART_CHECKPOINT_FILENAME_EXT
     if swarm_index is None:
-        restart_checkpoint_filename = RESTART_CHECKPOINT_FILENAME_NOEXT\
-            + RESTART_CHECKPOINT_FILENAME_EXT
-    else:
-        restart_checkpoint_filename = RESTART_CHECKPOINT_FILENAME_NOEXT\
+        swarm_index = 0
+    restart_checkpoint_filename = RESTART_CHECKPOINT_FILENAME_NOEXT\
             + str(swarm_index) + RESTART_CHECKPOINT_FILENAME_EXT
     return restart_checkpoint_filename

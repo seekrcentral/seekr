@@ -13,10 +13,13 @@ import typing
 import logging
 
 from attrs import define
+import numpy as np
 import openmm
 import openmm.app as openmm_app
+import openmm.unit as unit
 
 import seekr.modules.structures as structures
+import seekr.modules.engines.base as engines_base
 import seekr.modules.engines.structures as engines_structures
 import seekr.modules.sampling_methods.structures as sampling_methods_structures
 import seekr.modules.collective_variables.structures as collective_variables_structures
@@ -26,8 +29,8 @@ import seekr.modules.collective_variables.openmm_interface \
     as collective_variables_openmm_interface
 
 BIAS_DIR_NAME = "metad_bias"
-METADYN_NAME = "metadynamics_{}_{}.pdb"
-BUFFER_FRAMES = 1 # How many positions variables to store for bounce positions.
+METADYN_NAME = "metadynamics.{}.swarm_{}"
+BUFFER_FRAMES = 1 # How many positions variables to store for encounter positions.
 
 # TODO: put into a lower-level module?
 def write_pdb_file_from_simulation(
@@ -48,6 +51,19 @@ def write_pdb_file_from_simulation(
             keepIds=True)
     return
 
+def write_txt_file_from_simulation(
+        filename: str,
+        simulation: openmm_app.Simulation
+        ) -> None:
+    """
+    Write a TXT file with the current state of the system.
+    """
+    state = simulation.context.getState(getPositions=True,
+                                        enforcePeriodicBox=False)
+    positions = state.getPositions().value_in_unit(unit.nanometers)
+    np.savetxt(filename, positions)
+    return
+
 def make_list_from_ambig_entry(value, num_elements):
     """
     Make a list of num_elements with all elements equal to value
@@ -65,7 +81,7 @@ class Base_md_openmm_interface:
     A base class for a MD sampling method using the OpenMM engine.
     """
     _stage_index: int
-    _sampling_method: sampling_methods_structures.MD_sampling_method
+    sampling_method: sampling_methods_structures.MD_sampling_method
     _simulation_obj: openmm_app.Simulation | None = None
     def create_sim_openmm(self) -> None:
         """
@@ -166,7 +182,7 @@ class Base_md_openmm_interface:
         self._simulation_obj.step(steps)
         return
 
-    def perform_eval(self):
+    def perform_eval(self, restart_index, swarm_index):
         """
         Perform an evaluation at a certain point in the simulation.
         """
@@ -180,6 +196,7 @@ class Base_md_openmm_interface:
             min_steps: int,
             max_steps: int,
             restart_index: int,
+            swarm_index: int,
             checkpoint_filename: str,
             checkpoint_info_filename: str,
             lock_filename: str,
@@ -197,7 +214,7 @@ class Base_md_openmm_interface:
         stopping = False
         num_steps = 0
         on_step = start_step
-        lock_string = engines_structures.create_lock(lock_filename)
+        lock_string = engines_base.create_lock(lock_filename)
         while not stopping:
             abort = False
             make_checkpoint = False
@@ -207,6 +224,8 @@ class Base_md_openmm_interface:
             steps_since_checkpoint = num_steps % steps_between_checkpoints
             steps_until_next_checkpoint = steps_between_checkpoints \
                 - steps_since_checkpoint
+            timestep = self._simulation_obj.context.getIntegrator().getStepSize()\
+                .value_in_unit(unit.picoseconds)
             if steps_until_next_checkpoint < steps_until_eval:
                 steps_to_take = steps_until_next_checkpoint
             else:
@@ -218,7 +237,6 @@ class Base_md_openmm_interface:
             self._step(steps_to_take)
             if num_steps == 0 and do_initial_benchmark:
                 total_time = time.time() - start_time
-                timestep = self._simulation_obj.context.getIntegrator().getStepSize()
                 ns_per_day = steps_to_take * timestep * 1e-3 \
                     * 86400 / total_time
                 logging.info(f"Initial benchmark (ns/day): {ns_per_day}")
@@ -229,15 +247,15 @@ class Base_md_openmm_interface:
             if make_eval:
                 #integrator = self._simulation_obj.context.getIntegrator()
                 #abort = integrator.getGlobalVariableByName("abort")
-                self.perform_eval()
+                self.perform_eval(restart_index, swarm_index)
                 # NOTE: an logging update is printed every checkpoint. Is this right?
                 abort = completion_openmm_interface.criteria_satisfied(
                     current_step=on_step, print_update=make_checkpoint)
             if make_checkpoint:
                 self._simulation_obj.saveCheckpoint(checkpoint_filename)
                 engines_structures.write_checkpoint_information_file(
-                    on_step, restart_index, checkpoint_info_filename)
-                lock_string = engines_structures.update_lock(
+                    on_step, restart_index, timestep, checkpoint_info_filename)
+                lock_string = engines_base.update_lock(
                     lock_filename, lock_string)
             if on_step >= max_steps:
                 stopping = True
@@ -248,7 +266,7 @@ class Base_md_openmm_interface:
             
         self._simulation_obj.saveCheckpoint(checkpoint_filename)
         engines_structures.write_checkpoint_information_file(
-            on_step, restart_index, checkpoint_info_filename)
+            on_step, restart_index, timestep, checkpoint_info_filename)
         os.remove(lock_filename)
         return num_steps
 
@@ -259,7 +277,7 @@ class Conventional_md_openmm_interface(Base_md_openmm_interface):
     the OpenMM engine
     """
     _stage_index: int
-    _sampling_method: sampling_methods_structures.Conventional_md_sampling_method
+    sampling_method: sampling_methods_structures.Conventional_md_sampling_method
     _simulation_obj: openmm_app.Simulation | None = None
     
 @define
@@ -269,7 +287,7 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
     the OpenMM engine
     """
     _stage_index: int
-    _sampling_method: sampling_methods_structures.Metadynamics_md_sampling_method
+    sampling_method: sampling_methods_structures.Metadynamics_md_sampling_method
     _simulation_obj: openmm_app.Simulation | None = None
     _metadynamics_obj: openmm_app.Metadynamics | None = None
     _openmm_cv_list: list[collective_variables_structures.Collective_variable] = []
@@ -294,6 +312,7 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
         for i, cv in enumerate(model.collective_variables):
             cv_interface = collective_variables_openmm_interface.assign_cv_interface(
                 cv, md_engine)
+            assert cv_interface is not None
             cv_force = cv_interface.make_cv_force()
             cv_interface.add_cv_groups_and_variables()
             cv_name = f"0*x_{i}"
@@ -308,12 +327,12 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
             self._openmm_cv_list.append(openmm_cv_object)
 
         boosted_cvs: list[collective_variables_structures.Collective_variable] = []
-        if len(self._sampling_method.cv_names) == 0:
+        if len(self.sampling_method.cv_names) == 0:
             # Then use all CVs
             for cv in model.collective_variables:
                 boosted_cvs.append(cv)
         else:
-            for cv_name in self._sampling_method.cv_names:
+            for cv_name in self.sampling_method.cv_names:
                 cv = model.get_cv_by_name(cv_name)
                 boosted_cvs.append(cv)
         assert len(boosted_cvs) > 0, \
@@ -321,14 +340,14 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
         assert len(boosted_cvs) <= 3, \
             "Too many CVs were provided for the metadynamics method."
         num_boosted_cvs = len(boosted_cvs)
-        metadyn_biasfactor = self._sampling_method.bias_factor
-        metadyn_height = self._sampling_method.gaussian_height
-        steps_per_metadyn_update = self._sampling_method.steps_per_update
+        metadyn_biasfactor = self.sampling_method.bias_factor
+        metadyn_height = self.sampling_method.gaussian_height
+        steps_per_metadyn_update = self.sampling_method.steps_per_update
         bias_widths = make_list_from_ambig_entry(
-            self._sampling_method.gaussian_width, num_boosted_cvs)
+            self.sampling_method.gaussian_width, num_boosted_cvs)
         grid_widths = make_list_from_ambig_entry(
-            self._sampling_method.number_of_points, num_boosted_cvs)
-        if self._sampling_method.write_biases:
+            self.sampling_method.number_of_points, num_boosted_cvs)
+        if self.sampling_method.write_biases:
             metadyn_bias_dir = os.path.join(directory, BIAS_DIR_NAME)
             save_frequency = steps_per_metadyn_update
             if not os.path.exists(metadyn_bias_dir):
@@ -355,9 +374,9 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
             frequency=steps_per_metadyn_update, 
             saveFrequency=save_frequency, biasDir=metadyn_bias_dir)
         self._simulation_obj.context.reinitialize(preserveState=True)
-        return None
+        return
     
-    def perform_eval(self):
+    def perform_eval(self, restart_index, swarm_index):
         """
         Perform an evaluation at a certain point in the simulation.
         """
@@ -374,8 +393,9 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
             for milestone in anchor.milestones:
                 curdir = os.getcwd()
                 os.chdir(self._model.directory)
-                result = structures.check_values_within_voronoi_boundary(
-                    cv_values, milestone.variables)
+                #result = structures.check_values_within_voronoi_boundary(
+                #    cv_values, milestone.variables)
+                result = milestone.is_point_within(cv_values)
                 os.chdir(curdir)
                 if not result:
                     in_anchor = False
@@ -388,21 +408,30 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
                     continue
                 self._current_alpha = alpha
                 current_anchor = self._model.anchors[alpha]
+                if not current_anchor.md:
+                    logging.critical(f"System has reached non-MD (BD only?) anchor {alpha}. "\
+                                     "Consider imposing a Proximity restraint or other restraint.")
+                    raise Exception("Metadynamics simulation has reached a non-MD anchor. Aborting.")
                 assert current_anchor.stage_parameters[self._stage_index+1] is not None
                 anchor_directory = os.path.join(
                     self._model.directory, current_anchor.directory,
                     current_anchor.stage_parameters[self._stage_index+1]["directory"])
                 # Save this anchor's new structure
-                if not self._model.using_toy():
-                    var_string = current_anchor.make_var_string()
-                    output_pdb_basename = METADYN_NAME.format(var_string, 0)
-                    output_pdb_filename = os.path.join(anchor_directory, 
-                                                        output_pdb_basename)
-                    current_anchor.change_pdb_filename(output_pdb_basename, self._stage_index)
-                    write_pdb_file_from_simulation(output_pdb_filename, self._simulation_obj)
-                    
-                else: # TODO: fill this in later
-                    pass
+                if self._model.using_toy():
+                    extension = ".txt"
+                else:
+                    extension = ".pdb"
+                
+                var_string = current_anchor.make_var_string()
+                output_positions_basename_noext = METADYN_NAME.format(var_string, 0)
+                output_positions_basename = output_positions_basename_noext + extension
+                output_positions_filename = os.path.join(anchor_directory, 
+                                                    output_positions_basename)
+                current_anchor.change_positions_filename(output_positions_basename_noext, self._stage_index)
+                if self._model.using_toy(): # TODO: fill this in later
+                    write_txt_file_from_simulation(output_positions_filename, self._simulation_obj)
+                else:
+                    write_pdb_file_from_simulation(output_positions_filename, self._simulation_obj)
 
     def _step(
             self,
@@ -415,13 +444,17 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
         return
 
 @define
-class Milestoning_md_openmm_interface:
+class Milestoning_md_openmm_interface(Base_md_openmm_interface):
     """
     Interface for the MMVT MD sampling method using the OpenMM engine
     """
     _stage_index: int
-    _sampling_method: sampling_methods_structures.Milestoning_md_sampling_method
+    sampling_method: sampling_methods_structures.Milestoning_md_sampling_method
+    _model: structures.Seekr_model | None = None
     _simulation_obj: openmm_app.Simulation | None = None
+    _openmm_cv_list: list[collective_variables_structures.Collective_variable] = None
+    _anchor_obj: structures.Anchor | None = None
+
     def add_global_variables_integrator(
             self, 
             **kwargs: typing.Dict[str, typing.Any]
@@ -434,6 +467,7 @@ class Milestoning_md_openmm_interface:
         integrator: openmm.System = kwargs["integrator"]
         # TODO: make anchor and/or integrator an attribute of this class?
         anchor: structures.Anchor = kwargs["anchor"]
+        self._anchor_obj = anchor
         # TODO: create variables to handle bootstrapping with replacement.
         #num_included_milestones = 0
         for i, milestone in enumerate(anchor.milestones):
@@ -452,11 +486,13 @@ class Milestoning_md_openmm_interface:
         
         #integrator.addGlobalVariable("num_milestones", num_included_milestones)
         integrator.addGlobalVariable("step_count", 0)
+        integrator.addGlobalVariable("time_count", 0)
         integrator.addGlobalVariable("buffer_frames", BUFFER_FRAMES)
         integrator.addGlobalVariable("last_milestone_alias_touched", -1)
         integrator.addGlobalVariable("last_milestone_time_touched", -1)
-        integrator.addGlobalVariable("first_crossing_time", -1)
-        integrator.addGlobalVariable("first_step_bounce", 0)
+        integrator.addGlobalVariable("first_encounter_time", -1)
+        integrator.addGlobalVariable("first_step_encounter", 0)
+        integrator.addGlobalVariable("encounter_this_step", 0)
 
         return None
     
@@ -471,10 +507,10 @@ class Milestoning_md_openmm_interface:
         """
         
         integrator: openmm.System = kwargs["integrator"]
-        # TODO:
-        #  1. Storage of position information (optionally)
+        integrator.addPerDofVariable("old_x", 0)
+        integrator.addPerDofVariable("old_v", 0)
         for i in range(BUFFER_FRAMES):
-            integrator.addPerDofVariable(f"bounce_pos_{i}", 0)
+            integrator.addPerDofVariable(f"encounter_pos_{i}", 0)
         return None
     
     def pre_integration_instructions(
@@ -486,7 +522,14 @@ class Milestoning_md_openmm_interface:
 
         Some steps to do for milestoning.
         """
-        
+        integrator: openmm.System = kwargs["integrator"]
+        integrator.addComputePerDof("old_x", "x")
+        integrator.addComputePerDof("old_v", "v")
+        anchor = self._anchor_obj
+        for i, milestone in enumerate(anchor.milestones):
+            alias_index_i = milestone.alias_index
+            integrator.addComputeGlobal(f"value_{alias_index_i}", 
+                                        f"energy{alias_index_i}")
         return None
     
     def post_integration_instructions(
@@ -500,48 +543,177 @@ class Milestoning_md_openmm_interface:
         """
         # TODO: 
         # 1. Obtain values of relevant force groups
-        # 2. Detect bounces based on this
-        # 3. If a bounce occurred, reverse velocities
+        # 2. Detect encounters based on this
+        # 3. If a encounter occurred, reverse velocities
         integrator: openmm.System = kwargs["integrator"]
-        anchor: structures.Anchor = kwargs["anchor"]
-        for i, milestone in enumerate(anchor.milestones):
-            alias_index_i = milestone.alias_index
-            integrator.addComputeGlobal(f"value_{alias_index_i}", 
-                                        f"energy{alias_index_i}")
+        #anchor: structures.Anchor = kwargs["anchor"]
+        anchor = self._anchor_obj
         
-        # Check to make sure no bounce on first step.
-        integrator.beginIfBlock("step_count = 0")
         for i, milestone in enumerate(anchor.milestones):
             alias_index_i = i+1
             integrator.beginIfBlock(f"value_{alias_index_i} > 0")
-            integrator.addComputeGlobal("first_step_bounce", "1")
-            integrator.endBlock()
-        integrator.endBlock()
-
-        for i, milestone in enumerate(anchor.milestones):
-            alias_index_i = i+1
-            integrator.beginIfBlock(f"value_{alias_index_i} > 0")
+            integrator.addComputeGlobal("encounter_this_step", "1")
             
+            # Check to make sure no encounter on first step.
+            integrator.beginIfBlock("step_count = 0")
+            integrator.addComputeGlobal("first_step_encounter", "1")
+            integrator.endBlock()
+
             integrator.beginIfBlock(f"last_milestone_alias_touched > -1")
             for j, milestone2 in enumerate(anchor.milestones):
                 alias_index_j = j+1
                 integrator.beginIfBlock(f"last_milestone_alias_touched = {alias_index_j}")
                 integrator.addComputeGlobal(f"milestone_{alias_index_i}_{alias_index_j}_count", f"milestone_{alias_index_i}_{alias_index_j}_count + 1")
                 integrator.endBlock()
-            integrator.addComputeGlobal(f"milestone_{alias_index_i}_steps", f"milestone_{alias_index_i}_steps + step_count - last_milestone_step_touched")
-            integrator.addComputeGlobal("last_milestone_step_touched", "step_count")
+            integrator.addComputeGlobal(f"milestone_{alias_index_i}_time", f"milestone_{alias_index_i}_time + time_count - last_milestone_time_touched")
+            integrator.addComputeGlobal("last_milestone_time_touched", "time_count")
+            integrator.addComputeGlobal("last_milestone_alias_touched", f"{alias_index_i}")
             integrator.endBlock() # End If last_milestone_alias_touched > -1
             
             integrator.beginIfBlock("last_milestone_alias_touched = -1")
             integrator.addComputeGlobal("last_milestone_alias_touched", f"{alias_index_i}")
-            integrator.addComputeGlobal("last_milestone_step_touched", "step_count")
+            integrator.addComputeGlobal("first_encounter_time", "time_count")
+            integrator.addComputeGlobal("last_milestone_time_touched", "time_count")
             integrator.endBlock() # End If last_milestone_alias_touched = -1
             
             integrator.endBlock() # End If value_{alias_index_i} > 0
 
+        # If using MMVT, then reverse velocities.
+        integrator.beginIfBlock(f"encounter_this_step = 1")
+        integrator.addComputePerDof("v", "-old_v")
+        integrator.addComputePerDof("x", "old_x")
+        integrator.endBlock()
+
         integrator.addComputeGlobal("step_count", "step_count + 1")
+        integrator.addComputeGlobal("time_count", "time_count + dt")
+        integrator.addComputeGlobal("encounter_this_step", "0")
 
         return None
+    
+    def pre_simulation_preparations(
+            self, 
+            **kwargs: typing.Dict[str, typing.Any]):
+        """
+        Perform any necessary preparations before the simulation starts.
+        """
+        system: openmm.System = kwargs["system"]
+        model: structures.Seekr_model = kwargs["model"]
+        self._model = model
+        md_engine = model.md_engine
+        if self._openmm_cv_list is None:
+            self._openmm_cv_list = []
+        assert md_engine.type == "openmm", \
+            "Only OpenMM engines can be used in the openmm_interface module."
+        
+        anchor = self._anchor_obj
+        for i, milestone in enumerate(anchor.milestones):
+            alias_index_i = milestone.alias_index
+            cv_indices = milestone.get_cv_indices()
+            num_cvs = len(cv_indices)
+            if num_cvs == 1:
+                cv_index = cv_indices[0]
+                cv = model.collective_variables[cv_index]
+                cv_interface = collective_variables_openmm_interface.assign_cv_interface(
+                    cv, md_engine)
+                assert cv_interface is not None, f"An interface was not found for cv {cv_index}"
+                avg_value = milestone.variables["avg_value"]
+                boundary_force = cv_interface.make_boundary_force()
+                cv_interface.add_boundary_groups_and_variables(
+                    k=milestone.variables["k"], value=avg_value)
+                boundary_force.setForceGroup(alias_index_i)
+                system.addForce(boundary_force)
+                self._openmm_cv_list.append(boundary_force)
+                
+            elif num_cvs > 1:
+                me_expr_list = []
+                neighbor_expr_list = []
+                me_force_list = []
+                neighbor_force_list = []
+                for variable in milestone.variables:
+                    if variable.startswith("me"):
+                        cv_index = int(variable.split("_")[1])
+                        cv = model.collective_variables[cv_index]
+                        cv_interface = collective_variables_openmm_interface.assign_cv_interface(
+                            cv, md_engine)
+                        assert cv_interface is not None, f"An interface was not found for cv {cv_index}"
+                        me_key_name = f"me_{cv_index}"
+                        neighbor_key_name = f"neighbor_{cv_index}"
+                        me_force, neighbor_force = cv_interface.make_voronoi_cv_boundary_forces(
+                            milestone.variables[me_key_name], 
+                            milestone.variables[neighbor_key_name])
+                        me_force_list.append(me_force)
+                        neighbor_force_list.append(neighbor_force)
+                        me_cv_expr = f"me_cv_{cv_index}_alias_{alias_index_i}"
+                        me_expr_list.append(me_cv_expr)
+                        neighbor_cv_expr = f"neighbor_cv_{cv_index}_alias_{alias_index_i}"
+                        neighbor_expr_list.append(neighbor_cv_expr)
+
+                me_expr = " + ".join(me_expr_list)
+                neighbor_expr = " + ".join(neighbor_expr_list)
+                cv_expr = f"step((" + me_expr + ") - (" + neighbor_expr + "))"
+                openmm_cv_object = openmm.CustomCVForce(cv_expr)
+                #openmm_cv_object.addGlobalParameter(f"k_{alias_index_i}", milestone.variables["k"])
+                for i in range(len(me_expr_list)):
+                    me_expr = me_expr_list[i]
+                    neighbor_expr = neighbor_expr_list[i]
+                    me_force = me_force_list[i]
+                    neighbor_force = neighbor_force_list[i]
+                    openmm_cv_object.addCollectiveVariable(me_expr, me_force)
+                    openmm_cv_object.addCollectiveVariable(neighbor_expr, neighbor_force)
+
+                openmm_cv_object.setForceGroup(alias_index_i)
+                system.addForce(openmm_cv_object)
+                self._openmm_cv_list.append(openmm_cv_object)
+
+        self._simulation_obj.context.reinitialize(preserveState=True)
+        return
+
+    def perform_eval(self, restart_index, swarm_index):
+        """
+        This is when milestoning information is written to the output file.
+        """
+        integrator = self._simulation_obj.context.getIntegrator()
+        anchor = self._anchor_obj
+        assert anchor.stage_parameters[self._stage_index+1] is not None
+        anchor_directory = os.path.join(
+            self._model.directory, anchor.directory,
+            anchor.stage_parameters[self._stage_index+1]["directory"])
+        output_basename = f"milestoning_restart{restart_index}_swarm_{swarm_index}.out"
+        output_filename = os.path.join(anchor_directory, output_basename)
+        
+        #for i, cv in enumerate(self._openmm_cv_list):
+        #    cv_value = cv.getCollectiveVariableValues(self._simulation_obj.context)
+        
+        first_step_encounter=int(integrator.getGlobalVariableByName("first_step_encounter"))
+        if first_step_encounter == 1:
+            raise Exception("Milestoning simulation encounter on first step: the system is trapped " \
+            "   behind a boundary. Check and revise milestone boundary definitions and atomic positions.")
+            #TODO: delete checkpoint files.
+        milestone_count_dict = {}
+        milestone_time_dict = {}
+        for i, milestone in enumerate(anchor.milestones):
+            alias_index_i = i+1
+            
+            for j, milestone2 in enumerate(anchor.milestones):
+                alias_index_j = j+1
+                milestone_count_key = f"milestone_{alias_index_i}_{alias_index_j}_count"
+                milestone_count_dict[milestone_count_key] \
+                    = int(integrator.getGlobalVariableByName(milestone_count_key))
+
+            milestone_time_key = f"milestone_{alias_index_i}_time"
+            milestone_time_dict[milestone_time_key] \
+                = int(integrator.getGlobalVariableByName(milestone_time_key))
+
+        self.sampling_method.write_output_file(
+            filename=output_filename,
+            step_count=int(integrator.getGlobalVariableByName("step_count")),
+            time_count=float(integrator.getGlobalVariableByName("time_count")),
+            first_encounter_time=int(integrator.getGlobalVariableByName("first_encounter_time")),
+            last_milestone_alias_touched=int(integrator.getGlobalVariableByName("last_milestone_alias_touched")),
+            last_milestone_time_touched=int(integrator.getGlobalVariableByName("last_milestone_time_touched")),
+            milestone_count_dict=milestone_count_dict,
+            milestone_time_dict=milestone_time_dict
+        )
     
 Sampling_md_openmm_interface = typing.Union[Conventional_md_openmm_interface,
                                             Metadynamics_md_openmm_interface,

@@ -29,6 +29,16 @@ Run_instruction_md = namedtuple(
         "swarm_index"
     ])
 
+Run_instruction_bd = namedtuple(
+    "Run_instruction_bd",
+    [
+        "trajs_to_go_minimum",
+        "trajs_so_far",
+        "anchor_index",
+        "restart",
+        "num_transitions"
+    ])
+
 def get_current_md_step(
         anchor_or_systemwide: engines_structures.MD_systemwide_settings \
             | structures.Anchor, 
@@ -145,6 +155,8 @@ def choose_next_simulation_md(
         else:
             anchor_or_systemwide = model.anchors[anchor_or_systemwide_index]
             partition_name = f"anchor {anchor_or_systemwide_index}"
+        # TODO: remove support for multiple frames in this module - multiple-frame
+        #  PDBs will be handled at the preparer level.
         num_swarm_frames = anchor_or_systemwide.get_starting_structure_num_frames(
             model.directory, stage_md.input_stage_index)
         calculation_dir = get_calculation_directory_md(
@@ -212,11 +224,12 @@ def choose_next_simulation_bd(
         bulk_anchor = model.anchors[bulk_index]
         engines_runner.cleanse_outputs_bd(bulk_anchor, model)
 
-    run_instructions_unsorted: list = []
+    run_instructions_unsorted: list[typing.NamedTuple] = []
     bd_transition_counts = model.bd_engine.get_bd_transition_counts(model.directory)
     if "b_surface" not in bd_transition_counts:
-        info_to_run_unsorted.append(
-            [num_trajs_needed, 0, bulk_index, False, num_trajs_needed])
+        run_instruction = Run_instruction_bd(
+            num_trajs_needed, 0, bulk_index, False, 0)
+        run_instructions_unsorted.append(run_instruction)
     else:
         # see how many simulations need to be run in b_surface
         b_surface_sims_so_far = bd_transition_counts["b_surface"]["total"]
@@ -231,18 +244,19 @@ def choose_next_simulation_bd(
         steps_to_go_minimum = num_trajs_needed - b_surface_sims_so_far
         
         if steps_to_go_minimum > 0:
-            info_to_run_unsorted.append(
-                [steps_to_go_minimum, total_b_surface_encounters, \
-                    "b_surface", True, b_surface_sims_so_far])
-        
+            run_instruction = Run_instruction_bd(
+                steps_to_go_minimum, b_surface_sims_so_far, bulk_index, True, 
+                total_b_surface_encounters)
+            run_instructions_unsorted.append(run_instruction)
+            
         elif min_b_surface_encounters is not None:
             if total_b_surface_encounters < min_b_surface_encounters:
                 total_bd_simulation_length \
                     = (b_surface_sims_so_far // bd_sim_chunk_size + 1) \
                     * bd_sim_chunk_size
-                info_to_run_unsorted.append(
-                    [total_bd_simulation_length-b_surface_sims_so_far, \
-                        total_b_surface_encounters, "b_surface", True, \
-                        b_surface_sims_so_far])
+                run_instruction = Run_instruction_bd(
+                    total_bd_simulation_length-b_surface_sims_so_far, b_surface_sims_so_far, 
+                    bulk_index, True, total_b_surface_encounters)
+                run_instructions_unsorted.append(run_instruction)
                 
-    return info_to_run_unsorted
+    return run_instructions_unsorted

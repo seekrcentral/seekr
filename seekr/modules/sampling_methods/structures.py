@@ -85,42 +85,26 @@ class Metadynamics_md_sampling_method:
     def needs_to_be_in_anchor(self) -> bool:
         return False
     
-    def get_output_positions_pdb_glob(self) -> str:
-        return "metadynamics*.pdb"
-    
-    def get_output_positions_txt_glob(self) -> str:
-        return "metadynamics*.txt"
-    
-    def get_output_basename(self) -> str:
+    def get_output_positions_basename_noext(self) -> str:
         return "metadynamics"
     
-    def get_output_extension(self) -> str:
-        return "pdb"
+    def get_output_positions_glob_list(self) -> list[str]:
+        return ["metadynamics*.pdb", "metadynamics*.txt"]
     
-    def get_output_glob(self, swarm_index) -> str:
-        basename = self.get_output_basename()
-        extension = self.get_output_extension()
-        if swarm_index is None:
-            swarm_string = ""
+    def get_final_pdb_output_basename(
+            self, 
+            toy_mode: bool,
+            frame_number: int | None = None,
+            ) -> str:
+        if toy_mode:
+            extension = "txt"
         else:
-            swarm_string = ".swarm_{}".format(swarm_index)
-        return f"{basename}{swarm_string}*.{extension}"
-    
-    def get_final_pdb_output_glob(self) -> str:
-        basename = self.get_output_basename()
-        return f"{basename}*.pdb"
-    
-    def get_final_pdb_output_basename(self) -> str:
-        basename = self.get_output_basename()
-        return f"{basename}.pdb"
-
-    # TODO: update
-    def get_output_globs(self) -> typing.List[str]:
-        """
-        Used for detecting any output files for an stage directory.
-        """
-        return ["metadynamics*.pdb"]
-    
+            extension = "pdb"
+        if frame_number is None:
+            return f"metadynamics.{extension}"
+        else:
+            return f"metadynamics.swarm_{frame_number}.{extension}"
+        
     def get_output_md_parameters_topology(self) -> None:
         return None
     
@@ -143,44 +127,53 @@ class Milestoning_md_sampling_method:
     def needs_to_be_in_anchor(self) -> bool:
         return True
     
-    def get_output_positions_pdb_glob(self) -> str:
-        return "milestoning*.pdb"
-    
-    def get_output_positions_txt_glob(self) -> str:
-        return "milestoning*.txt"
-    
-    def get_output_basename(self) -> str:
+    def get_output_positions_basename_noext(self) -> str:
         return "milestoning"
     
-    def get_output_extension(self) -> str:
-        return "out"
+    def get_output_positions_glob_list(self) -> list[str]:
+        return ["milestoning*.pdb", "milestoning*.txt"]
     
-    def get_output_glob(self, swarm_index) -> str:
-        basename = self.get_output_basename()
-        extension = self.get_output_extension()
-        if swarm_index is None:
-            swarm_string = ""
+    def get_final_pdb_output_basename(
+            self, 
+            toy_mode: bool,
+            frame_number: int | None = None,
+            ) -> str:
+        if toy_mode:
+            extension = "txt"
         else:
-            swarm_string = ".swarm_{}".format(swarm_index)
-        return f"{basename}{swarm_string}*.{extension}"
-    
-    def get_final_pdb_output_glob(self) -> str:
-        basename = self.get_output_basename()
-        return f"{basename}*.pdb"
-    
-    def get_final_pdb_output_basename(self) -> str:
-        basename = self.get_output_basename()
-        return f"{basename}.pdb"
+            extension = "pdb"
+        if frame_number is None:
+            return f"milestoning.{extension}"
+        else:
+            return f"milestoning.swarm_{frame_number}.{extension}"
 
-    # TODO: update
-    def get_output_globs(self) -> typing.List[str]:
-        """
-        Used for detecting any output files for an stage directory.
-        """
-        return ["milestoning.*"]
-    
     def get_output_md_parameters_topology(self) -> None:
         return None
+    
+    def write_output_file(
+            self,
+            filename: str,
+            step_count: int,
+            time_count: float,
+            first_encounter_time: int,
+            last_milestone_alias_touched: int,
+            last_milestone_time_touched: int,
+            milestone_count_dict: dict[str, int],
+            milestone_time_dict: dict[str: int]
+            ) -> None:
+        block_str = \
+              f"step_count: {step_count}\n" \
+            + f"time_count: {time_count}\n" \
+            + f"first_encounter_time: {first_encounter_time}\n" \
+            + f"last_milestone_alias_touched: {last_milestone_alias_touched}\n" \
+            + f"last_milestone_time_touched: {last_milestone_time_touched}\n"
+        for key, value in milestone_count_dict.items():
+            block_str += f"{key}: {value}\n"
+        for key, value in milestone_time_dict.items():
+            block_str += f"{key}: {value}\n"
+        block_str += 20 * "#" + "\n"
+        with open(filename, "a") as f:
+            f.write(block_str)
 
 # TODO: insert QMrebind as a stage? that returns new md_parameters_topology
 #  Alternatively, it can be run separately between stages, but modifies the
