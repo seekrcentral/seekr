@@ -158,15 +158,15 @@ class Toy_plot():
         #for anchor_index in anchor_indices:
         for anchor_index, anchor_or_systemwide in enumerate(anchor_systemwide_objects):
             #anchor = self.model.anchors[anchor_index]
-            if anchor_or_systemwide.stage_parameters[0] is None:
+            if anchor_or_systemwide.stage_parameters[stage_id] is None:
                 pdb_path = os.path.join(
-                    rootdir, systemwide_object.directory, systemwide_object.stage_parameters[0]["directory"], "toy.pdb")
+                    rootdir, systemwide_object.directory, systemwide_object.stage_parameters[stage_id]["directory"], "toy.pdb")
             else:
                 pdb_path = os.path.join(
-                    rootdir, anchor_or_systemwide.directory, anchor_or_systemwide.stage_parameters[0]["directory"], "toy.pdb")
+                    rootdir, anchor_or_systemwide.directory, anchor_or_systemwide.stage_parameters[stage_id]["directory"], "toy.pdb")
             swarm0_dcds_glob = os.path.join(
                 rootdir, anchor_or_systemwide.directory, anchor_or_systemwide.stage_parameters[stage_id]["directory"], 
-                "*swarm_0.dcd")
+                "*swarm_0.reporter_*.dcd")
             num_swarm0_dcds = len(glob.glob(swarm0_dcds_glob))
             #assert num_swarm0_dcds > 0, "No DCD detected for anchor {}.".format(anchor_index)
             if num_swarm0_dcds == 0:
@@ -177,7 +177,7 @@ class Toy_plot():
                 if num_swarm0_dcds == 1:
                     dcd_file_glob = "*.dcd".format(swarm_frame)
                 else:
-                    dcd_file_glob = "*.swarm_{}.dcd".format(swarm_frame)
+                    dcd_file_glob = "*.swarm_{}.reporter_*.dcd".format(swarm_frame)
                 dcd_glob = os.path.join(
                     rootdir, anchor_or_systemwide.directory, anchor_or_systemwide.stage_parameters[stage_id]["directory"], 
                     dcd_file_glob)
@@ -250,8 +250,10 @@ class Toy_plot():
                 circle1.center=(walk[-1, 0], walk[-1, 1])
                 circle2.center=(walk[-1, 0], walk[-1, 1])
         
-        time_str = "{:.2f} ps".format((self.stride + index) * self.model.get_md_timestep() * self.model.stages[0].md_trajectory_output_interval)
-        self.frame_text.set_text(time_str)
+        # NOTE: time string taken out, because the md_trajectory_output_interval
+        #  is no longer included in the model. Instead, maybe find the DCD reporter?
+        #time_str = "{:.2f} ps".format((self.stride + index) * self.model.get_md_timestep() * self.model.stages[0].md_trajectory_output_interval)
+        #self.frame_text.set_text(time_str)
         
         return lines
     
@@ -293,6 +295,7 @@ class Toy_plot():
         lines = self.make_graphical_objects(len(walks))
         
         #num_frames = self.num_steps // self.stride
+        assert len(self.num_steps_by_anchor.values()) > 0, "No trajectories found in this stage."
         num_frames = max(self.num_steps_by_anchor.values()) // self.stride
         ani = animation.FuncAnimation(self.fig, self.update_lines, fargs=(walks, lines), frames=num_frames, interval=60, repeat=False)
         return ani
@@ -397,6 +400,9 @@ if __name__ == "__main__":
         "stage", metavar="STAGE", type=str,
         help="The name or index of the stage to run.")
     argparser.add_argument(
+        "-s", "--stride", dest="stride", type=int, default=1,
+        help="The stride to use for trajectories. Default: 1.")
+    argparser.add_argument(
         "-t", "--title", dest="title", type=str, default="Toy System",
         help="The title of the plot. Default: 'Toy System'.")
     argparser.add_argument(
@@ -429,6 +435,7 @@ if __name__ == "__main__":
     args = vars(args)
     model_file = args["model_file"]
     stage_arg = args["stage"]
+    stride = args["stride"]
     title = args["title"]
     minx = args["minx"]
     maxx = args["maxx"]
@@ -440,4 +447,4 @@ if __name__ == "__main__":
     else:
         animating_anchor_indices = [int(i) for i in animating_anchor_indices.split(",")]
     model = structures.load_model(model_file)
-    toy_plotting(model, stage_arg, title, minx, maxx, miny, maxy, animating_anchor_indices)
+    toy_plotting(model, stage_arg, title, minx, maxx, miny, maxy, animating_anchor_indices, traj_stride=stride)

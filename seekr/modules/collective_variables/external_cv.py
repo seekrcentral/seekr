@@ -6,9 +6,17 @@ Mainly intended for toy systems, this CV takes a general function
 of atomic positions and bases a CV from it.
 """
 
+import math
 import typing
 
 from attrs import define, field, validators, Factory
+import numpy as np
+import mdtraj
+
+import seekr.modules.engines.openmm.base as engines_openmm_base
+
+if typing.TYPE_CHECKING:
+    import seekr.modules.structures as structures
 
 @define
 class External_CV:
@@ -64,6 +72,62 @@ class External_CV:
         Return the maximum value of this CV.
         """
         return self.max_value
+    
+    def get_cv_value(self, positions):
+        """
+        Get the value of the cv for the set of positions.
+        """
+        sqrt = math.sqrt
+        exp = math.exp
+        log = math.log
+        sin = math.sin
+        cos = math.cos
+        tan = math.tan
+        asin = math.asin
+        acos = math.acos
+        atan = math.atan
+        sinh = math.sinh
+        cosh = math.cosh
+        tanh = math.tanh
+        erf = math.erf
+        erfc = math.erfc
+        floor = math.floor
+        ceil = math.ceil
+        step = lambda x : 0 if x < 0 else 1
+        delta = lambda x : 1 if x == 0 else 0
+        select = lambda x, y, z : z if x == 0 else y
+        expr = ""
+        for i, position in enumerate(positions):
+            expr_x = f"x{i+1} = {position[0]};"
+            expr_y = f"y{i+1} = {position[0]};"
+            expr_z = f"z{i+1} = {position[0]};"
+            expr += expr_x + expr_y + expr_z
+            
+        expr += engines_openmm_base.convert_openmm_to_python_expr(
+            "result="+self.expression)
+        mylocals = locals()
+        exec(expr, globals(), mylocals)
+        result = mylocals["result"]
+        return result
+
+    def get_mdtraj_cv_value(
+            self, 
+            model: "structures.Seekr_model", 
+            traj: mdtraj.Trajectory, 
+            frame_index: int = 0
+            ) -> float:
+        """
+        Determine the current CV value for an mdtraj object.
+        """
+        positions = traj.xyz[frame_index, :,:]
+        value = self.get_cv_value(positions)
+        return value
+    
+    def get_atom_group_names(self) -> typing.List[str]:
+        """
+        Get the atom group names for this CV.
+        """
+        return self.group_names
 
 @define
 class External_cv_input:

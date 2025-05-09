@@ -47,49 +47,46 @@ def filled_and_unfilled_anchors(
     
     return filled_anchors, unfilled_anchors
 
+
 def is_finished_md(
         model: structures.Seekr_model,
         stage: structures.Stage_md,
         current_step: int,
-        return_message: bool = False
     ) -> bool:
     """
     Check if the simulation is finished.
+    """
+    ending, _ = is_finished_md_with_message(model, stage, current_step)
+    return ending
+
+def is_finished_md_with_message(
+        model: structures.Seekr_model,
+        stage: structures.Stage_md,
+        current_step: int,
+    ) -> tuple[bool, str]:
+    """
+    Check if the simulation is finished and return with message.
     """
     completion_criteria: completion_criteria_structures.MD_completion_criteria = \
         stage.completion_criteria
     if completion_criteria.type == "number_of_steps":
         message = f"steps {current_step} of {completion_criteria.number_of_steps} completed."
         if current_step >= completion_criteria.number_of_steps:
-            if return_message:
-                return True, message
-            else:
-                return True
+            return True, message
         else:
-            if return_message:
-                return False, message
-            else:
-                return False
+            return False, message
     elif completion_criteria.type == "all_anchors_filled":
         filled_anchor_indices, unfilled_anchor_indices = filled_and_unfilled_anchors(
             model, stage)
         if (len(unfilled_anchor_indices) == 0):
             message = "all anchors filled."
-            if return_message:
-                return True, message
-            else:
-                return True
+            return True, message
+            
         elif current_step >= completion_criteria.get_max_sim_len():
             message = f"Maximum steps exceeded: {current_step} >= {completion_criteria.get_max_sim_len()}."
-            if return_message:
-                return True, message
-            else:
-                return True
+            return True, message
         else:
             total_number_of_anchors = len(filled_anchor_indices) + \
                 len(unfilled_anchor_indices)
             message = f"{len(filled_anchor_indices)} of {total_number_of_anchors} anchors filled."
-            if return_message:
-                return False, message
-            else:
-                return False
+            return False, message

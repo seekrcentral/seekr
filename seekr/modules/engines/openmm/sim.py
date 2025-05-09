@@ -169,7 +169,9 @@ def make_toy_system_object(
     """
     system = openmm.System()
     topology = openmm_app.Topology()
+    assert model.md_engine is not None
     toy_settings = model.md_engine.toy_settings
+    assert toy_settings is not None
     num_particles = toy_settings.num_particles
     assert num_particles == len(toy_settings.masses)
     new_expression = "k*("+toy_settings.potential_energy_expression+")"
@@ -207,8 +209,12 @@ def create_openmm_system(
     # TODO: This isn't right - how do we get the correct stage parameters
     # Given a stage index? The list here will not be indexed correctly...
     # Solution: add Nones to stage_parameters
-    
-    nonbonded_method = model.md_engine.nonbonded_method.lower()
+    assert model.md_engine is not None
+    assert model.md_engine.type == "openmm"
+    nonbonded_method = model.md_engine.nonbonded_method
+    if nonbonded_method is not None:
+        nonbonded_method = nonbonded_method.lower()
+
     if nonbonded_method == "pme":
         nonbondedMethod = openmm_app.PME
         
@@ -370,7 +376,7 @@ class Sim_openmm:
     
     def add_restraints(
             self,
-            restraints_interfaces: restraints_openmm_interface.Base_restraint_openmm_interface | None,
+            restraints_interfaces: list[restraints_openmm_interface.Base_restraint_openmm_interface],
             positions: unit.Quantity,
             periodic_system: bool
             ) -> None:
@@ -399,9 +405,11 @@ class Sim_openmm:
         assert model.md_engine is not None
         assert model.md_engine.type == "openmm"
         assert model.md_engine.integrator_settings is not None
+        anchor: structures.Anchor | engines_structures.MD_systemwide_settings
         if anchor_index is None:
             assert not sampling_engine_interface.sampling_method.needs_to_be_in_anchor(), \
                 "This sampling method must be run within an anchor, not systemwide."
+            assert model.md_engine.systemwide_settings is not None
             anchor = model.md_engine.systemwide_settings
         else:
             anchor = model.anchors[anchor_index]
@@ -441,7 +449,11 @@ class Sim_openmm:
                 integrator=integrator, anchor=anchor)
             #completion_criteria_interface.post_integration_instructions(
             #    integrator=integrator)
-            random_seed = integrator_settings.random_seed
+            if anchor_index is None:
+                random_sum_factor = 0
+            else:
+                random_sum_factor = anchor_index + 1
+            random_seed = integrator_settings.random_seed + random_sum_factor
             if random_seed is not None:
                 integrator.setRandomNumberSeed(random_seed)
         #elif integrator_type == "brownian":
@@ -533,6 +545,7 @@ class Sim_openmm:
             self.properties)
         if positions is not None:
             self.simulation.context.setPositions(positions)
+            assert model.md_engine is not None
             self.simulation.context.setVelocitiesToTemperature(
                 model.md_engine.initial_temperature * unit.kelvin)
         if self.box_vectors is not None:
@@ -583,14 +596,15 @@ def create_sim_openmm(
         model: structures.Seekr_model, 
         anchor_index: int | None,
         positions_directory: str,
-        positions_basename: list | np.ndarray | str,
+        positions_basename: str,
         md_parameters_directory: str,
         md_parameters_topology: engines_structures.Parameters_topology,
-        frame: int = 0,
-        ensemble: structures.Ensemble | None = None,
-        sampling_engine_interface: sampling_openmm_interface.Sampling_md_openmm_interface | None = None,
-        completion_criteria_interface: completion_openmm_interface.Completion_criteria_openmm_interface | None = None,
-        restraints_interfaces: restraints_openmm_interface.Base_restraint_openmm_interface | None = None
+        running_directory: str,
+        frame: int,
+        ensemble: structures.Ensemble,
+        sampling_engine_interface: sampling_openmm_interface.Sampling_md_openmm_interface,
+        completion_criteria_interface: completion_openmm_interface.Completion_criteria_openmm_interface,
+        restraints_interfaces: list[restraints_openmm_interface.Base_restraint_openmm_interface]
         ) -> Sim_openmm:
     """
     Generate an OpenMM simulation and other objects for a given
@@ -622,8 +636,6 @@ def create_sim_openmm(
     sim_openmm.add_restraints(restraints_interfaces, positions, periodic_system)
     sim_openmm.add_simulation(model, positions)
     if model.using_toy():
-        toy_pdb_filename = os.path.join(positions_directory, "toy.pdb")
+        toy_pdb_filename = os.path.join(running_directory, "toy.pdb")
         write_toy_pdb_file(topology, positions, toy_pdb_filename)
     return sim_openmm
-    
-    

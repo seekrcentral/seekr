@@ -7,6 +7,7 @@ a SEEKR calculation model.
 import os
 import sys
 import json
+import argparse
 
 from cattrs import unstructure
 import numpy as np
@@ -18,6 +19,7 @@ import seekr.modules.engines.structures as engines_structures
 import seekr.modules.engines.browndye.structures as browndye_structures
 import seekr.modules.completion_criteria.structures as compl_crit_struct
 import seekr.modules.restraints.preparer as restraints_preparer
+import seekr.modules.reporters.preparer as reporters_preparer
 import seekr.modules.structures as structures
 import seekr.modules.engines.preparer as engines_preparer
 import seekr.modules.engines.openmm.preparer as openmm_preparer
@@ -67,32 +69,57 @@ def create_toy_model_input(
     stage1 = preparer.Input_stage_md()
     stage1.name = "equilibration"
     stage1.run_minimization = False
-    stage1.output_interval = 10
+    stage1.checkpoint_interval = 10
     stage1.ensemble = structures.NVT_ensemble()
     stage1.sampling_method = sampling_preparer.Conventional_md_input()
     stage1.completion_criteria = compl_crit_struct.Number_of_steps_completion_criteria()
     stage1.completion_criteria.number_of_steps = 10000
+    stage1_state_reporter = reporters_preparer.State_reporter_input()
+    stage1_state_reporter.to_stdout = True
+    stage1_state_reporter.interval = 100
+    stage1_dcd_reporter = reporters_preparer.DCD_reporter_input()
+    stage1_dcd_reporter.interval = 100
+    stage1_dcd_reporter.enforce_periodic_box = False
+    stage1.reporters = [stage1_state_reporter, stage1_dcd_reporter]
 
     stage2 = preparer.Input_stage_md()
-    stage2.name = "metadynamics"
+    #stage2.name = "metadynamics"
+    stage2.name = "steered"
     stage2.run_minimization = False
-    stage2.output_interval = 10
+    stage2.checkpoint_interval = 10
     stage2.ensemble = structures.NVT_ensemble()
-    stage2.sampling_method = sampling_preparer.Metadynamics_md_input()
-    stage2.sampling_method.gaussian_height = 1.0
+    #stage2.sampling_method = sampling_preparer.Metadynamics_md_input()
+    #stage2.sampling_method.gaussian_height = 1.0
+    #stage2.sampling_method.cv_names = ["progress_coordinate"]
+    stage2.sampling_method = sampling_preparer.Steered_md_input()
     stage2.sampling_method.cv_names = ["progress_coordinate"]
+    stage2.sampling_method.force_constant = 100000.0
+    stage2.sampling_method.velocity = 1.0
     stage2.completion_criteria = compl_crit_struct.All_anchors_filled_completion_criteria()
     stage2.completion_criteria.eval_interval = 10
+    stage2_state_reporter = reporters_preparer.State_reporter_input()
+    stage2_state_reporter.to_stdout = True
+    stage2_state_reporter.interval = 50
+    stage2_dcd_reporter = reporters_preparer.DCD_reporter_input()
+    stage2_dcd_reporter.interval = 50
+    stage2_dcd_reporter.enforce_periodic_box = False
+    stage2.reporters = [stage2_state_reporter, stage2_dcd_reporter]
 
     stage3 = preparer.Input_stage_md()
     stage3.name = "MMVT"
     stage3.run_minimization = False
-    stage3.output_interval = 50
+    stage3.checkpoint_interval = 50
     stage3.ensemble = structures.NVT_ensemble()
-    stage3.sampling_method = sampling_preparer.Milestoning_md_input()
-    stage3.sampling_method.milestoning_method = "MMVT"
+    stage3.sampling_method = sampling_preparer.MMVT_md_input()
     stage3.completion_criteria = compl_crit_struct.Number_of_steps_completion_criteria()
     stage3.completion_criteria.number_of_steps = 5000
+    stage3_state_reporter = reporters_preparer.State_reporter_input()
+    stage3_state_reporter.to_stdout = True
+    stage3_state_reporter.interval = 25
+    stage3_dcd_reporter = reporters_preparer.DCD_reporter_input()
+    stage3_dcd_reporter.interval = 25
+    stage3_dcd_reporter.enforce_periodic_box = False
+    stage3.reporters = [stage3_state_reporter, stage3_dcd_reporter]
 
     seekr_input.stages = [stage1, stage2, stage3]
     seekr_input.partitions = [preparer.Partition_input()]
@@ -169,6 +196,7 @@ def create_host_guest_example_input(
     ligand_indices_md = list(range(147, 162))
     receptor_indices_bd = list(range(147))
     ligand_indices_bd = list(range(15))
+    o5_group_indices = [15, 36, 57, 78, 99, 120, 141]
     
     seekr_input = preparer.Seekr_input()
     seekr_input.directory = root_dir
@@ -194,8 +222,15 @@ def create_host_guest_example_input(
     ligand_selection_md = engines_structures.Selection()
     ligand_selection_md.name = "guest"
     ligand_selection_md.atom_indices = ligand_indices_md
+    solute_selection_md = engines_structures.Selection()
+    solute_selection_md.name = "solute"
+    solute_selection_md.atom_indices = receptor_indices_md + ligand_indices_md
+    o5_group = engines_structures.Selection()
+    o5_group.name = "o5_group"
+    o5_group.atom_indices = o5_group_indices
     seekr_input.md_settings.systemwide_settings.selections\
-        = [receptor_selection_md, ligand_selection_md]
+        = [receptor_selection_md, ligand_selection_md, solute_selection_md,
+           o5_group]
     if bd:
         seekr_input.bd_settings = browndye_preparer.Browndye_settings_input()
         seekr_input.bd_settings.apbs_grid_spacing = 2.0
@@ -233,19 +268,34 @@ def create_host_guest_example_input(
     stage1 = preparer.Input_stage_md()
     stage1.name = "equilibration"
     stage1.run_minimization = True
-    stage1.output_interval = 1000
+    stage1.checkpoint_interval = 1000
     stage1.ensemble = structures.NVT_ensemble()
     stage1.sampling_method = sampling_preparer.Conventional_md_input()
     stage1.completion_criteria = compl_crit_struct.Number_of_steps_completion_criteria()
     stage1.completion_criteria.number_of_steps = 10000
+    pairwise_restraint_input = restraints_preparer.Pairwise_restraint_input()
+    pairwise_restraint_input.selection_name = "o5_group"
+    stage1.restraints = [pairwise_restraint_input]
+    stage1_state_reporter = reporters_preparer.State_reporter_input()
+    stage1_state_reporter.to_stdout = True
+    stage1_state_reporter.interval = 1000
+    stage1_dcd_reporter = reporters_preparer.DCD_reporter_input()
+    stage1_dcd_reporter.interval = 1000
+    stage1_dcd_reporter.atom_subset = None
+    stage1.reporters = [stage1_state_reporter, stage1_dcd_reporter]
 
     stage2 = preparer.Input_stage_md()
-    stage2.name = "metadynamics"
+    #stage2.name = "metadynamics"
+    #stage2.run_minimization = False
+    #stage2.checkpoint_interval = 1000
+    #stage2.ensemble = structures.NVT_ensemble()
+    #stage2.sampling_method = sampling_preparer.Metadynamics_md_input()
+    #stage2.sampling_method.gaussian_height = 1.0
+    stage2.name = "steered"
     stage2.run_minimization = False
-    stage2.output_interval = 1000
+    stage2.checkpoint_interval = 1000
     stage2.ensemble = structures.NVT_ensemble()
-    stage2.sampling_method = sampling_preparer.Metadynamics_md_input()
-    stage2.sampling_method.gaussian_height = 1.0
+    stage2.sampling_method = sampling_preparer.Steered_md_input()
     stage2.sampling_method.cv_names = ["distance_host_guest"]
     stage2.completion_criteria = compl_crit_struct.All_anchors_filled_completion_criteria()
     proximity_restraint_input = restraints_preparer.Proximity_restraint_input()
@@ -253,16 +303,32 @@ def create_host_guest_example_input(
     proximity_restraint_input.selection2_name = "guest"
     proximity_restraint_input.radius = 1.25
     stage2.restraints = [proximity_restraint_input]
+    stage2_state_reporter = reporters_preparer.State_reporter_input()
+    stage2_state_reporter.to_stdout = True
+    stage2_state_reporter.interval = 500
+    stage2_dcd_reporter = reporters_preparer.DCD_reporter_input()
+    stage2_dcd_reporter.interval = 500
+    stage2_dcd_reporter.atom_subset = "solute"
+    stage2.reporters = [stage2_state_reporter, stage2_dcd_reporter]
 
     stage3 = preparer.Input_stage_md()
     stage3.name = "MMVT"
     stage3.run_minimization = False
-    stage3.output_interval = 1000
+    stage3.checkpoint_interval = 1000
     stage3.ensemble = structures.NVT_ensemble()
-    stage3.sampling_method = sampling_preparer.Milestoning_md_input()
-    stage3.sampling_method.milestoning_method = "MMVT"
+    stage3.sampling_method = sampling_preparer.MMVT_md_input()
     stage3.completion_criteria = compl_crit_struct.Number_of_steps_completion_criteria()
     stage3.completion_criteria.number_of_steps = 10000
+    positional_restraint = restraints_preparer.Positional_restraint_input()
+    positional_restraint.selection_name = "host"
+    stage3.restraints = [positional_restraint]
+    stage3_state_reporter = reporters_preparer.State_reporter_input()
+    stage3_state_reporter.to_stdout = True
+    stage3_state_reporter.interval = 250
+    stage3_dcd_reporter = reporters_preparer.DCD_reporter_input()
+    stage3_dcd_reporter.interval = 250
+    stage3_dcd_reporter.atom_subset = "solute"
+    stage3.reporters = [stage3_state_reporter, stage3_dcd_reporter]
 
     stage4 = preparer.Input_stage_bd()
     stage4.name = "bd"
@@ -308,15 +374,18 @@ def create_host_guest_example_input(
     return seekr_input
     
 if __name__ == "__main__":
-    assert len(sys.argv) >= 2, "Please provide a filename for the output JSON."
-    toy_mode = False
-    json_filename = sys.argv[1]
-    if len(sys.argv) == 3:
-        if sys.argv[2] == "toy":
-            toy_mode = True
-        else:
-            raise Exception(f"Option not recognized: {sys.argv[2]}.")
-        
+    argparser = argparse.ArgumentParser(description=__doc__)
+    argparser.add_argument(
+        "input_file", metavar="INPUT_FILE", type=str, 
+        help="The name of the input JSON file to generate.")
+    argparser.add_argument(
+        "-t", "--toy_mode", dest="toy_mode", default=False, 
+        help="Toggle toy mode: whether a sample toy system is generated.", 
+        action="store_true")
+    argspace = argparser.parse_args()
+    args = vars(argspace)
+    json_filename = args["input_file"]
+    toy_mode = args["toy_mode"]
     if toy_mode:
         root_dir = "~/tmp/seekr3_test_toy"
         seekr_input = create_toy_model_input(root_dir)

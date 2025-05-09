@@ -92,6 +92,8 @@ def run(
                     +f"restart: {restart} trajectories to run: {trajs_to_go_min}"\
                     +f"trajectories so far: {trajs_so_far}"\
                     +f"number of transitions: {num_transitions}"
+                base.configure_file_and_stdout_logger(
+                    log_filename, overwrite=force_overwrite)
                 logging.info(log_string)
                 engines_runner.run_bd_simulation(
                     model, trajs_to_go_min, restart, force_overwrite)

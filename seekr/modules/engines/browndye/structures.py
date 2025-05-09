@@ -37,6 +37,8 @@ class Browndye_molecule:
                             validator=instance_of(str))
     pqrxml_filename: str | None = field(default=None,
                             validator=optional(instance_of(str)))
+    original_indices: typing.Dict[str, typing.List[int]] = field(
+        default=Factory(dict),)
     ghost_site_indices: typing.Dict[str, int] | None = field(
         default=None, validator=optional(instance_of(dict)))
     
@@ -75,19 +77,6 @@ class Browndye_systemwide_settings:
                             Browndye_molecule),
                         iterable_validator=instance_of(list),
                     ))
-    
-    def get_atom_indices_by_selection_name(
-            self,
-            name: str
-            ) -> list[int]:
-        """
-        Get the atom indices for a given selection name.
-        """
-        for molecule in self.molecules:
-            for selection in molecule.selections:
-                if selection.name == name:
-                    return selection.atom_indices
-        raise ValueError(f"Selection name {name} not found in any molecule.")
 
 @define
 class Browndye_bd_engine:

@@ -107,31 +107,36 @@ class Metadynamics_md_sampling_method:
         
     def get_output_md_parameters_topology(self) -> None:
         return None
-    
-@define
-class Milestoning_md_sampling_method:
-    """
-    A generic milestoning MD sampling method.
-    """
-    type: typing.Literal["milestoning"] = "milestoning"
-    milestoning_method: str = field(default="MMVT",
-                                    validator=[validators.instance_of(str),
-                                               validators.in_(["MMVT", "elber"])])
 
+@define
+class Steered_md_sampling_method:
+    """
+    A Steered MD sampling method.
+    """
+    type: typing.Literal["steered"] = "steered"
+    cv_names: typing.List[str] = field(default=Factory(list),
+                                            validator=validators.instance_of(list))
+    force_constant: float = field(default=1000.0,
+                                    validator=[validators.instance_of(float),
+                                               validators.ge(0)])
+    velocity: float = field(default=1.0,
+                            validator=[validators.instance_of(float),
+                                       validators.ge(0)])
+    
     def input_from_systemwide_settings_output_to_anchors(self) -> bool:
-        return False
+        return True
     
     def input_from_anchors_output_to_systemwide_settings(self) -> bool:
         return False
     
     def needs_to_be_in_anchor(self) -> bool:
-        return True
+        return False
     
     def get_output_positions_basename_noext(self) -> str:
-        return "milestoning"
+        return "steered"
     
     def get_output_positions_glob_list(self) -> list[str]:
-        return ["milestoning*.pdb", "milestoning*.txt"]
+        return ["steered*.pdb", "steered*.txt"]
     
     def get_final_pdb_output_basename(
             self, 
@@ -143,9 +148,49 @@ class Milestoning_md_sampling_method:
         else:
             extension = "pdb"
         if frame_number is None:
-            return f"milestoning.{extension}"
+            return f"steered.{extension}"
         else:
-            return f"milestoning.swarm_{frame_number}.{extension}"
+            return f"steered.swarm_{frame_number}.{extension}"
+        
+    def get_output_md_parameters_topology(self) -> None:
+        return None
+    
+
+@define
+class MMVT_md_sampling_method:
+    """
+    A generic milestoning MD sampling method.
+    """
+    type: typing.Literal["mmvt"] = "mmvt"
+
+    def input_from_systemwide_settings_output_to_anchors(self) -> bool:
+        return False
+    
+    def input_from_anchors_output_to_systemwide_settings(self) -> bool:
+        return False
+    
+    def needs_to_be_in_anchor(self) -> bool:
+        return True
+    
+    def get_output_positions_basename_noext(self) -> str:
+        return "mmvt"
+    
+    def get_output_positions_glob_list(self) -> list[str]:
+        return ["mmvt*.pdb", "mmvt*.txt"]
+    
+    def get_final_pdb_output_basename(
+            self, 
+            toy_mode: bool,
+            frame_number: int | None = None,
+            ) -> str:
+        if toy_mode:
+            extension = "txt"
+        else:
+            extension = "pdb"
+        if frame_number is None:
+            return f"mmvt.{extension}"
+        else:
+            return f"mmvt.swarm_{frame_number}.{extension}"
 
     def get_output_md_parameters_topology(self) -> None:
         return None
@@ -159,7 +204,7 @@ class Milestoning_md_sampling_method:
             last_milestone_alias_touched: int,
             last_milestone_time_touched: int,
             milestone_count_dict: dict[str, int],
-            milestone_time_dict: dict[str: int]
+            milestone_time_dict: dict[str, int]
             ) -> None:
         block_str = \
               f"step_count: {step_count}\n" \
@@ -195,7 +240,8 @@ class WE_bd_sampling_method:
 
 MD_sampling_method = typing.Union[Conventional_md_sampling_method,
                                     Metadynamics_md_sampling_method,
-                                    Milestoning_md_sampling_method]
+                                    Steered_md_sampling_method,
+                                    MMVT_md_sampling_method]
 
 BD_sampling_method = typing.Union[NAM_bd_sampling_method,
                                   WE_bd_sampling_method]

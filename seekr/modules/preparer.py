@@ -27,23 +27,21 @@ from scipy.spatial import QhullError
 import mdtraj
 
 import seekr.modules.base as base
+import seekr.modules.engines.base as engines_base
 import seekr.modules.structures as structures
 import seekr.modules.collective_variables.structures as cv_structures
 import seekr.modules.completion_criteria.structures as compl_crit_struct
-import seekr.modules.restraints.structures as restraints_structures
-import seekr.modules.engines.browndye.structures as browndye_structures
 import seekr.modules.engines.structures as engines_structures
 import seekr.modules.engines.preparer as engines_preparer
 import seekr.modules.restraints.preparer as restraints_preparer
-import seekr.modules.engines.runner as engines_runner
-import seekr.modules.engines.openmm.preparer as openmm_preparer
-import seekr.modules.engines.browndye.preparer as browndye_preparer
+import seekr.modules.reporters.preparer as reporters_preparer
 import seekr.modules.sampling_methods.preparer as sampling_methods_preparer
 import seekr.modules.collective_variables.preparer as cv_preparer
-
-MD_settings_input = typing.Union[openmm_preparer.Openmm_settings_input]
+import seekr.modules.engines.browndye.preparer as browndye_preparer
+import seekr.modules.engines.openmm.preparer as openmm_preparer    
 # TODO: add SDA
 BD_settings_input = typing.Union[browndye_preparer.Browndye_settings_input]
+MD_settings_input = typing.Union[openmm_preparer.Openmm_settings_input]
 
 @define
 class Input_stage_md:
@@ -57,7 +55,7 @@ class Input_stage_md:
                       validator=validators.instance_of(str))
     run_minimization: bool = field(default=False,
                                       validator=validators.instance_of(bool))
-    output_interval: int = field(default=1000,
+    checkpoint_interval: int = field(default=1000,
                                   validator=[validators.instance_of(int),
                                              validators.gt(0)])
     ensemble: structures.Ensemble = field(default=Factory(
@@ -66,6 +64,7 @@ class Input_stage_md:
         default=Factory(sampling_methods_preparer.Conventional_md_input))
     completion_criteria: compl_crit_struct.MD_completion_criteria | None = None
     restraints: list[restraints_preparer.Restraint_input] = field(default=Factory(list))
+    reporters: list[reporters_preparer.Reporter_input] = field(default=Factory(list))
     
     def make_model_stage(
             self, 
@@ -80,11 +79,12 @@ class Input_stage_md:
         stage.index = index
         stage.name = self.name
         stage.run_minimization = self.run_minimization
-        stage.md_state_output_interval = self.output_interval
-        stage.md_trajectory_output_interval = self.output_interval
-        stage.md_restart_checkpoint_interval = self.output_interval
+        #stage.md_state_output_interval = self.output_interval
+        #stage.md_trajectory_output_interval = self.output_interval
+        stage.md_restart_checkpoint_interval = self.checkpoint_interval
         stage.ensemble = self.ensemble
         stage.sampling_method = self.sampling_method.make_model_sampling_method()
+        assert self.completion_criteria is not None
         stage.completion_criteria = self.completion_criteria
         if systemwide_stage_input: # If coming from systemwide settings
             assert not stage.sampling_method.needs_to_be_in_anchor(), \
@@ -110,6 +110,9 @@ class Input_stage_md:
         for restraint_input in self.restraints:
             restraint = restraint_input.make_restraint(systemwide_settings_input)
             stage.restraints.append(restraint)
+        for reporter_input in self.reporters:
+            reporter = reporter_input.make_reporter(systemwide_settings_input)
+            stage.reporters.append(reporter)
         return stage, new_systemwide_stage_input
     
 @define
@@ -397,6 +400,9 @@ class Anchor_input:
                 root_directory, anchor.directory, anchor.stage_parameters[0]["directory"])
             anchor.stage_parameters[0]["positions"] = engines_preparer.POSITIONS_BASENAME
             if toy_mode:
+                # MYPY: Similar to the systemwide case, mypy is not happy because
+                # the toy positions are an array of positions, but non-toy systems
+                # are a filename for a PDB. Not sure how to resolve this.
                 for frame_id, frame_positions in enumerate(self.positions):
                     full_positions_path = os.path.join(
                         anchor_initial_directory,
@@ -404,7 +410,9 @@ class Anchor_input:
                     np.savetxt(full_positions_path, np.array(frame_positions))
             else:
                 if self.md_parameters_topology is not None:
-                    self.md_parameters_topology.copy_files(anchor_initial_directory)
+                    anchor.md_parameters_topology = self.md_parameters_topology
+                    self.md_parameters_topology.copy_files(
+                        anchor_initial_directory, anchor.md_parameters_topology)
                 if (self.positions is not None) and (self.positions != ""):
                     assert isinstance(self.positions, str), \
                         "anchor.positions must be a filename str if not in Toy mode."
@@ -430,18 +438,18 @@ class Partition_input:
     partitions - that is, involving functions of the N-D positions.
     This means CVs, anchors, state_points, etc.
     """
-    cvs: list[cv_preparer.CV_input] = field(default=Factory(list),
-                            validator=validators.deep_iterable(
-                                member_validator=validators.instance_of(
-                                    cv_preparer.CV_input),
-                                iterable_validator=validators.instance_of(list),
-                            ))
-    state_points: list[State_point] = field(default=Factory(list),
-                            validator=validators.deep_iterable(
-                                member_validator=validators.instance_of(
-                                    State_point),
-                                iterable_validator=validators.instance_of(list),
-                            ))
+    cvs: list[cv_preparer.CV_input] = field(default=Factory(list),)
+                            #validator=validators.deep_iterable(
+                            #    member_validator=validators.instance_of(
+                            #        cv_preparer.CV_input),
+                            #    iterable_validator=validators.instance_of(list),
+                            #))
+    state_points: list[State_point] = field(default=Factory(list),)
+                            #validator=validators.deep_iterable(
+                            #    member_validator=validators.instance_of(
+                            #        State_point),
+                            #    iterable_validator=validators.instance_of(list),
+                            #))
     # TODO: How are we going to define Voronoi points independently from
     #  anchor information such as structures, etc.?
     anchors: list[Anchor_input] = field(default=Factory(list),
@@ -514,7 +522,7 @@ class Partition_input:
 
             anchor.stage_parameters = []
             if input_anchor.positions is not None and input_anchor.positions != "":
-                stage_parameter = {}
+                stage_parameter: dict[str, str | int | list] = {}
                 stage_parameter["index"] = 0
                 stage_parameter["directory"] = base.INITIAL_DIRECTORY
                 #stage_parameter["md_parameters_topology"] = input_anchor.md_parameters_topology
@@ -561,7 +569,7 @@ class Seekr_input:
                                     validator=validators.optional(
                                         validators.instance_of(int)))
     toy_settings: Toy_settings_input | None = None
-    md_settings: MD_settings_input | None = None
+    md_settings: typing.Union[MD_settings_input, None] = None
     bd_settings: BD_settings_input | None = None
     stages: list[Input_stage] = field(default=Factory(list),)
                             #validator=validators.deep_iterable(
@@ -623,14 +631,18 @@ class Seekr_input:
         last_md_stage_index = 0
         for i, stage_input in enumerate(self.stages):
             if stage_input.type == "md_stage":
-                stage, systemwide_stage_input = stage_input.make_model_stage(
+                assert self.md_settings is not None
+                assert self.md_settings.systemwide_settings is not None
+                stage_md, systemwide_stage_input = stage_input.make_model_stage(
                     i+1, systemwide_stage_input, self.md_settings.systemwide_settings)
-                stage.input_stage_index = last_md_stage_index
-                last_md_stage_index = stage.index
+                stage_md.input_stage_index = last_md_stage_index
+                last_md_stage_index = stage_md.index
+                model.stages.append(stage_md) 
             elif stage_input.type == "bd_stage":
-                stage, systemwide_stage_input = stage_input.make_model_stage(
+                assert self.bd_settings is not None
+                stage_bd, systemwide_stage_input = stage_input.make_model_stage(
                     i+1, systemwide_stage_input, self.bd_settings)
-            model.stages.append(stage)  
+                model.stages.append(stage_bd)  
         if self.random_seed is not None:
             model.set_random_seeds(self.random_seed)
         else:
@@ -849,7 +861,7 @@ def prepare_model_cvs_and_anchors(
 def cleanse_outputs_all(
         model: "structures.Seekr_model",
         anchor_or_systemwide: engines_structures.MD_systemwide_settings \
-            | Anchor_input
+            | structures.Anchor
         ) -> None:
     """
     Delete all simulation outputs from systemwide or anchor.
@@ -861,7 +873,7 @@ def cleanse_outputs_all(
 def cleanse_outputs_stage(
         model: "structures.Seekr_model",
         anchor_or_systemwide: engines_structures.MD_systemwide_settings \
-            | Anchor_input, 
+            | structures.Anchor, 
         stage_index: int
         ) -> None:
     """
@@ -887,19 +899,20 @@ def cleanse_outputs_stage(
             for log_file in glob.glob(log_glob):
                 os.remove(log_file)
             backup_info_glob = os.path.join(full_directory, 
-                engines_runner.INFORMATION_CHECKPOINT_FILENAME_NOEXT \
-                + "*" + engines_runner.INFORMATION_CHECKPOINT_FILENAME_EXT)
+                engines_base.INFORMATION_CHECKPOINT_FILENAME_NOEXT \
+                + "*" + engines_base.INFORMATION_CHECKPOINT_FILENAME_EXT)
             for backup_info_file in glob.glob(backup_info_glob):
                 os.remove(backup_info_file)
             backup_glob = os.path.join(full_directory, 
-                engines_runner.RESTART_CHECKPOINT_FILENAME_NOEXT \
-                + "*" + engines_runner.RESTART_CHECKPOINT_FILENAME_EXT)
+                engines_base.RESTART_CHECKPOINT_FILENAME_NOEXT \
+                + "*" + engines_base.RESTART_CHECKPOINT_FILENAME_EXT)
             for backup_file in glob.glob(backup_glob):
                 os.remove(backup_file)
             lock_filename = os.path.join(full_directory, "LOCK")
             if os.path.exists(lock_filename):
                 os.remove(lock_filename)
     elif stage.type == "bd_stage":
+        assert model.bd_engine is not None
         if anchor_or_systemwide.directory == model.bd_engine.b_surface_directory:
             full_directory = os.path.join(model.directory, model.bd_engine.b_surface_directory)
             if os.path.exists(full_directory):
@@ -949,8 +962,8 @@ def modify_model(
     #    for i in range(index_where_stages_begin_to_differ, len(old_model.stages)):
     #        stages_to_delete_indices.append(i)
     
-    stages_to_delete_indices_with_files = []
-    stages_to_delete_names_with_files = []
+    stages_to_delete_indices_with_files: list[int] = []
+    stages_to_delete_names_with_files: list[str] = []
     #for i in stages_to_delete_indices:
     #    old_model_stage = old_model.stages[i]
     #    if old_model_stage.has_files(old_model):
@@ -959,6 +972,8 @@ def modify_model(
             
     # Look through the new and old milestones and pair them up by the value
     #  of their variables
+    anchor_alpha: structures.Anchor
+    anchor_beta: structures.Anchor
     for alpha, anchor_alpha in enumerate(new_model.anchors):
         alpha_paired: bool = False
         for beta, anchor_beta in enumerate(old_model.anchors):
@@ -985,8 +1000,8 @@ def modify_model(
     old_anchors_with_starting_pdbs_to_keep: list[int] = []
     for pair in anchor_pairs:
         (alpha, beta) = pair
-        anchor_alpha: structures.Anchor = new_model.anchors[alpha]
-        anchor_beta: structures.Anchor = old_model.anchors[beta]
+        anchor_alpha = new_model.anchors[alpha]
+        anchor_beta = old_model.anchors[beta]
         milestones_changed = False
         milestone_pairs = []
         for i, milestone_alpha in enumerate(anchor_alpha.milestones):
@@ -1205,6 +1220,7 @@ def generate_bd_files(
     Determine the BD engine and prepare the necessary files for it.
     """
     found_function = False
+    assert model.bd_engine is not None
     if model.bd_engine.type == "browndye":
         browndye_preparer.generate_bd_files(model, directory)
         found_function = True

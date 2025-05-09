@@ -28,7 +28,7 @@ class Conventional_md_input:
 @define
 class Metadynamics_md_input:
     """
-    A conventional MD sampling method input.
+    A metadynamics MD sampling method input.
     """
     type: typing.Literal["metadynamics"] = "metadynamics"
     number_of_points: int = field(default=101,
@@ -63,21 +63,42 @@ class Metadynamics_md_input:
         return metaD
 
 @define
-class Milestoning_md_input:
+class Steered_md_input:
     """
-    A generic milestoning MD sampling method input.
+    A steered MD sampling method input.
     """
-    type: typing.Literal["milestoning"] = "milestoning"
-    milestoning_method: str = field(default="MMVT",
-                                    validator=[validators.instance_of(str),
-                                               validators.in_(["MMVT", "elber"])])
+    type: typing.Literal["steered"] = "steered"
+    force_constant: float = field(default=1000.0,
+                                    validator=[validators.instance_of(float),
+                                               validators.ge(0)])
+    velocity: float = field(default=1.0,
+                            validator=[validators.instance_of(float),
+                                       validators.ge(0)])
+    cv_names: typing.List[str] = field(default=Factory(list),
+                                        validator=validators.instance_of(list))
     
     def make_model_sampling_method(self):
         """
         Make the model sampling method object for this input.
         """
-        milestoning = sampling_method_structures.Milestoning_md_sampling_method()
-        milestoning.milestoning_method = self.milestoning_method
+        smd = sampling_method_structures.Steered_md_sampling_method()
+        smd.force_constant = self.force_constant
+        smd.velocity = self.velocity
+        smd.cv_names = self.cv_names
+        return smd
+
+@define
+class MMVT_md_input:
+    """
+    A Markovian Milestoning with Voronoi Tesselation (MMVT) MD sampling method input.
+    """
+    type: typing.Literal["mmvt"] = "mmvt"
+    
+    def make_model_sampling_method(self):
+        """
+        Make the model sampling method object for this input.
+        """
+        milestoning = sampling_method_structures.MMVT_md_sampling_method()
         return milestoning
 
 @define
@@ -108,7 +129,8 @@ class WE_bd_input:
 
 MD_sampling_method_input = typing.Union[Conventional_md_input,
                                     Metadynamics_md_input,
-                                    Milestoning_md_input]
+                                    Steered_md_input,
+                                    MMVT_md_input]
 
 BD_sampling_method_input = typing.Union[NAM_bd_input,
                                         WE_bd_input]

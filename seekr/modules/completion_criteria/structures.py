@@ -71,20 +71,6 @@ class All_anchors_filled_completion_criteria:
 # TODO: Maybe implement someday?
 #@define
 #class Surface_crossed_completion_criteria:
-#    """
-#    A completion criteria based on the number of surfaces crossed:
-#    used by the NAM algorithm, for instance.
-#    """
-#    type: typing.Literal["surface_crossed"] = "surface_crossed"
-#    n_surfaces_crossed: int = field(default=1,
-#                                    validator=[validators.instance_of(int),
-#                                               validators.gt(0)])
-#    max_number_of_trajs: int = field(default=1000000,
-#                                    validator=[validators.instance_of(int),
-#                                               validators.gt(0)])
-#    max_number_of_steps: int = field(default=100000000,
-#                                    validator=[validators.instance_of(int),
-#                                               validators.gt(0)])
 
 @define
 class Number_of_trajectories_completion_criteria:
@@ -101,8 +87,6 @@ class Number_of_trajectories_completion_criteria:
                                                validators.gt(0)])
 
 MD_completion_criteria = typing.Union[Number_of_steps_completion_criteria,
-                                      All_anchors_filled_completion_criteria,
-                                      None]
+                                      All_anchors_filled_completion_criteria,]
 
-BD_completion_criteria = typing.Union[Number_of_trajectories_completion_criteria,
-                                      None]
+BD_completion_criteria = typing.Union[Number_of_trajectories_completion_criteria,]

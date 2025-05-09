@@ -9,6 +9,11 @@ import os
 import time
 import logging
 
+INFORMATION_CHECKPOINT_FILENAME_NOEXT = "checkpoint_information"
+INFORMATION_CHECKPOINT_FILENAME_EXT = ".json"
+RESTART_CHECKPOINT_FILENAME_NOEXT = "backup"
+RESTART_CHECKPOINT_FILENAME_EXT = ".checkpoint"
+
 def make_lock_string() -> str:
     """
     Make a string that can be put into the LOCK file to detect race
@@ -22,7 +27,7 @@ def make_lock_string() -> str:
 def create_lock(
         lock_filename: str, 
         verbose: bool = False
-        ) -> tuple[str, str]:
+        ) -> str:
     """
     Create a lock file to prevent running if a SEEKR anchor is currently being
     run by another process.

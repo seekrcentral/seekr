@@ -5,12 +5,9 @@ Base objects and functions for running SEEKR calculations.
 """
 
 import os
-import json
 import typing
 import logging
 from collections import namedtuple
-
-import cattrs
 
 import seekr.modules.base as base
 import seekr.modules.engines.structures as engines_structures
@@ -148,8 +145,11 @@ def choose_next_simulation_md(
             anchor_or_systemwide_index_list.append(alpha)
 
     run_instructions_unsorted: list[typing.NamedTuple] = []
+    anchor_or_systemwide: engines_structures.MD_systemwide_settings \
+        | structures.Anchor
     for anchor_or_systemwide_index in anchor_or_systemwide_index_list:
         if anchor_or_systemwide_index is None:
+            assert model.md_engine.systemwide_settings is not None
             anchor_or_systemwide = model.md_engine.systemwide_settings
             partition_name = "systemwide"
         else:
@@ -157,6 +157,7 @@ def choose_next_simulation_md(
             partition_name = f"anchor {anchor_or_systemwide_index}"
         # TODO: remove support for multiple frames in this module - multiple-frame
         #  PDBs will be handled at the preparer level.
+        assert anchor_or_systemwide is not None
         num_swarm_frames = anchor_or_systemwide.get_starting_structure_num_frames(
             model.directory, stage_md.input_stage_index)
         calculation_dir = get_calculation_directory_md(
@@ -167,7 +168,6 @@ def choose_next_simulation_md(
         for swarm_frame in range(num_swarm_frames):
             swarm_string = f" swarm {swarm_frame}"
             if num_swarm_frames <= 1:
-                swarm_frame = None
                 swarm_string = ""
             current_step = get_current_md_step(anchor_or_systemwide,
                 stage_md.index, swarm_frame, model.directory)
@@ -183,8 +183,8 @@ def choose_next_simulation_md(
                 restart = True
             
             if not force_overwrite:
-                run_finished, message = completion_criteria_runner.is_finished_md(
-                    model, stage_md, current_step, return_message=True)
+                run_finished, message = completion_criteria_runner.is_finished_md_with_message(
+                    model, stage_md, current_step)
             else:
                 run_finished = False
                 message = "Force overwrite."
@@ -221,6 +221,7 @@ def choose_next_simulation_bd(
         #  to be set based on the completion criteria.
 
     if force_overwrite:
+        assert bulk_index is not None
         bulk_anchor = model.anchors[bulk_index]
         engines_runner.cleanse_outputs_bd(bulk_anchor, model)
 

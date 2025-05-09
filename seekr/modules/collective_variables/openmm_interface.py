@@ -25,8 +25,16 @@ class Distance_cv_openmm_interface:
     BOUNDARY_EXPRESSION: str = field(default="step(k*(distance(g1, g2) - value))")
     RESTRAINING_EXPRESSION: str = field(default="0.5*k*(distance(g1, g2) - value)^2")
     _cv_force = field(default=None)
-    _boundary_force = field(default=None)
-    _restraining_force = field(default=None)
+    #_boundary_force = field(default=None)
+    restraining_force = field(default=None)
+    megroup1 = field(default=0)
+    megroup2 = field(default=1)
+
+    def get_num_groups(self) -> int:
+        """
+        Get the number of groups in the CV.
+        """
+        return self.NUM_GROUPS
 
     def make_cv_force(self) -> openmm.CustomCentroidBondForce:
         """
@@ -80,34 +88,45 @@ class Distance_cv_openmm_interface:
         neighbor_force.addBond([neighborgroup1, neighborgroup2], [neighbor_val])
         return me_force, neighbor_force
 
-    def make_boundary_force(self) -> openmm.CustomCentroidBondForce:
+    def make_boundary_force_expr(
+            self,
+            index: int
+            ) -> openmm.CustomCentroidBondForce:
+        """
+        Create the OpenMM force object for this CV.
+        """
+        boundary_expression = f"step(k_{index}*("+self.CV_EXPRESSION+f"-value_{index}))"
+        return boundary_expression
+
+    def make_boundary_force(
+            self,
+            full_expr: str
+            ) -> openmm.CustomCentroidBondForce:
         """
         Create the OpenMM boundary force object for this CV.
         """
-        self._boundary_force = openmm.CustomCentroidBondForce(
-            self.NUM_GROUPS, self.BOUNDARY_EXPRESSION)
-        return self._boundary_force
+        num_groups = self.get_num_groups()
+        force = openmm.CustomCentroidBondForce(num_groups, full_expr)
+        return force
 
     def add_boundary_groups_and_variables(
-            self,
-            k: unit.Quantity, 
-            value: unit.Quantity
+            self, 
+            force: openmm.CustomCentroidBondForce,
+            boundary_parameters: dict[str, unit.Quantity]
             ) -> None:
         """
         Add the groups and variables to the OpenMM force object
-        for when this is being used to define a boundary element.
+        for when this is being used just as a CV.
         """
-        assert self._boundary_force is not None
-        force = self._boundary_force
         group_list = []
         group1 = force.addGroup(self.group1_atom_indices)
         group_list.append(group1)
         group2 = force.addGroup(self.group2_atom_indices)
         group_list.append(group2)
-        #force.addPerBondParameter("bitcode")
-        force.addPerBondParameter("k")
-        force.addPerBondParameter("value")
-        variable_values_list = [k, value]
+        variable_values_list = []
+        for key, value in boundary_parameters.items():
+            force.addPerBondParameter(key)
+            variable_values_list.append(value)
         force.addBond(group_list, variable_values_list)
         return
 
@@ -115,9 +134,25 @@ class Distance_cv_openmm_interface:
         """
         Create the OpenMM restraining force object for this CV.
         """
-        self._restraining_force = openmm.CustomCentroidBondForce(
+        self.restraining_force = openmm.CustomCentroidBondForce(
             self.NUM_GROUPS, self.RESTRAINING_EXPRESSION)
-        return self._restraining_force
+        return self.restraining_force
+    
+    def make_voronoi_cv_restraining_forces(
+            self,
+            #toggle: float,
+            #value: float,
+            ) -> openmm.CustomCentroidBondForce:
+        """
+        Make the force objects to track proximity to current and adjacent anchors.
+        """
+        expr = self.CV_EXPRESSION
+        force = openmm.CustomCentroidBondForce(self.NUM_GROUPS, expr)
+        self.megroup1 = force.addGroup(self.group1_atom_indices)
+        self.megroup2 = force.addGroup(self.group2_atom_indices)
+        force.addBond([self.megroup1, self.megroup2], [])
+        self.restraining_force = force
+        return force
     
     def add_restraining_groups_and_variables(
             self, 
@@ -128,8 +163,8 @@ class Distance_cv_openmm_interface:
         Add the groups and variables to the OpenMM force object
         for when this is being used as a restraint.
         """
-        assert self._restraining_force is not None
-        force = self._restraining_force
+        assert self.restraining_force is not None
+        force = self.restraining_force
         group_list = []
         group1 = force.addGroup(self.group1_atom_indices)
         group_list.append(group1)
@@ -146,26 +181,34 @@ class External_cv_openmm_interface:
     collective_variable: external_cv.External_CV = field()
     groups_atom_indices: typing.List[typing.List[int]] = field()
     _cv_force = field(default=None)
-    _boundary_force = field(default=None)
-    _restraining_force = field(default=None)
+    restraining_force = field(default=None)
+
+    def get_num_groups(self) -> int:
+        """
+        Get the number of groups in the CV.
+        """
+        num_groups = len(self.groups_atom_indices)
+        return num_groups
 
     def make_cv_force(self) -> openmm.CustomCentroidBondForce:
         """
         Create the OpenMM force object for this CV.
         """
-        num_groups = len(self.groups_atom_indices)
+        num_groups = self.get_num_groups()
         cv_expression = self.collective_variable.expression
-        self._cv_force = openmm.CustomCentroidBondForce(
+        cv_force = openmm.CustomCentroidBondForce(
             num_groups, cv_expression)
-        return self._cv_force
+        self._cv_force = cv_force
+        return cv_force
 
-    def add_cv_groups_and_variables(self) -> None:
+    def add_cv_groups_and_variables(
+            self,
+            force: openmm.CustomCentroidBondForce
+            ) -> None:
         """
         Add the groups and variables to the OpenMM force object
         for when this is being used just as a CV.
         """
-        assert self._cv_force is not None
-        force = self._cv_force
         group_list = []
         for i, group_atom_indices in enumerate(self.groups_atom_indices):
             group = force.addGroup(group_atom_indices)
@@ -188,7 +231,7 @@ class External_cv_openmm_interface:
         """
         Make the force objects to track proximity to current and adjacent anchors.
         """
-        num_groups = len(self.groups_atom_indices)
+        num_groups = self.get_num_groups()
         cv_expression = self.collective_variable.expression
         me_expr = "(me_val - {})^2".format(cv_expression)
         me_force = openmm.CustomCentroidBondForce(num_groups, me_expr)
@@ -209,37 +252,95 @@ class External_cv_openmm_interface:
         neighbor_force.addBond(neighbor_group_list, [neighbor_val])
         return me_force, neighbor_force
     
-    def make_boundary_force(self) -> openmm.CustomCentroidBondForce:
+    def make_boundary_force_expr(
+            self,
+            index: int
+            ) -> openmm.CustomCentroidBondForce:
         """
         Create the OpenMM force object for this CV.
         """
-        num_groups = len(self.groups_atom_indices)
-        boundary_expression = "step(k*("+self.collective_variable.expression+"-value))"
-        self._cv_force = openmm.CustomCentroidBondForce(
-            num_groups, boundary_expression)
-        print("Boundary expression: ", boundary_expression)
-        return self._cv_force
+        boundary_expression = f"step(k_{index}*("+self.collective_variable.expression+f"-value_{index}))"
+        return boundary_expression
+
+    def make_boundary_force(
+            self,
+            full_expr: str
+            ) -> openmm.CustomCentroidBondForce:
+        """
+        Create the OpenMM boundary force object for this CV.
+        """
+        num_groups = self.get_num_groups()
+        force = openmm.CustomCentroidBondForce(num_groups, full_expr)
+        return force
 
     def add_boundary_groups_and_variables(
+            self, 
+            force: openmm.CustomCentroidBondForce,
+            boundary_parameters: dict[str, unit.Quantity]
+            ) -> None:
+        """
+        Add the groups and variables to the OpenMM force object
+        for when this is being used just as a CV.
+        """
+        group_list = []
+        for i, group_atom_indices in enumerate(self.groups_atom_indices):
+            group = force.addGroup(group_atom_indices)
+            group_list.append(group)
+        variable_values_list = []
+        for key, value in boundary_parameters.items():
+            print("adding parameter", key, value)
+            force.addPerBondParameter(key)
+            variable_values_list.append(value)
+        force.addBond(group_list, variable_values_list)
+        return
+    
+    def make_restraining_force(self):
+        """
+        Create the OpenMM restraining force object for this CV.
+        """
+        num_groups = len(self.groups_atom_indices)
+        cv_expression = self.collective_variable.expression
+        self.restraining_force = openmm.CustomCentroidBondForce(
+            num_groups, cv_expression)
+        return self.restraining_force
+    
+    def make_voronoi_cv_restraining_forces(
+            self,
+            ) -> openmm.CustomCentroidBondForce:
+        """
+        Make the force objects to track proximity to current and adjacent anchors.
+        """
+        num_groups = len(self.groups_atom_indices)
+        cv_expression = self.collective_variable.expression
+        force = openmm.CustomCentroidBondForce(num_groups, cv_expression)
+        group_list = []
+        for i, group_atom_indices in enumerate(self.groups_atom_indices):
+            group = force.addGroup(group_atom_indices)
+            group_list.append(group)
+            
+        force.addBond(group_list, [])
+        self.restraining_force = force
+        return force
+    
+    def add_restraining_groups_and_variables(
             self, 
             k: unit.Quantity, 
             value: unit.Quantity
             ) -> None:
         """
         Add the groups and variables to the OpenMM force object
-        for when this is being used just as a CV.
+        for when this is being used as a restraint.
         """
+        assert self.restraining_force is not None
+        force = self.restraining_force
         assert self._cv_force is not None
         force = self._cv_force
         group_list = []
         for i, group_atom_indices in enumerate(self.groups_atom_indices):
             group = force.addGroup(group_atom_indices)
             group_list.append(group)
-        force.addPerBondParameter("k")
-        force.addPerBondParameter("value")
-        print("k: ", k, " value: ", value)
-        variable_values_list = [k, value]
-        force.addBond(group_list, variable_values_list)
+            
+        force.addBond(group_list, [])
         return
 
 CV_openmm_interface = typing.Union[Distance_cv_openmm_interface,

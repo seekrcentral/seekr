@@ -8,6 +8,7 @@ uses OpenMM.
 import typing
 from attrs import define, field, validators
 
+import seekr.modules.base as base
 import seekr.modules.engines.openmm.structures as openmm_structures
 import seekr.modules.engines.structures as engines_structures
 import seekr.modules.engines.preparer as engines_preparer
@@ -16,7 +17,7 @@ import seekr.modules.engines.preparer as engines_preparer
 class Openmm_settings_input:
     type: typing.Literal["openmm"] = "openmm"
     nonbonded_method: str = field(default="pme",
-                                  converter=str.lower,
+                                  converter=base.string_lower,
                                   validator=[validators.instance_of(str),
                                              validators.in_(["nocutoff", 
                                                              "cutoffperiodic",
@@ -24,17 +25,19 @@ class Openmm_settings_input:
                                                              "pme",
                                                              "ljpme",
                                                              "ewald"])])
+    # MYPY: errors below with validators. But tests indicate no problems.
     nonbonded_cutoff: float | None = field(default=0.9,
                                     validator=validators.optional(
                                         [validators.instance_of(float),
                                          validators.gt(0)]))
     constraints: str = field(default="hbonds",
-                             converter=str.lower,
+                             converter=base.string_lower,
                              validator=[validators.instance_of(str),
                                         validators.in_(["none", 
                                                         "hbonds", 
                                                         "allbonds",
                                                         "hangles"])])
+    # MYPY: errors below with validators. But tests indicate no problems.
     hydrogen_mass: float | None = field(default=None,
                                         validator=validators.optional(
                                             [validators.instance_of(float),
@@ -44,11 +47,11 @@ class Openmm_settings_input:
                                        validators.gt(0)])
     
     integrator_type: str = field(default="langevin",
-                                 converter=str.lower,
+                                 converter=base.string_lower,
                                  validator=[validators.instance_of(str),
                                             validators.in_(["langevin", ])])
     platform_type: str = field(default="cuda",
-                              converter=str.lower,
+                              converter=base.string_lower,
                               validator=[validators.instance_of(str),
                                          validators.in_(
                                              ["cuda", "opencl", "cpu", "reference"])])
@@ -75,13 +78,14 @@ class Openmm_settings_input:
         
         if self.platform_type == "cuda":
             openmm_engine.platform_settings = engines_structures.Cuda_platform_settings()
+        # TODO: implement these platforms - shouldn't be too hard.
         elif self.platform_type == "opencl":
             raise Exception("OpenCL platform not yet implemented.")
         elif self.platform_type == "cpu":
             raise Exception("CPU platform not yet implemented.")
         elif self.platform_type == "reference":
             openmm_engine.platform_settings = None
-
+        assert self.systemwide_settings is not None
         openmm_engine.systemwide_settings \
             = self.systemwide_settings.make_systemwide_settings_for_model()
         return openmm_engine

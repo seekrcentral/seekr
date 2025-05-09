@@ -39,6 +39,7 @@ class MD_systemwide_settings_input:
         new_md_systemwide_settings = engines_structures.MD_systemwide_settings()
         new_md_systemwide_settings.directory = self.directory
         new_md_systemwide_settings.selections = self.selections
+        stage_parameters: list[dict | None]
         if self.positions is not None and self.positions != "":
             stage_parameters = \
                 [{"index": 0, "directory": base.INITIAL_DIRECTORY, 
@@ -68,6 +69,9 @@ class MD_systemwide_settings_input:
                 new_systemwide_settings.generate_filetree(root_directory)
             new_systemwide_settings.stage_parameters[0]["positions"] = POSITIONS_BASENAME
             if toy_mode:
+                # MYPY: an error happens here because toy input positions take an array,
+                # but non-toy inputs take str (representing the PDB file) - not sure 
+                # how best to resolve it.
                 for frame_id, frame_positions in enumerate(self.positions):
                     full_positions_path = os.path.join(systemwide_initial_directory,
                                                     f"{POSITIONS_BASENAME}.swarm_{frame_id}.txt")

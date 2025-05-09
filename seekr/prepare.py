@@ -18,6 +18,7 @@ import seekr._version as seekr_version
 import seekr.modules.base as base
 import seekr.modules.structures as structures
 import seekr.modules.preparer as preparer
+import seekr.modules.check as check
 
 __version__ = seekr_version.__version__
 
@@ -101,5 +102,5 @@ if __name__ == "__main__":
     if model.directory == ".":
         model_dir = os.path.dirname(file_path)
         model.directory = os.path.abspath(model_dir)
-    #if not skip_checks:
-    #    check.check_pre_simulation_all(model)
+    if not skip_checks:
+        check.check_pre_simulation_all(model)

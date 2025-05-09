@@ -7,7 +7,8 @@ Structures for the OpenMM engine - anything that might appear in the model.json.
 import typing
 from attrs import define, field, validators
 from attrs.validators import instance_of, optional, in_, gt, and_
-import openmm.app as openmm_app
+if typing.TYPE_CHECKING:
+    import openmm.app as openmm_app
 
 import seekr.modules.base as base
 import seekr.modules.engines.structures as engines_structures
@@ -32,16 +33,16 @@ Barostat_settings = typing.Union[Monte_carlo_barostat_settings]
 class Openmm_md_engine:
     type: typing.Literal["openmm"] = "openmm"
     nonbonded_method: str | None = field(
-        default="pme", converter=base.string_lower, validator=
-            optional(and_(instance_of(str), in_([
-                "nocutoff", "cutoffperiodic", "cutoffnonperiodic", 
-                "pme", "ljpme", "ewald"]))))
+        default="pme", converter=base.string_lower) #, validator=
+            #optional(and_(instance_of(str), in_([
+            #    "nocutoff", "cutoffperiodic", "cutoffnonperiodic", 
+            #    "pme", "ljpme", "ewald"]))))
     nonbonded_cutoff: float | None = field(
-        default=0.9, validator=optional(and_(instance_of(float), gt(0))))
+        default=0.9) #, validator=optional(and_(instance_of(float), gt(0))))
     constraints: str | None = field(
-        default="hbonds", converter=base.string_lower, 
-        validator=optional(and_(instance_of(str), in_([
-            "none", "hbonds", "allbonds", "hangles"]))))
+        default="hbonds", converter=base.string_lower, )
+        #validator=optional(and_(instance_of(str), in_([
+        #    "none", "hbonds", "allbonds", "hangles"]))))
     hydrogen_mass: float | None = field(
         default=None, validator=optional(and_(instance_of(float), gt(0))))
     initial_temperature: float = field(
@@ -54,10 +55,11 @@ class Openmm_md_engine:
 
     def get_pdb_object(
             self, 
-            pdb_filename: str) -> openmm_app.PDBFile:
+            pdb_filename: str) -> "openmm_app.PDBFile":
         """
         Using the OpenMM engine, get a PDB object from a PDB file.
         """
+        import openmm.app as openmm_app
         pdb_obj = openmm_app.PDBFile(pdb_filename)
         return pdb_obj
 

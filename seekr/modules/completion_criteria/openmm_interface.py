@@ -27,7 +27,7 @@ class Base_completion_criteria_openmm_interface:
 
     def criteria_satisfied(
             self,
-            **kwargs: typing.Dict[str, typing.Any]
+            **kwargs: typing.Any
             ) -> bool:
         """
         Evaluate the current simulation state to see if the completion
@@ -61,7 +61,7 @@ class All_anchors_filled_completion_criteria_openmm_interface(
 
     def criteria_satisfied(
             self,
-            **kwargs: typing.Dict[str, typing.Any]
+            **kwargs: typing.Any
             ) -> bool:
         # simulation, self._cv_force
         """
@@ -71,15 +71,14 @@ class All_anchors_filled_completion_criteria_openmm_interface(
         #stage: structures.Stage_md = kwargs["stage"]
         print_update: bool = kwargs["print_update"]
         current_step: int = kwargs["current_step"]
+        return_message: bool
         if print_update:
-            return_message: bool = True
-            ending, message = completion_criteria_runner.is_finished_md(
-                self._model, self._stage, current_step, return_message)
+            ending, message = completion_criteria_runner.is_finished_md_with_message(
+                self._model, self._stage, current_step)
             logging.info(message)
         else:
-            return_message: bool = False
             ending = completion_criteria_runner.is_finished_md(
-                self._model, self._stage, current_step, return_message)
+                self._model, self._stage, current_step)
 
         return ending
 
@@ -97,6 +96,7 @@ def assign_completion_interface(
     MD engine is being used, and return the corresponding interface
     """
     md_engine = model.md_engine
+    assert md_engine is not None
     assert md_engine.type == "openmm", \
         "Only OpenMM engines can be used in the openmm_interface module."
     if completion_criteria.type == "number_of_steps":

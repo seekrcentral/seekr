@@ -9,15 +9,19 @@ Imported by anything in the modules/engines/openmm subdirectory.
 """
 
 import re
+import typing
 
 import numpy as np
-import openmm.unit as unit
-import openmm.app as openmm_app
 
-def get_box_vectors_from_pdb(pdb_filename: str) -> unit.Quantity:
+if typing.TYPE_CHECKING:
+    import openmm.unit as unit
+
+def get_box_vectors_from_pdb(pdb_filename: str) -> "unit.Quantity":
     """
     Extract the box_vectors from the CRYST line in a pdb file.
     """
+    import openmm.unit as unit
+    import openmm.app as openmm_app
     pdb_obj = openmm_app.PDBFile(pdb_filename)
     box_vectors = pdb_obj.topology.getPeriodicBoxVectors()
     assert box_vectors is not None, "No box vectors "\

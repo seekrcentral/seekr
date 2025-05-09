@@ -15,13 +15,13 @@ from attrs import define, field, validators, Factory
 import numpy as np
 import parmed
 
-import seekr.modules.base as base
 import seekr.modules.structures as structures
 import seekr.modules.engines.structures as engines_structures
 import seekr.modules.engines.browndye.base as browndye_base
 import seekr.modules.engines.browndye.xml_structures as xml_structures
 import seekr.modules.engines.browndye.structures as browndye_structures
 import seekr.modules.collective_variables.structures as cv_structures
+import seekr.modules.collective_variables.distance_cv as distance_cv
 
 @define
 class Browndye_molecule_input:
@@ -48,6 +48,7 @@ class Browndye_molecule_input:
         """
         pqr_struct = parmed.load_file(self.pqr_filename, skip_bonds=True)
         centers_of_mass = []
+        original_indices: typing.Dict[str, typing.List[int]] = {}
         ghost_site_indices: typing.Dict[str, int] = {}
         for selection in self.selections:
             # Compute the center of mass for the selected group of atoms
@@ -86,6 +87,7 @@ class Browndye_molecule_input:
             for residue in pqr_complex.residues:
                 residue.chain = ""
             ghost_index = len(pqr_complex.atoms)
+            original_indices[selection.name] = selection.atom_indices
             ghost_site_indices[selection.name] = ghost_index
         
         if center_molecule:
@@ -97,7 +99,7 @@ class Browndye_molecule_input:
             pqr_complex.coordinates = new_coordinates
         
         pqr_complex.save(new_pqr_filename, overwrite=True)
-        return ghost_site_indices
+        return ghost_site_indices, original_indices
     
 @define
 class Browndye_settings_input:
@@ -157,11 +159,26 @@ class Browndye_settings_input:
                     new_bd_molecule.name = os.path.splitext(pqr_filename)[0]
                     new_bd_molecule.pqr_filename = pqr_filename
                     pqr_new_filename = os.path.join(b_surface_directory, pqr_filename)
-                    ghost_site_indices = molecule.add_ghost_atoms_to_pqr(pqr_new_filename)
+                    ghost_site_indices, original_indices = molecule.add_ghost_atoms_to_pqr(
+                        pqr_new_filename)
+                    new_bd_molecule.original_indices = original_indices
                     new_bd_molecule.ghost_site_indices = ghost_site_indices
                     model.bd_engine.systemwide_settings.molecules.append(new_bd_molecule)
                     
         return
+    
+    def get_atom_indices_by_selection_name(
+            self,
+            name: str
+            ) -> list[int]:
+        """
+        Get the atom indices for a given selection name.
+        """
+        for molecule in self.molecules:
+            for selection in molecule.selections:
+                if selection.name == name:
+                    return selection.atom_indices
+        raise ValueError(f"Selection name {name} not found in any molecule.")
 
 def make_and_run_apbs(
         root: xml_structures.Root, 
@@ -352,7 +369,9 @@ def make_browndye_reaction_xml(
         spherical_milestones_in_this_anchor.sort(
             key=lambda x: x.variables["avg_value"], reverse=True)
         assert this_anchors_bd_cv_index is not None
-        this_cv: cv_structures.Distance_CV = cvs[this_anchors_bd_cv_index]
+        this_cv: cv_structures.Collective_variable = cvs[this_anchors_bd_cv_index]
+        assert isinstance(this_cv, distance_cv.Distance_CV), \
+            "BD anchor must use distance CV - other CVs not yet implemented"
         this_cv_group1_name: str = this_cv.group1_name
         this_cv_group2_name: str = this_cv.group2_name
         ghost_index_1: int = -1
@@ -445,7 +464,7 @@ def generate_bd_files(
         model: structures.Seekr_model,
         root_directory: str
         ) -> None:
-    
+    assert model.bd_engine is not None
     b_surface_full_path = os.path.join(
         root_directory, model.bd_engine.b_surface_directory)
     assert model.bd_engine.systemwide_settings is not None, \

@@ -31,7 +31,13 @@ class Pairwise_restraint:
     distances from each other.
     """
     type: typing.Literal["pairwise"] = "pairwise"
-    atom_index_pairs: list[tuple[int,int]] = field(default=Factory(list),)
+    #atom_index_pairs: list[list[int,int]] = field(default=Factory(list),)
+    atom_indices: list[int] = field(default=Factory(list),
+                                    validator=validators.deep_iterable(
+                                        member_validator=[validators.instance_of(int),
+                                                    validators.ge(0)],
+                                        iterable_validator=validators.instance_of(list),
+                                    ))
     force_constant: float = field(default=400.0,
                                 validator=[validators.instance_of(float),
                                             validators.gt(0)])

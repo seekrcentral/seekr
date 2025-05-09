@@ -48,6 +48,8 @@ def run_bd_top(
     """
     Prepare Browndye input files for simulation.
     """
+    assert model.bd_engine is not None
+    assert model.bd_engine.type == "browndye"
     bd_directory = os.path.join(model.directory, model.bd_engine.b_surface_directory)
     browndye_bin_dir = model.bd_engine.binary_directory
     curdir = os.getcwd()
@@ -94,6 +96,7 @@ def modify_variables(model: structures.Seekr_model,
     Modify several variables within the *_simulation.xml file at 
     runtime based on user inputs.
     """
+    assert model.bd_engine is not None
     bd_directory = os.path.join(model.directory, model.bd_engine.b_surface_directory)
     bd_output_glob = model.bd_engine.results_glob
     simulation_filename_glob_base = "*_simulation.xml"
@@ -178,6 +181,7 @@ def run_nam_simulation(
     """
     Run the Browndye2 simulation.
     """
+    assert model.bd_engine is not None
     bd_directory = os.path.join(model.directory, model.bd_engine.b_surface_directory)
     browndye_bin_dir = model.bd_engine.binary_directory
     bd_output_glob = model.bd_engine.results_glob

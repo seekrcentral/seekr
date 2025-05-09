@@ -9,6 +9,13 @@ groups of atoms.
 import typing
 
 from attrs import define, field, validators
+import numpy as np
+import mdtraj
+
+import seekr.modules.base as base
+
+if typing.TYPE_CHECKING:
+    import seekr.modules.structures as structures
 
 @define
 class Distance_CV:
@@ -62,6 +69,34 @@ class Distance_CV:
         Return the maximum value of this CV.
         """
         return self.max_value
+    
+    def get_mdtraj_cv_value(
+            self, 
+            model: "structures.Seekr_model", 
+            traj: mdtraj.Trajectory, 
+            frame_index: int = 0
+            ) -> float:
+        """
+        Determine the current CV value for an mdtraj object.
+        """
+        group1_atom_indices = model.md_engine.get_atom_indices_by_selection_name(
+            self.group1_name)
+        group2_atom_indices = model.md_engine.get_atom_indices_by_selection_name(
+            self.group2_name)
+        traj1 = traj.atom_slice(group1_atom_indices)
+        traj2 = traj.atom_slice(group2_atom_indices)
+        com1_array = base.mdtraj_center_of_mass(traj1)
+        com2_array = base.mdtraj_center_of_mass(traj2)
+        com1 = com1_array[frame_index,:]
+        com2 = com2_array[frame_index,:]
+        radius = np.linalg.norm(com2-com1)
+        return radius
+    
+    def get_atom_group_names(self) -> typing.List[str]:
+        """
+        Get the atom group names for this CV.
+        """
+        return [self.group1_name, self.group2_name]
 
 @define
 class Distance_cv_input:

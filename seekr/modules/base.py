@@ -15,6 +15,7 @@ import glob
 import typing
 import logging
 
+import numpy.typing as nptyping
 import mdtraj
 
 XML_ROOT = "seekr_model"
@@ -207,7 +208,7 @@ def wrap_noindent_integers(obj):
     if isinstance(obj, list):
         if len(obj) > 0 and all(isinstance(x, int) for x in obj):
             return NoIndent(obj)
-        if len(obj) > 0 and all(isinstance(x, float) for x in obj):
+        elif len(obj) > 0 and all(isinstance(x, float) for x in obj):
             return NoIndent(obj)
         else:
             # Recursively check each element
@@ -281,3 +282,16 @@ def glob_or(
     for pattern in patterns:
         result.extend(glob.glob(os.path.join(directory, pattern)))
     return result
+
+def mdtraj_center_of_mass(
+        traj: mdtraj.Trajectory
+        ) -> typing.Union[nptyping.ArrayLike]:
+    """
+    Returns a center of mass array by frames for a traj. Avoids NaN
+    errors that come when using mdtraj's .
+    """
+    if traj.xyz.shape[1] == 1:
+        com_array = traj.xyz[:,0,:]
+    else:
+        com_array = mdtraj.compute_center_of_mass(traj)
+    return com_array

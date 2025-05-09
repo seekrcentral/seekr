@@ -18,13 +18,8 @@ class Positional_restraint_input:
     Input for positional restraints.
     """
     type: typing.Literal["positional"] = "positional"
-    atom_indices: list[int] = field(
-        default=Factory(list),
-        validator=validators.deep_iterable(
-            member_validator=[validators.instance_of(int), validators.ge(0)],
-            iterable_validator=validators.instance_of(list),
-        )
-    )
+    selection_name: str = field(default="",
+                                 validator=validators.instance_of(str))
     force_constant: float = field(default=400.0, validator=[
         validators.instance_of(float), validators.gt(0)
     ])
@@ -50,8 +45,8 @@ class Pairwise_restraint_input:
     Input for pairwise restraints.
     """
     type: typing.Literal["pairwise"] = "pairwise"
-    atom_index_pairs: list[tuple[int, int]] = field(
-        default=Factory(list))
+    selection_name: str = field(default="",
+                                 validator=validators.instance_of(str))
     force_constant: float = field(default=400.0, validator=[
         validators.instance_of(float), validators.gt(0)
     ])
@@ -64,8 +59,17 @@ class Pairwise_restraint_input:
         """
         Make the restraint object for the model.
         """
+        atom_indices = systemwide_settings.get_atom_indices_by_selection_name(
+            self.selection_name)
+        # NOTE: not doing it this way - creates too many number pairs in the model
+        #  file.
+        #atom_index_pairs = []
+        #for atom_index1 in atom_indices:
+        #    for atom_index2 in atom_indices:
+        #        if atom_index1 < atom_index2:
+        #            atom_index_pairs.append([atom_index1, atom_index2])
         restraint = restraints_structures.Pairwise_restraint()
-        restraint.atom_index_pairs = self.atom_index_pairs
+        restraint.atom_indices = atom_indices
         restraint.force_constant = self.force_constant
         return restraint
     

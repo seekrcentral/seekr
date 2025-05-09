@@ -133,8 +133,9 @@ class Amber_parameters_topology:
     
     def same_parameters(
             self, 
-            other: "Amber_parameters_topology"
+            other: "Parameters_topology"
             ) -> bool:
+        assert self.type == other.type, "Type mismatch."
         if self.prmtop_filename == other.prmtop_filename:
             return True
         else:
@@ -142,11 +143,12 @@ class Amber_parameters_topology:
         
     def copy_files(self,
                    dest_directory: str,
-                   new_md_parameters_topology: "Amber_parameters_topology") -> None:
+                   new_md_parameters_topology: "Parameters_topology") -> None:
         """
         Copy the files for the initial 'stage' from this Anchor_input
         to the actual anchor.
         """
+        assert self.type == new_md_parameters_topology.type, "Type mismatch."
         assert self.prmtop_filename != "", "prmtop_filename must be defined."
         prmtop_basename = os.path.basename(self.prmtop_filename)
         anchor_prmtop_full_path = os.path.join(dest_directory,
@@ -154,7 +156,7 @@ class Amber_parameters_topology:
         copyfile(os.path.expanduser(self.prmtop_filename), anchor_prmtop_full_path)
         new_md_parameters_topology.prmtop_filename = prmtop_basename
         return
-
+    
 @define
 class Gromacs_parameters_topology:
     type: typing.Literal["Gromacs"] = "Gromacs"
@@ -165,8 +167,9 @@ class Gromacs_parameters_topology:
     
     def same_parameters(
             self, 
-            other: "Gromacs_parameters_topology"
+            other: "Parameters_topology"
             ) -> bool:
+        assert self.type == other.type, "Type mismatch."
         if (self.top_filename == other.top_filename) \
                 and (self.gro_filename == other.gro_filename):
             return True
@@ -175,11 +178,12 @@ class Gromacs_parameters_topology:
     
     def copy_files(self,
                    dest_directory: str,
-                   new_md_parameters_topology: "Gromacs_parameters_topology") -> None:
+                   new_md_parameters_topology: "Parameters_topology") -> None:
         """
         Copy the files for the initial 'stage' from this Anchor_input
         to the actual anchor.
         """
+        assert self.type == new_md_parameters_topology.type, "Type mismatch."
         assert self.top_filename != "", "top_filename must be defined."
         assert self.gro_filename != "", "gro_filename must be defined."
         top_basename = os.path.basename(self.top_filename)
@@ -208,8 +212,9 @@ class Charmm_parameters_topology:
     
     def same_parameters(
             self, 
-            other: "Charmm_parameters_topology"
+            other: "Parameters_topology"
             ) -> bool:
+        assert self.type == other.type, "Type mismatch."
         if (self.psf_filename == other.psf_filename) \
                 and (self.param_filename_list == other.param_filename_list):
             return True
@@ -218,11 +223,12 @@ class Charmm_parameters_topology:
         
     def copy_files(self,
                    dest_directory: str,
-                   new_md_parameters_topology: "Charmm_parameters_topology") -> None:
+                   new_md_parameters_topology: "Parameters_topology") -> None:
         """
         Copy the files for the initial 'stage' from this Anchor_input
         to the actual anchor.
         """
+        assert self.type == new_md_parameters_topology.type, "Type mismatch."
         assert self.psf_filename != "", "psf_filename must be defined."
         assert len(self.param_filename_list) > 0, "param_filename_list must be defined."
         psf_basename = os.path.basename(self.psf_filename)
@@ -257,8 +263,9 @@ class Forcefield_parameters:
     
     def same_parameters(
             self, 
-            other: "Forcefield_parameters"
+            other: "Parameters_topology"
             ) -> bool:
+        assert self.type == other.type, "Type mismatch."
         if (self.built_in_forcefield_filenames == other.built_in_forcefield_filenames) \
                 and (self.custom_forcefield_filenames == other.custom_forcefield_filenames):
             return True
@@ -267,18 +274,19 @@ class Forcefield_parameters:
         
     def copy_files(self,
                    dest_directory: str,
-                   new_md_parameters_topology: "Forcefield_parameters") -> None:
+                   new_md_parameters_topology: "Parameters_topology") -> None:
         """
         Copy the files for the initial 'stage' from this Anchor_input
         to the actual anchor.
         """
-        new_md_parameters_topology.build_in_forcefield_filenames = []
-        for forcefield_filename in self.build_in_forcefield_filenames:
+        assert self.type == new_md_parameters_topology.type, "Type mismatch."
+        new_md_parameters_topology.built_in_forcefield_filenames = []
+        for forcefield_filename in self.built_in_forcefield_filenames:
             forcefield_basename = os.path.basename(forcefield_filename)
             anchor_forcefield_full_path = os.path.join(dest_directory,
                                                     forcefield_basename)
             copyfile(os.path.expanduser(forcefield_filename), anchor_forcefield_full_path)
-            new_md_parameters_topology.build_in_forcefield_filenames.append(forcefield_basename)
+            new_md_parameters_topology.built_in_forcefield_filenames.append(forcefield_basename)
 
         new_md_parameters_topology.custom_forcefield_filenames = []
         for forcefield_filename in self.custom_forcefield_filenames:
@@ -298,8 +306,9 @@ class Openmm_system:
     
     def same_parameters(
             self, 
-            other: "Openmm_system"
+            other: "Parameters_topology"
             ) -> bool:
+        assert self.type == other.type, "Type mismatch."
         if self.system_filename == other.system_filename:
             return True
         else:
@@ -307,11 +316,12 @@ class Openmm_system:
         
     def copy_files(self,
                    dest_directory: str,
-                   new_md_parameters_topology: "Openmm_system") -> None:
+                   new_md_parameters_topology: "Parameters_topology") -> None:
           """
           Copy the files for the initial 'stage' from this Anchor_input
           to the actual anchor.
           """
+          assert self.type == new_md_parameters_topology.type, "Type mismatch."
           assert self.system_filename != "", "system_filename must be defined."
           system_basename = os.path.basename(self.system_filename)
           anchor_system_full_path = os.path.join(dest_directory,
@@ -365,18 +375,25 @@ class MD_systemwide_settings:
     def get_positions_full_paths(
             self,
             root_directory: str,
-            input_stage_index: int
+            input_stage_index: int,
+            swarm_id: int | None = None
             ) -> list[str]:
         """
         Construct the full path to the PDB/TXT for this systemwide and a given stage.
         """
         assert len(self.stage_parameters) > input_stage_index, "Stage index "\
             "provided is out of range."
+        # NOTE: this assert prevents mypy error that Nonetype is not indexable.
         assert self.stage_parameters[input_stage_index] is not None
         positions_base_noext = self.stage_parameters[input_stage_index]["positions"]
         assert isinstance(positions_base_noext, str), "Positions must be a filename str."
         input_stage_dir = self.stage_parameters[input_stage_index]["directory"]
-        glob_base = [f"{positions_base_noext}*.pdb", f"{positions_base_noext}*.txt"]
+        if swarm_id is None:
+            glob_base = [f"{positions_base_noext}*.pdb", f"{positions_base_noext}*.txt"]
+        else:
+            #input_positions_glob_basename = f"{input_stage_parameter['positions']}*.swarm_{swarm_index}.{extension}"
+            glob_base = [f"{positions_base_noext}*.swarm_{swarm_id}.pdb",
+                         f"{positions_base_noext}*.swarm_{swarm_id}.txt"]
         glob_path = os.path.join(
             root_directory, self.directory, input_stage_dir)
         positions_full_paths = base.glob_or(glob_base, glob_path)

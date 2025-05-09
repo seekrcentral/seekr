@@ -9,15 +9,12 @@ import json
 
 import cattrs
 
+import seekr.modules.engines.base as engines_base
 import seekr.modules.structures as structures
 import seekr.modules.engines.structures as engines_structures
-import seekr.modules.engines.openmm.runner as runner_openmm
 import seekr.modules.engines.browndye.runner as runner_browndye
 
-INFORMATION_CHECKPOINT_FILENAME_NOEXT = "checkpoint_information"
-INFORMATION_CHECKPOINT_FILENAME_EXT = ".json"
-RESTART_CHECKPOINT_FILENAME_NOEXT = "backup"
-RESTART_CHECKPOINT_FILENAME_EXT = ".checkpoint"
+# NOTE: want this module to only be imported selectively
 
 def load_checkpoint_information(
         filename: str
@@ -49,6 +46,7 @@ def run_md_simulation(
     assert model.md_engine is not None
     found_engine = False
     if model.md_engine.type == "openmm":
+        import seekr.modules.engines.openmm.runner as runner_openmm
         runner_openmm.run_simulation(
             model, stage_index, anchor_index, 
             restart, swarm_index, device_index, 
@@ -117,34 +115,19 @@ def cleanse_outputs_bd(
 def get_checkpoint_information_basename(
         swarm_index: int | None
         ) -> str:
-    #if swarm_index is None:
-    #    checkpoint_information_filename \
-    #        = INFORMATION_CHECKPOINT_FILENAME_NOEXT \
-    #            + INFORMATION_CHECKPOINT_FILENAME_EXT
-    #else:
-    #    checkpoint_information_filename \
-    #        = INFORMATION_CHECKPOINT_FILENAME_NOEXT \
-    #        + f".swarm_{swarm_index}" \
-    #        + INFORMATION_CHECKPOINT_FILENAME_EXT
     if swarm_index is None:
         swarm_index = 0
     checkpoint_information_filename \
-            = INFORMATION_CHECKPOINT_FILENAME_NOEXT \
+            = engines_base.INFORMATION_CHECKPOINT_FILENAME_NOEXT \
             + f".swarm_{swarm_index}" \
-            + INFORMATION_CHECKPOINT_FILENAME_EXT
+            + engines_base.INFORMATION_CHECKPOINT_FILENAME_EXT
     return checkpoint_information_filename
 
 def get_restart_checkpoint_basename(
         swarm_index: int | None
         ) -> str:
-    #if swarm_index is None:
-    #    restart_checkpoint_filename = RESTART_CHECKPOINT_FILENAME_NOEXT\
-    #        + RESTART_CHECKPOINT_FILENAME_EXT
-    #else:
-    #    restart_checkpoint_filename = RESTART_CHECKPOINT_FILENAME_NOEXT\
-    #        + str(swarm_index) + RESTART_CHECKPOINT_FILENAME_EXT
     if swarm_index is None:
         swarm_index = 0
-    restart_checkpoint_filename = RESTART_CHECKPOINT_FILENAME_NOEXT\
-            + str(swarm_index) + RESTART_CHECKPOINT_FILENAME_EXT
+    restart_checkpoint_filename = engines_base.RESTART_CHECKPOINT_FILENAME_NOEXT\
+            + str(swarm_index) + engines_base.RESTART_CHECKPOINT_FILENAME_EXT
     return restart_checkpoint_filename
