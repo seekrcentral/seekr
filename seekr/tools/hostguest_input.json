@@ -159,7 +159,7 @@
             "sampling_method": {
                 "type": "steered",
                 "force_constant": 1000.0,
-                "velocity": 0.01,
+                "velocity": 1.0,
                 "cv_names": [
                     "distance_host_guest"
                 ]

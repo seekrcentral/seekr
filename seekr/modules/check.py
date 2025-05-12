@@ -229,8 +229,8 @@ def check_pre_sim_MD_and_BD_salt_concentration(
                 
             if not found_ion:
                 print("check_pre_sim_MD_and_BD_salt_concentration - Found "\
-                    "unbonded atom with anchor {}, ".format(anchor_or_systemwide.index)\
-                    +"index: {} and name: {}. ".format(index, atom.name)\
+                    f"unbonded atom with anchor {anchor_or_systemwide.index}, "\
+                    +f"index: {index} and name: {atom.name}. "\
                     +"Charge is uncertain. Assuming its contribution to "\
                     "solvent ionic strength is zero.")
     if not np.isclose(md_ionic_strength, bd_ionic_strength, 
@@ -265,9 +265,9 @@ def check_systems_within_Voronoi_cells(
     for anchor in model.anchors:
         if not anchor.md:
             continue
-
+        
         for stage_id, stage in enumerate(model.stages):
-            stage_parameter = anchor.stage_parameters[stage_id+1]
+            stage_parameter = anchor.stage_parameters[stage_id]
             if not stage.type == "md_stage":
                 continue
 
@@ -278,7 +278,7 @@ def check_systems_within_Voronoi_cells(
 
             full_directory = os.path.join(
                 model.directory, anchor.directory,
-                anchor.stage_parameters[stage.index]["directory"])
+                anchor.stage_parameters[stage_id]["directory"])
             input_positions_filenames = anchor.get_positions_full_paths(
                 model.directory, stage.input_stage_index, 0)
             if len(input_positions_filenames) == 0:
@@ -292,7 +292,7 @@ def check_systems_within_Voronoi_cells(
             traj = load_structure_with_mdtraj(model, anchor, stage, mode="pdb")
             if traj is None:
                 continue
-            
+
             for milestone in anchor.milestones:
                 result = cv_structures.check_mdtraj_within_boundary(
                     model, traj, milestone.variables, frame_index=0)

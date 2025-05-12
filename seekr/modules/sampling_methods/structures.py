@@ -116,7 +116,7 @@ class Steered_md_sampling_method:
     type: typing.Literal["steered"] = "steered"
     cv_names: typing.List[str] = field(default=Factory(list),
                                             validator=validators.instance_of(list))
-    force_constant: float = field(default=1000.0,
+    force_constant: float = field(default=10000.0,
                                     validator=[validators.instance_of(float),
                                                validators.ge(0)])
     velocity: float = field(default=1.0,

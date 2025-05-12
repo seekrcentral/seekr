@@ -99,8 +99,8 @@ class External_CV:
         expr = ""
         for i, position in enumerate(positions):
             expr_x = f"x{i+1} = {position[0]};"
-            expr_y = f"y{i+1} = {position[0]};"
-            expr_z = f"z{i+1} = {position[0]};"
+            expr_y = f"y{i+1} = {position[1]};"
+            expr_z = f"z{i+1} = {position[2]};"
             expr += expr_x + expr_y + expr_z
             
         expr += engines_openmm_base.convert_openmm_to_python_expr(

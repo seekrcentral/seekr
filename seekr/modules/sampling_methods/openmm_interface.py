@@ -278,6 +278,8 @@ class Base_md_openmm_interface:
                 start_time = time.time()
             #self._simulation_obj.step(steps_to_take)
             self._step(steps_to_take)
+            num_steps += steps_to_take
+            on_step += steps_to_take
             if num_steps == 0 and do_initial_benchmark:
                 total_time = time.time() - start_time
                 early_simulation_abort = self.perform_early_simulation_eval(
@@ -287,8 +289,9 @@ class Base_md_openmm_interface:
                         * 86400 / total_time
                     logging.info(f"Initial benchmark (ns/day): {ns_per_day}")
                     self._step(steps_to_take_after_benchmark)
-            num_steps += steps_to_take
-            on_step += steps_to_take
+                    num_steps += steps_to_take_after_benchmark
+                    on_step += steps_to_take_after_benchmark
+
             if early_simulation_abort:
                 raise Exception("Simulation aborted early.")
             else:
@@ -300,13 +303,15 @@ class Base_md_openmm_interface:
                     self.perform_eval(restart_index, swarm_index)
                     # NOTE: an logging update is printed every checkpoint. Is this right?
                     criteria_satisfied = completion_openmm_interface.criteria_satisfied(
-                        current_step=on_step, print_update=make_checkpoint)
+                        current_step=on_step, print_update=False)
+                        #current_step=on_step, print_update=make_checkpoint)
                 if make_checkpoint:
                     self._simulation_obj.saveCheckpoint(checkpoint_filename)
                     engines_structures.write_checkpoint_information_file(
                         on_step, restart_index, timestep, checkpoint_info_filename)
                     lock_string = engines_base.update_lock(
                         lock_filename, lock_string)
+                    
             if on_step >= max_steps:
                 stopping = True
             elif criteria_satisfied:
@@ -372,7 +377,8 @@ class Base_md_openmm_interface:
             result = milestone.is_point_within(cv_values)
             os.chdir(curdir)
             if not result:
-                logging.critical(f"System has not reached the target anchor {current_anchor_index}.")
+                logging.critical(f"System has not reached the target anchor {current_anchor_index}."\
+                                 "If using SMD, stronger force constant needed?")
                 raise Exception("Target anchor not reached.")
         anchor_directory = os.path.join(
             self._model.directory, current_anchor.directory,
@@ -401,6 +407,7 @@ class Base_md_openmm_interface:
         """
         Load the current state of the simulation from the appropriate anchor.
         """
+        logging.info(f"Starting steered MD from anchor {current_anchor_index}.")
         assert self._model is not None
         current_anchor = self._model.anchors[current_anchor_index]
         # Check to make sure the system is inside the target anchor
@@ -424,7 +431,7 @@ class Base_md_openmm_interface:
             if len(output_files_full) > 0:
                 loading_filename = output_files_full[0]
                 break
-
+        
         if self._model.using_toy():
             open_txt_file_for_simulation(loading_filename, self._simulation_obj)
         else:
@@ -483,7 +490,7 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
                 cv, md_engine)
             assert cv_interface is not None
             cv_force = cv_interface.make_cv_force()
-            cv_interface.add_cv_groups_and_variables()
+            cv_interface.add_cv_groups_and_variables(cv_force)
             cv_name = f"0*x_{i}"
             openmm_cv_object = openmm.CustomCVForce(cv_name)
             openmm_cv_object.addCollectiveVariable(cv_name, cv_force)
@@ -530,7 +537,7 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
                 cv, md_engine)
             metaD_force = cv_interface.make_cv_force()
             #metaD_force.setForceGroup(0)
-            cv_interface.add_cv_groups_and_variables()
+            cv_interface.add_cv_groups_and_variables(metaD_force)
             force_bias = openmm_app.BiasVariable(
                 metaD_force, minValue=cv.get_min_value(), maxValue=cv.get_max_value(),
                 biasWidth=bias_widths[i], periodic=cv.is_periodic(), gridWidth=grid_widths[i])
@@ -563,62 +570,10 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
             cv_value = cv.getCollectiveVariableValues(self._simulation_obj.context)
             cv_values.append(cv_value[0])
 
-        current_anchor_index = self.find_current_anchor_index()
+        current_anchor_index = self.find_current_anchor_index(cv_values)
         if current_anchor_index != self._current_alpha:
             self._current_alpha = current_anchor_index
             self.save_to_current_anchor(current_anchor_index, cv_values, METADYN_NAME)
-
-        # TODO: remove once metadynamics is validated
-        """
-        found_anchor = False
-        for alpha, anchor in enumerate(self._model.anchors):
-            in_anchor = True
-            for milestone in anchor.milestones:
-                curdir = os.getcwd()
-                os.chdir(self._model.directory)
-                #result = structures.check_values_within_voronoi_boundary(
-                #    cv_values, milestone.variables)
-                result = milestone.is_point_within(cv_values)
-                os.chdir(curdir)
-                if not result:
-                    in_anchor = False
-
-            if in_anchor:
-                assert not found_anchor, "Found system in two "\
-                    "different anchors in the same step."
-                found_anchor = True
-                if alpha == self._current_alpha:
-                    continue
-                self._current_alpha = alpha
-                self.save_to_current_anchor(alpha, cv_values)
-                
-                current_anchor = self._model.anchors[alpha]
-                if not current_anchor.md:
-                    logging.critical(f"System has reached non-MD (BD only?) anchor {alpha}. "\
-                                     "Consider imposing a Proximity restraint or other restraint.")
-                    raise Exception("Metadynamics simulation has reached a non-MD anchor. Aborting.")
-                assert current_anchor.stage_parameters[self._stage_index+1] is not None
-                # MYPY: indexing problems with this dictionary
-                anchor_directory = os.path.join(
-                    self._model.directory, current_anchor.directory,
-                    current_anchor.stage_parameters[self._stage_index+1]["directory"])
-                # Save this anchor's new structure
-                if self._model.using_toy():
-                    extension = ".txt"
-                else:
-                    extension = ".pdb"
-                
-                var_string = current_anchor.make_var_string()
-                output_positions_basename_noext = METADYN_NAME.format(var_string, 0)
-                output_positions_basename = output_positions_basename_noext + extension
-                output_positions_filename = os.path.join(anchor_directory, 
-                                                    output_positions_basename)
-                current_anchor.change_positions_filename(output_positions_basename_noext, self._stage_index)
-                if self._model.using_toy(): # TODO: fill this in later
-                    write_txt_file_from_simulation(output_positions_filename, self._simulation_obj)
-                else:
-                    write_pdb_file_from_simulation(output_positions_filename, self._simulation_obj)
-                """
 
     def _step(
             self,
@@ -717,6 +672,12 @@ class Steered_md_openmm_interface(Base_md_openmm_interface):
         cv_values = self._openmm_cv_object.getCollectiveVariableValues(self._simulation_obj.context)
         current_anchor_index = self.find_current_anchor_index(cv_values)
         self.save_to_current_anchor(current_anchor_index, cv_values, SMD_NAME)
+        # Update the 'value' variable so that a spurious force at 0.0 isn't applied
+        for cv_index, cv_value in enumerate(cv_values):
+            for i in range(self._openmm_cv_object.getNumGlobalParameters()):
+                param_name = self._openmm_cv_object.getGlobalParameterName(i)
+                if param_name == f"value_{cv_index}":
+                    self._simulation_obj.context.setParameter(param_name, cv_value)
 
         filled_anchors, unfilled_anchors = completion_criteria_runner.filled_and_unfilled_anchors(
             model, stage)
@@ -727,6 +688,7 @@ class Steered_md_openmm_interface(Base_md_openmm_interface):
             logging.info(f"anchor {step[0]} to anchor {step[1]}")
         new_source_anchor_index = self._procedure[self._current_step_in_procedure][0]
         self.load_current_anchor(new_source_anchor_index)
+        
         return
     
     def assign_new_windows(
@@ -743,6 +705,7 @@ class Steered_md_openmm_interface(Base_md_openmm_interface):
         target_anchor: structures.Anchor = self._model.anchors[target_anchor_index]
         windows_list_unzipped = []
         total_sq_distance = 0.0
+        logging.info(f"Assigning a new set of windows for SMD:")
         for variable_key in source_anchor.variables:
             var_cv = int(variable_key.split("_")[1])
             if variable_key in target_anchor.variables:
@@ -762,6 +725,8 @@ class Steered_md_openmm_interface(Base_md_openmm_interface):
             if variable_key in target_anchor.variables:
                 start_value = cv_values[var_cv]
                 last_value = target_anchor.variables[variable_key]
+                cv_name = self._model.collective_variables[var_cv].name
+                logging.info(f"Running CV {cv_name} steered MD from value {start_value} to {last_value}")
                 windows = np.linspace(start_value, last_value, num_smd_windows)
                 windows_list_unzipped.append(windows)
 
@@ -770,6 +735,7 @@ class Steered_md_openmm_interface(Base_md_openmm_interface):
         steps_in_window = int(abs(distance) / (self.sampling_method.velocity * timestep))
         assert steps_in_window > 0
         self._on_window = 0
+        
         return
 
     def perform_eval(
@@ -784,15 +750,10 @@ class Steered_md_openmm_interface(Base_md_openmm_interface):
         if self._model.anchors is None:
             return
         target_anchor_index = self._procedure[self._current_step_in_procedure][1]
-        target_anchor: structures.Anchor = self._model.anchors[target_anchor_index]
         #cv_values_dummy: list[float] = []
         assert self._simulation_obj is not None
         assert self._openmm_cv_list is not None
-        #for i, cv in enumerate(self._openmm_cv_list):
-        #    cv_value = cv.getCollectiveVariableValues(self._simulation_obj.context)
-        #    cv_values_dummy.append(cv_value[0])
         cv_values = self._openmm_cv_object.getCollectiveVariableValues(self._simulation_obj.context)
-        
         if self._windows_list_zipped is None:
             self.assign_new_windows(cv_values)
 
@@ -809,6 +770,7 @@ class Steered_md_openmm_interface(Base_md_openmm_interface):
             self._on_window += 1
         else:
             # The destination is reached
+            logging.info(f"Reached anchor {target_anchor_index}.")
             self._current_step_in_procedure += 1
             self.save_to_current_anchor(target_anchor_index, cv_values, SMD_NAME)
             if self._current_step_in_procedure < len(self._procedure):
@@ -816,6 +778,11 @@ class Steered_md_openmm_interface(Base_md_openmm_interface):
                 self.load_current_anchor(new_source_anchor_index)
                 cv_values = self._openmm_cv_object.getCollectiveVariableValues(self._simulation_obj.context)
                 self.assign_new_windows(cv_values)
+                for cv_index, cv_value in enumerate(cv_values):
+                    for i in range(self._openmm_cv_object.getNumGlobalParameters()):
+                        param_name = self._openmm_cv_object.getGlobalParameterName(i)
+                        if param_name == f"value_{cv_index}":
+                            self._simulation_obj.context.setParameter(param_name, cv_value)
             else:
                 # Simulation is complete: let the completion criteria finish
                 pass

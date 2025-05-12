@@ -83,27 +83,30 @@ def create_toy_model_input(
     stage1.reporters = [stage1_state_reporter, stage1_dcd_reporter]
 
     stage2 = preparer.Input_stage_md()
-    #stage2.name = "metadynamics"
+    """
+    stage2.name = "metadynamics"
+    stage2.sampling_method = sampling_preparer.Metadynamics_md_input()
+    stage2.sampling_method.gaussian_height = 1.0
+    stage2.sampling_method.cv_names = ["progress_coordinate"]
+    """
     stage2.name = "steered"
-    stage2.run_minimization = False
-    stage2.checkpoint_interval = 10
-    stage2.ensemble = structures.NVT_ensemble()
-    #stage2.sampling_method = sampling_preparer.Metadynamics_md_input()
-    #stage2.sampling_method.gaussian_height = 1.0
-    #stage2.sampling_method.cv_names = ["progress_coordinate"]
     stage2.sampling_method = sampling_preparer.Steered_md_input()
     stage2.sampling_method.cv_names = ["progress_coordinate"]
     stage2.sampling_method.force_constant = 100000.0
     stage2.sampling_method.velocity = 1.0
+    
+    stage2.run_minimization = False
+    stage2.checkpoint_interval = 10
+    stage2.ensemble = structures.NVT_ensemble()
     stage2.completion_criteria = compl_crit_struct.All_anchors_filled_completion_criteria()
     stage2.completion_criteria.eval_interval = 10
     stage2_state_reporter = reporters_preparer.State_reporter_input()
     stage2_state_reporter.to_stdout = True
     stage2_state_reporter.interval = 50
     stage2_dcd_reporter = reporters_preparer.DCD_reporter_input()
-    stage2_dcd_reporter.interval = 50
+    stage2_dcd_reporter.interval = 500
     stage2_dcd_reporter.enforce_periodic_box = False
-    stage2.reporters = [stage2_state_reporter, stage2_dcd_reporter]
+    stage2.reporters = [stage2_dcd_reporter] #[stage2_state_reporter, stage2_dcd_reporter]
 
     stage3 = preparer.Input_stage_md()
     stage3.name = "MMVT"
@@ -283,20 +286,21 @@ def create_host_guest_example_input(
     stage1_dcd_reporter.interval = 1000
     stage1_dcd_reporter.atom_subset = None
     stage1.reporters = [stage1_state_reporter, stage1_dcd_reporter]
-
+    
     stage2 = preparer.Input_stage_md()
-    #stage2.name = "metadynamics"
-    #stage2.run_minimization = False
-    #stage2.checkpoint_interval = 1000
-    #stage2.ensemble = structures.NVT_ensemble()
-    #stage2.sampling_method = sampling_preparer.Metadynamics_md_input()
-    #stage2.sampling_method.gaussian_height = 1.0
+    """
+    stage2.name = "metadynamics"
+    stage2.sampling_method = sampling_preparer.Metadynamics_md_input()
+    stage2.sampling_method.gaussian_height = 1.0
+    """
     stage2.name = "steered"
+    stage2.sampling_method = sampling_preparer.Steered_md_input()
+    stage2.sampling_method.force_constant = 100000.0
+    stage2.sampling_method.cv_names = ["distance_host_guest"]
+    
     stage2.run_minimization = False
     stage2.checkpoint_interval = 1000
     stage2.ensemble = structures.NVT_ensemble()
-    stage2.sampling_method = sampling_preparer.Steered_md_input()
-    stage2.sampling_method.cv_names = ["distance_host_guest"]
     stage2.completion_criteria = compl_crit_struct.All_anchors_filled_completion_criteria()
     proximity_restraint_input = restraints_preparer.Proximity_restraint_input()
     proximity_restraint_input.selection1_name = "host"

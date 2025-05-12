@@ -68,7 +68,7 @@ class Steered_md_input:
     A steered MD sampling method input.
     """
     type: typing.Literal["steered"] = "steered"
-    force_constant: float = field(default=1000.0,
+    force_constant: float = field(default=10000.0,
                                     validator=[validators.instance_of(float),
                                                validators.ge(0)])
     velocity: float = field(default=1.0,

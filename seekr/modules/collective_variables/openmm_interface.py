@@ -44,18 +44,17 @@ class Distance_cv_openmm_interface:
             self.NUM_GROUPS, self.CV_EXPRESSION)
         return self._cv_force
 
-    def add_cv_groups_and_variables(self) -> None:
+    def add_cv_groups_and_variables(
+            self,
+            force: openmm.CustomCentroidBondForce
+            ) -> None:
         """
         Add the groups and variables to the OpenMM force object
         for when this is being used just as a CV.
         """
-        assert self._cv_force is not None
-        force = self._cv_force
-        group_list = []
         group1 = force.addGroup(self.group1_atom_indices)
-        group_list.append(group1)
         group2 = force.addGroup(self.group2_atom_indices)
-        group_list.append(group2)
+        group_list = [group1, group2]
         force.addBond(group_list, [])
         return
 
