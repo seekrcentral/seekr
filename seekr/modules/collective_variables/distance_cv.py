@@ -40,18 +40,6 @@ class Distance_CV:
     max_value: float = 3.0
     type: typing.Literal["distance"] = "distance"
     
-    def fill_input_values_from_model(
-            self, # TODO: use kwargs?
-            root_directory: str) -> None:
-        """
-        Fill extra values from model immediately after creation of this object.
-
-        Example: if the CV requires knowledge of the root directory, for
-        instance to have a place for a reference structure, this function
-        can be used to fill in the value.
-        """
-        return
-    
     def is_periodic(self) -> bool:
         """
         Return whether this CV is periodic.
@@ -120,7 +108,8 @@ class Distance_cv_input:
     
     def make_cv_object(
             self, 
-            index: int) -> Distance_CV:
+            index: int,
+            root_directory: str) -> Distance_CV:
         """
         Create a Distance_CV object from the Input to be placed into
         the Model.

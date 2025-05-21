@@ -14,12 +14,14 @@ import mdtraj
 import seekr.modules.base as base
 import seekr.modules.collective_variables.distance_cv as distance_cv
 import seekr.modules.collective_variables.external_cv as external_cv
+import seekr.modules.collective_variables.rmsd_cv as rmsd_cv
 
 if typing.TYPE_CHECKING:
     import seekr.modules.structures as structures
 
 Collective_variable = typing.Union[distance_cv.Distance_CV,
-                                   external_cv.External_CV]
+                                   external_cv.External_CV,
+                                   rmsd_cv.RMSD_CV]
 
 def get_mdtraj_cv_value(
           model: "structures.Seekr_model",

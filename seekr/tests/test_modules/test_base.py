@@ -5,14 +5,48 @@ Test the modules/base.py module.
 """
 
 import os
+import json
 import pytest
 import random
+import logging
 
 import numpy as np
+import mdtraj
 
 import seekr.modules.base as base
 
 TEST_DIRECTORY = os.path.dirname(__file__)
+
+def test_noindent():
+    obj = base.NoIndent([1, 2, 3])
+    assert obj.value == [1, 2, 3]
+
+def test_noindent_list_encoder():
+    data = {"key": base.NoIndent([1, 2, 3])}
+    encoded = json.dumps(data, cls=base.NoIndentListEncoder, indent=4)
+    assert "[1,2,3]" in encoded
+
+def test_configure_file_only_logger(tmp_path):
+    log_file = tmp_path / "test.log"
+    base.configure_file_only_logger(str(log_file))
+    logging.info("Test log message1")
+    with open(log_file, "r") as f:
+        assert "Test log message1" in f.read()
+
+def test_configure_file_and_stdout_logger(tmp_path, capsys):
+    log_file = tmp_path / "test.log"
+    base.configure_file_and_stdout_logger(str(log_file))
+    logging.info("Test log message2")
+    captured = capsys.readouterr()
+    assert "Test log message2" in captured.out
+    with open(log_file, "r") as f:
+        assert "Test log message2" in f.read()
+
+def test_configure_stdout_only_logger(capsys):
+    base.configure_stdout_only_logger()
+    logging.info("Test log message3")
+    captured = capsys.readouterr()
+    assert "Test log message3" in captured.out
 
 def test_order_files_numerically():
     string_list = ["/path/to/anchor0/output0_0", "/path/to/anchor0/output0_1",
@@ -50,58 +84,58 @@ def test_order_files_numerically():
     
     return
 
-# TODO: this needs to be changed to use updated methods
-@pytest.mark.needs_openmm
-def test_box_vectors():
-    from openmm import unit
-    box_vector_q = unit.Quantity(
-        [[64.9127105, 0.0, 0.0], 
-         [-21.6375684, 61.2002909, 0.0], 
-         [-21.6375684, -30.6001417, 53.0010088]], 
-                      unit=unit.angstrom)
-    box_vector = base.Box_vectors()
-    box_vector.from_quantity(box_vector_q, unit.nanometers)
-    assert np.isclose(box_vector.ax, 6.49127105)
-    assert np.isclose(box_vector.ay, 0.0)
-    assert np.isclose(box_vector.az, 0.0)
-    assert np.isclose(box_vector.bx, -2.16375684)
-    assert np.isclose(box_vector.by, 6.12002909)
-    assert np.isclose(box_vector.bz, 0.0)
-    assert np.isclose(box_vector.cx, -2.16375684)
-    assert np.isclose(box_vector.cy, -3.06001417)
-    assert np.isclose(box_vector.cz, 5.30010088)
-    box_vector_q2 = box_vector.to_quantity(unit.Quantity, unit.nanometers)
-    assert np.isclose(box_vector_q2.value_in_unit(unit.nanometers)[0][0], 
-                      6.49127105)
-    assert np.isclose(box_vector_q2.value_in_unit(unit.nanometers)[0][1], 0.0)
-    assert np.isclose(box_vector_q2.value_in_unit(unit.nanometers)[0][2], 0.0)
-    assert np.isclose(box_vector_q2.value_in_unit(unit.nanometers)[1][0], 
-                      -2.16375684)
-    assert np.isclose(box_vector_q2.value_in_unit(unit.nanometers)[1][1], 
-                      6.12002909)
-    assert np.isclose(box_vector_q2.value_in_unit(unit.nanometers)[1][2], 0.0)
-    assert np.isclose(box_vector_q2.value_in_unit(unit.nanometers)[2][0], 
-                      -2.16375684)
-    assert np.isclose(box_vector_q2.value_in_unit(unit.nanometers)[2][1], 
-                      -3.06001417)
-    assert np.isclose(box_vector_q2.value_in_unit(unit.nanometers)[2][2], 
-                      5.30010088)
-    box_6_vector = [61.239410, 61.239410, 61.239410, 109.471, 109.471, 109.471]
-    box_vector2 = base.Box_vectors()
-    box_vector2.from_6_vector(box_6_vector)
-    assert np.isclose(box_vector2.ax, 6.1239410, atol=0.001)
-    assert np.isclose(box_vector2.ay, 0.0)
-    assert np.isclose(box_vector2.az, 0.0)
-    assert np.isclose(box_vector2.bx, -2.041313667, atol=0.001)
-    assert np.isclose(box_vector2.by, 5.773707003, atol=0.001)
-    assert np.isclose(box_vector2.bz, 0.0)
-    assert np.isclose(box_vector2.cx, -2.041313667, atol=0.001)
-    assert np.isclose(box_vector2.cy, -2.886853152, atol=0.001)
-    assert np.isclose(box_vector2.cz, 5.00017714, atol=0.001)
-    expected_box_6_vector = [6.1239410, 6.1239410, 6.1239410, 109.47122, 
-                             109.47122, 109.47122]
-    resulting_box_6_vector = box_vector2.to_6_vector()
-    assert np.isclose(np.array(expected_box_6_vector), 
-                      np.array(resulting_box_6_vector)).all()
-    return
+def test_wrap_noindent_integers():
+    data = {"key": [1, 2, 3], "nested": {"key2": [4.0, 5.0]}}
+    wrapped = base.wrap_noindent_integers(data)
+    assert isinstance(wrapped["key"], base.NoIndent)
+    assert isinstance(wrapped["nested"]["key2"], base.NoIndent)
 
+def test_make_tree(tmp_path):
+    tree = {"dir1": {"subdir1": {}, "subdir2": {}}, "dir2": {}}
+    base.make_tree(str(tmp_path), tree)
+    assert (tmp_path / "dir1" / "subdir1").is_dir()
+    assert (tmp_path / "dir1" / "subdir2").is_dir()
+    assert (tmp_path / "dir2").is_dir()
+
+def test_string_lower():
+    assert base.string_lower("TEST") == "test"
+    assert base.string_lower(None) is None
+    with pytest.raises(TypeError):
+        base.string_lower(123)
+
+def test_get_pdb_num_frames(tmp_path):
+    pdb_file = tmp_path / "test.pdb"
+    with open(pdb_file, "w") as f:
+        f.write("MODEL\n"+
+                "HETATM    1 X0   UNK A   1       0.000  -7.000   0.000  1.00  0.00          X0\n"+
+                "TER       2      UNK A   1\n"+
+                "ENDMDL\n"+
+                "MODEL\n"+
+                "HETATM    1 X0   UNK A   1       0.000  -7.010   0.000  1.00  0.00          X0\n"+
+                "TER       2      UNK A   1\n"+
+                "ENDMDL\n")
+    num_frames = base.get_pdb_num_frames(str(pdb_file))
+    assert num_frames == 2
+
+def test_glob_or(tmp_path):
+    (tmp_path / "file1.txt").touch()
+    (tmp_path / "file2.log").touch()
+    (tmp_path / "file3.txt").touch()
+    result = base.glob_or(["*.txt", "*.log"], str(tmp_path))
+    assert len(result) == 3
+
+def test_mdtraj_center_of_mass(tmp_path):
+    pdb_file = tmp_path / "test.pdb"
+    with open(pdb_file, "w") as f:
+        f.write("MODEL\n"+
+                "HETATM    1 X0   UNK A   1       0.000  -7.000   0.000  1.00  0.00          X0\n"+
+                "TER       2      UNK A   1\n"+
+                "ENDMDL\n"+
+                "MODEL\n"+
+                "HETATM    1 X0   UNK A   1       0.000  -7.010   0.000  1.00  0.00          X0\n"+
+                "TER       2      UNK A   1\n"+
+                "ENDMDL\n")
+    traj = mdtraj.load(str(pdb_file))
+    com = base.mdtraj_center_of_mass(traj)
+    assert com.shape == (2, 3)
+    assert np.allclose(com, np.array([[0.0, -0.7, 0.0], [0.0, -0.701, 0.0]]))

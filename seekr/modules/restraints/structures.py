@@ -22,7 +22,7 @@ class Positional_restraint:
                                     ))
     force_constant: float = field(default=400.0,
                                 validator=[validators.instance_of(float),
-                                            validators.gt(0)])
+                                            validators.ge(0)])
     
 @define
 class Pairwise_restraint:
@@ -40,7 +40,7 @@ class Pairwise_restraint:
                                     ))
     force_constant: float = field(default=400.0,
                                 validator=[validators.instance_of(float),
-                                            validators.gt(0)])
+                                            validators.ge(0)])
 
 @define
 class Proximity_restraint:
@@ -66,7 +66,7 @@ class Proximity_restraint:
                                     validators.gt(0)])
     force_constant: float = field(default=10000.0,
                                 validator=[validators.instance_of(float),
-                                            validators.gt(0)])
+                                            validators.ge(0)])
 
 
 # TODO: cylinder restraint force?

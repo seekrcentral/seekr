@@ -43,18 +43,6 @@ class External_CV:
     max_value: float = field(default=9e9, validator=validators.instance_of(float))
     type: typing.Literal["external"] = "external"
     
-    def fill_input_values_from_model(
-            self, # TODO: use kwargs?
-            root_directory: str) -> None:
-        """
-        Fill extra values from model immediately after creation of this object.
-
-        Example: if the CV requires knowledge of the root directory, for
-        instance to have a place for a reference structure, this function
-        can be used to fill in the value.
-        """
-        return
-    
     def is_periodic(self) -> bool:
         """
         Return whether this CV is periodic.
@@ -150,7 +138,8 @@ class External_cv_input:
     
     def make_cv_object(
             self, 
-            index: int) -> External_CV:
+            index: int,
+            root_directory: str) -> External_CV:
         """
         Create a Distance_CV object from the Input to be placed into
         the Model.

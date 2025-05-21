@@ -5,16 +5,15 @@ a SEEKR calculation model.
 """
 
 import os
-import sys
 import json
 import argparse
 
 from cattrs import unstructure
-import numpy as np
 
 import seekr.modules.base as base
 import seekr.modules.collective_variables.distance_cv as distance_cv
 import seekr.modules.collective_variables.external_cv as external_cv
+import seekr.modules.collective_variables.rmsd_cv as rmsd_cv
 import seekr.modules.engines.structures as engines_structures
 import seekr.modules.engines.browndye.structures as browndye_structures
 import seekr.modules.completion_criteria.structures as compl_crit_struct
@@ -40,15 +39,7 @@ def create_toy_model_input(
     This is the Entropy barrier system.
     """
     values_list = [-0.7, -0.5, -0.3, -0.1, 0.1, 0.3, 0.5, 0.7]
-    positions_list = [
-        [[0.0, -0.7, 0.0]], # [[0.3, -0.7, 0.0]]],
-        [[0.0, -0.5, 0.0]],
-        [[0.0, -0.3, 0.0]],
-        [[0.0, -0.1, 0.0]],
-        [[0.0, 0.1, 0.0]],
-        [[0.0, 0.3, 0.0]],
-        [[0.0, 0.5, 0.0]],
-        [[0.0, 0.7, 0.0]]]
+    positions_list = [[[0.0, value, 0.0]] for value in values_list]
 
     seekr_input = preparer.Seekr_input()
     seekr_input.directory = root_dir
@@ -56,7 +47,7 @@ def create_toy_model_input(
     seekr_input.random_seed = 111
     seekr_input.md_settings = openmm_preparer.Openmm_settings_input()
     seekr_input.md_settings.platform_type = "reference"
-    seekr_input.md_settings.systemwide_settings \
+    seekr_input.md_settings.systemwide_settings\
         = engines_preparer.MD_systemwide_settings_input()
     selection = engines_structures.Selection()
     selection.name = "particle0"
@@ -64,7 +55,7 @@ def create_toy_model_input(
     seekr_input.md_settings.systemwide_settings.selections\
         = [selection]
     seekr_input.md_settings.systemwide_settings.positions\
-            = [[[0.0, -0.7, 0.0]]]
+        = [[[0.0, -0.7, 0.0]]]
 
     stage1 = preparer.Input_stage_md()
     stage1.name = "equilibration"
@@ -158,13 +149,14 @@ def create_toy_model_input(
         = "5*(x1^6+y1^6+exp(-(10*y1)^2)*(1-exp(-(10*x1)^2)))"
     seekr_input.toy_settings.num_particles = 1
     seekr_input.toy_settings.masses = [10.0]
-    
+
     return seekr_input
 
 def create_host_guest_example_input(
         root_dir: str, 
         bd: bool = True, 
-        ff: str = "amber"
+        ff: str = "amber",
+        use_rmsd_cv: bool = False
         ) -> preparer.Seekr_input:
     """
     Create an example input object for loading and testing in SEEKR.
@@ -197,6 +189,7 @@ def create_host_guest_example_input(
                    1.05, 1.15, 1.25, 1.35]
     receptor_indices_md = list(range(147))
     ligand_indices_md = list(range(147, 162))
+    ligand_noh_indices_md = [147, 150, 152, 155, 158]
     receptor_indices_bd = list(range(147))
     ligand_indices_bd = list(range(15))
     o5_group_indices = [15, 36, 57, 78, 99, 120, 141]
@@ -225,6 +218,9 @@ def create_host_guest_example_input(
     ligand_selection_md = engines_structures.Selection()
     ligand_selection_md.name = "guest"
     ligand_selection_md.atom_indices = ligand_indices_md
+    ligand_noh_selection_md = engines_structures.Selection()
+    ligand_noh_selection_md.name = "guest_noH"
+    ligand_noh_selection_md.atom_indices = ligand_noh_indices_md
     solute_selection_md = engines_structures.Selection()
     solute_selection_md.name = "solute"
     solute_selection_md.atom_indices = receptor_indices_md + ligand_indices_md
@@ -232,8 +228,8 @@ def create_host_guest_example_input(
     o5_group.name = "o5_group"
     o5_group.atom_indices = o5_group_indices
     seekr_input.md_settings.systemwide_settings.selections\
-        = [receptor_selection_md, ligand_selection_md, solute_selection_md,
-           o5_group]
+        = [receptor_selection_md, ligand_selection_md, ligand_noh_selection_md, 
+           solute_selection_md, o5_group]
     if bd:
         seekr_input.bd_settings = browndye_preparer.Browndye_settings_input()
         seekr_input.bd_settings.apbs_grid_spacing = 2.0
@@ -295,6 +291,7 @@ def create_host_guest_example_input(
     """
     stage2.name = "steered"
     stage2.sampling_method = sampling_preparer.Steered_md_input()
+    stage2.sampling_method.velocity = 10.0
     stage2.sampling_method.force_constant = 100000.0
     stage2.sampling_method.cv_names = ["distance_host_guest"]
     
@@ -334,21 +331,33 @@ def create_host_guest_example_input(
     stage3_dcd_reporter.atom_subset = "solute"
     stage3.reporters = [stage3_state_reporter, stage3_dcd_reporter]
 
-    stage4 = preparer.Input_stage_bd()
-    stage4.name = "bd"
-    stage4.n_trajectories_per_output = 1000
-    stage4.n_steps_per_output = 100000
-    stage4.sampling_method = sampling_preparer.NAM_bd_input()
-    stage4.completion_criteria = compl_crit_struct.Number_of_trajectories_completion_criteria()
-    stage4.completion_criteria.number_of_trajectories = 10000
+    seekr_input.stages = [stage1, stage2, stage3]
+
+    if bd:
+        stage4 = preparer.Input_stage_bd()
+        stage4.name = "bd"
+        stage4.n_trajectories_per_output = 1000
+        stage4.n_steps_per_output = 100000
+        stage4.sampling_method = sampling_preparer.NAM_bd_input()
+        stage4.completion_criteria = compl_crit_struct.Number_of_trajectories_completion_criteria()
+        stage4.completion_criteria.number_of_trajectories = 10000
+        seekr_input.stages.append(stage4)
     
-    seekr_input.stages = [stage1, stage2, stage3, stage4]
     seekr_input.partitions = [preparer.Partition_input()]
-    distance_cv_input = distance_cv.Distance_cv_input()
-    distance_cv_input.name = "distance_host_guest"
-    distance_cv_input.group1_name = "host"
-    distance_cv_input.group2_name = "guest"
-    seekr_input.partitions[0].cvs = [distance_cv_input]
+    if use_rmsd_cv:
+        rmsd_cv_input = rmsd_cv.RMSD_cv_input()
+        rmsd_cv_input.name = "rmsd_host_guest"
+        rmsd_cv_input.group_rmsd_name = "guest_noH"
+        rmsd_cv_input.group_align_name = "o5_group"
+        rmsd_cv_input.ref_structure = os.path.join(
+            HOSTGUEST_DIRECTORY, "hostguest_at0.5.pdb")
+        seekr_input.partitions[0].cvs = [rmsd_cv_input]
+    else:
+        distance_cv_input = distance_cv.Distance_cv_input()
+        distance_cv_input.name = "distance_host_guest"
+        distance_cv_input.group1_name = "host"
+        distance_cv_input.group2_name = "guest"
+        seekr_input.partitions[0].cvs = [distance_cv_input]
     
     bound_state_point = preparer.State_point()
     bound_state_point.name = "bound"
@@ -390,12 +399,20 @@ if __name__ == "__main__":
     args = vars(argspace)
     json_filename = args["input_file"]
     toy_mode = args["toy_mode"]
+    use_rmsd_cv = True # TODO: replace with argument?
+
+    if use_rmsd_cv:
+        bd = False
+    else:
+        bd = True
+
     if toy_mode:
         root_dir = "~/tmp/seekr3_test_toy"
         seekr_input = create_toy_model_input(root_dir)
     else:
         root_dir = "~/tmp/seekr3_test"
-        seekr_input = create_host_guest_example_input(root_dir, bd=True)
+        seekr_input = create_host_guest_example_input(root_dir, bd=bd, 
+                                                      use_rmsd_cv=use_rmsd_cv)
     
     seekr_input_dict = unstructure(seekr_input)
     seekr_input_dict = base.wrap_noindent_integers(seekr_input_dict)

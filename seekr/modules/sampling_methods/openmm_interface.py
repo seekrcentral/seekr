@@ -487,7 +487,7 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
             self._openmm_cv_list = []
         for i, cv in enumerate(model.collective_variables):
             cv_interface = collective_variables_openmm_interface.assign_cv_interface(
-                cv, md_engine)
+                cv, md_engine, self._model.directory)
             assert cv_interface is not None
             cv_force = cv_interface.make_cv_force()
             cv_interface.add_cv_groups_and_variables(cv_force)
@@ -534,7 +534,7 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
         metaD_force_biases = []
         for i, cv in enumerate(boosted_cvs):
             cv_interface = collective_variables_openmm_interface.assign_cv_interface(
-                cv, md_engine)
+                cv, md_engine, self._model.directory)
             metaD_force = cv_interface.make_cv_force()
             #metaD_force.setForceGroup(0)
             cv_interface.add_cv_groups_and_variables(metaD_force)
@@ -637,7 +637,7 @@ class Steered_md_openmm_interface(Base_md_openmm_interface):
         # TODO: need a way to toggle CVs within this expression on or off
         for cv_index, cv in enumerate(model.collective_variables):
             cv_interface = collective_variables_openmm_interface.assign_cv_interface(
-                    cv, md_engine)
+                    cv, md_engine, self._model.directory)
             assert cv_interface is not None, f"An interface was not found for cv {cv_index}"
             force = cv_interface.make_voronoi_cv_restraining_forces()
             self._cv_interface_list.append(cv_interface)
@@ -821,7 +821,7 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
             alias_index_i = milestone.alias_index
             if milestone.boundary:
                 #integrator.addGlobalVariable(f"milestone_{num_included_milestones}_alias_index", alias_index_i)
-                integrator.addGlobalVariable(f"value_{alias_index_i}", 0)
+                integrator.addGlobalVariable(f"collision_{alias_index_i}", 0)
                 #num_included_milestones += 1
                 for key, value in milestone.variables.items():
                     integrator.addGlobalVariable(f"milestone_{alias_index_i}_{key}", value)
@@ -878,10 +878,10 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
         assert anchor is not None
         # Check to make sure no encounter on first step.
         integrator.beginIfBlock("step_count = 0")
-        #integrator.beginIfBlock(f"energy1 > 0")
-        #integrator.addComputeGlobal("encounter_this_step", "1")
-        #integrator.addComputeGlobal("first_step_encounter", "1")
-        #integrator.endBlock()
+        integrator.beginIfBlock(f"energy1 > 0")
+        integrator.addComputeGlobal("encounter_this_step", "1")
+        integrator.addComputeGlobal("first_step_encounter", "1")
+        integrator.endBlock()
         integrator.endBlock()
         return None
     
@@ -894,12 +894,7 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
 
         Some steps to do for milestoning.
         """
-        # TODO: 
-        # 1. Obtain values of relevant force groups
-        # 2. Detect encounters based on this
-        # 3. If a encounter occurred, reverse velocities
         integrator: openmm.System = kwargs["integrator"]
-        #anchor: structures.Anchor = kwargs["anchor"]
         anchor = self._anchor_obj
         assert anchor is not None
         integrator.addComputeGlobal("bitvar", "energy1")
@@ -908,13 +903,13 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
             i = len(anchor.milestones) - (j + 1)
             integrator.addComputeGlobal("threshold", f"(2^{i})-0.5")
             integrator.beginIfBlock(f"bitvar > threshold")
-            integrator.addComputeGlobal(f"value_{i+1}", "1")
+            integrator.addComputeGlobal(f"collision_{i+1}", "1")
             integrator.addComputeGlobal("bitvar", f"bitvar - (2^{i})")
             integrator.endBlock()
             
         for i, milestone in enumerate(anchor.milestones):
             alias_index_i = i+1
-            integrator.beginIfBlock(f"value_{alias_index_i} > 0")
+            integrator.beginIfBlock(f"collision_{alias_index_i} > 0")
             integrator.addComputeGlobal("encounter_this_step", "1")
             integrator.beginIfBlock(f"last_milestone_alias_touched > -1")
             for j, milestone2 in enumerate(anchor.milestones):
@@ -933,8 +928,8 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
             integrator.addComputeGlobal("last_milestone_time_touched", "time_count")
             integrator.endBlock() # End If last_milestone_alias_touched = -1
             
-            integrator.endBlock() # End If value_{alias_index_i} > 0
-            integrator.addComputeGlobal(f"value_{alias_index_i}", "0")
+            integrator.endBlock() # End If collision_{alias_index_i} > 0
+            integrator.addComputeGlobal(f"collision_{alias_index_i}", "0")
 
         # If using MMVT, then reverse velocities.
         integrator.beginIfBlock(f"encounter_this_step = 1")
@@ -974,7 +969,7 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
             my_cv_index = anchor_cv_indices[0]
             my_cv = model.collective_variables[my_cv_index]
             cv_interface = collective_variables_openmm_interface.assign_cv_interface(
-                my_cv, md_engine)
+                my_cv, md_engine, self._model.directory)
             assert cv_interface is not None, f"An interface was not found for cv {cv_index}"
             variables: dict[str, unit.Quantity] = {}
             for i, milestone in enumerate(anchor.milestones):
@@ -1016,7 +1011,7 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
                         cv_index = int(variable.split("_")[1])
                         cv = model.collective_variables[cv_index]
                         cv_interface = collective_variables_openmm_interface.assign_cv_interface(
-                            cv, md_engine)
+                            cv, md_engine, self._model.directory)
                         assert cv_interface is not None, f"An interface was not found for cv {cv_index}"
                         me_key_name = f"me_{cv_index}"
                         neighbor_key_name = f"neighbor_{cv_index}"

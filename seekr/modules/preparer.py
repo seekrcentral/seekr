@@ -711,8 +711,8 @@ def create_cvs(
             # TODO: remove - or put into partition for checking
             #cv_input.check()
             cv: cv_structures.Collective_variable \
-                = cv_input.make_cv_object(index=cv_counter)
-            cv.fill_input_values_from_model(root_directory)
+                = cv_input.make_cv_object(index=cv_counter, 
+                                          root_directory=root_directory)
             cvs.append(cv)
             cv_counter += 1
 

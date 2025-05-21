@@ -438,6 +438,7 @@ class Sim_openmm:
                 integrator=integrator)
             integrator.addUpdateContextState()
             integrator.addComputePerDof("v", "v + dt*f/m")
+            # Note: Should old_v update go here? It is here in the plugins
             integrator.addConstrainVelocities()
             integrator.addComputePerDof("x", "x + 0.5*dt*v")
             integrator.addComputePerDof("v", "a*v + b*sqrt(kT/m)*gaussian")

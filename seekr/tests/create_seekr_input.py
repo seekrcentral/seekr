@@ -7,13 +7,15 @@ Create SEEKR input objects for use in tests.
 import os
 
 import seekr.modules.base as base
-import seekr.modules.engines.base as engines_base
-import seekr.modules.data_structures as data_structures
-import seekr.modules.engines.openmm.input as openmm_input
-import seekr.modules.engines.browndye.input as browdye_input
-import seekr.modules.sampling_methods.input as sampling_input
+import seekr.modules.engines.structures as engines_structures
+import seekr.modules.structures as structures
+import seekr.modules.engines.browndye.structures as browndye_structures
+import seekr.modules.completion_criteria.structures as compl_crit_struct
+import seekr.modules.engines.openmm.preparer as openmm_preparer
+import seekr.modules.engines.browndye.preparer as browdye_preparer
+import seekr.modules.sampling_methods.preparer as sampling_preparer
 import seekr.modules.collective_variables.distance_cv as distance_cv
-import seekr.modules.prepare_base as prepare_base
+import seekr.modules.preparer as preparer
 
 
 TEST_DIRECTORY = os.path.dirname(__file__)
@@ -21,26 +23,26 @@ DATA_DIRECTORY = os.path.abspath(os.path.join(TEST_DIRECTORY, "..", "data"))
 HOSTGUEST_DIRECTORY = os.path.join(DATA_DIRECTORY, "hostguest_files")
 
 def assign_amber_params(
-        anchor_or_systemwide: engines_base.MD_systemwide_settings | data_structures.Anchor_input, 
+        anchor_or_systemwide: engines_structures.MD_systemwide_settings | preparer.Anchor_input, 
         prmtop_filename: str, 
         pdb_filename: str
         ) -> None:
     anchor_or_systemwide.md_parameters_topology\
-        = engines_base.Amber_parameters_topology()
+        = engines_structures.Amber_parameters_topology()
     anchor_or_systemwide.md_parameters_topology.prmtop_filename \
         = prmtop_filename
     anchor_or_systemwide.positions = pdb_filename
     return
 
 def assign_forcefield_params(
-        anchor_or_systemwide: engines_base.MD_systemwide_settings | data_structures.Anchor_input, 
+        anchor_or_systemwide: engines_structures.MD_systemwide_settings | preparer.Anchor_input, 
         built_in_ff_list: list[str], 
         custom_ff_list: list[str], 
         pdb_filename: str
         ) -> None:
     anchor_or_systemwide.md_parameters_topology\
-        = engines_base.Forcefield_parameters()
-    anchor_or_systemwide.md_parameters_topology.build_in_forcefield_filenames \
+        = engines_structures.Forcefield_parameters()
+    anchor_or_systemwide.md_parameters_topology.built_in_forcefield_filenames \
         = built_in_ff_list
     anchor_or_systemwide.md_parameters_topology.custom_forcefield_filenames \
         = custom_ff_list
@@ -48,27 +50,27 @@ def assign_forcefield_params(
     return
 
 def assign_system_params(
-        anchor_or_systemwide: engines_base.MD_systemwide_settings | data_structures.Anchor_input, 
+        anchor_or_systemwide: engines_structures.MD_systemwide_settings | preparer.Anchor_input, 
         system_filename: str, 
         pdb_filename: str
         ) -> None:
     anchor_or_systemwide.md_parameters_topology\
-        = engines_base.Openmm_system()
+        = engines_structures.Openmm_system()
     anchor_or_systemwide.md_parameters_topology.system_filename \
         = system_filename
     anchor_or_systemwide.positions = pdb_filename = pdb_filename
     return
 
 def assign_charmm_params(
-        anchor_or_systemwide: engines_base.MD_systemwide_settings | data_structures.Anchor_input, 
+        anchor_or_systemwide: engines_structures.MD_systemwide_settings | preparer.Anchor_input, 
         psf_filename: str, 
         charmm_ff_filenames: list[str], 
         pdb_filename: str
         ) -> None:
     anchor_or_systemwide.md_parameters_topology\
-        = engines_base.Charmm_parameters_topology()
+        = engines_structures.Charmm_parameters_topology()
     anchor_or_systemwide.md_parameters_topology.psf_filename = psf_filename
-    anchor_or_systemwide.md_parameters_topology.charmm_ff_files = charmm_ff_filenames
+    anchor_or_systemwide.md_parameters_topology.param_filename_list = charmm_ff_filenames
     anchor_or_systemwide.positions = pdb_filename = pdb_filename
     return
 
@@ -78,7 +80,7 @@ def create_host_guest_example_input(
         ff: str = "amber",
         start_from_systemwide: bool = False,
         parameters_to_all_anchors: bool = False
-        ) -> prepare_base.Seekr_input:
+        ) -> preparer.Seekr_input:
     """
     Create an example input object for loading and testing in SEEKR.
     """
@@ -115,12 +117,12 @@ def create_host_guest_example_input(
     receptor_indices_bd = list(range(147))
     ligand_indices_bd = list(range(15))
     
-    seekr_input = prepare_base.Seekr_input()
+    seekr_input = preparer.Seekr_input()
     seekr_input.directory = root_dir
     seekr_input.temperature = 298.15
-    seekr_input.md_settings = openmm_input.Openmm_settings_input()
+    seekr_input.md_settings = openmm_preparer.Openmm_settings_input()
     seekr_input.md_settings.systemwide_settings \
-        = engines_base.MD_systemwide_settings()
+        = engines_structures.MD_systemwide_settings()
     if start_from_systemwide:
         if ff == "amber":
             assign_amber_params(seekr_input.md_settings.systemwide_settings, 
@@ -135,18 +137,18 @@ def create_host_guest_example_input(
         else:
             raise Exception(f"ff option not implemented: {ff}.")
     
-    receptor_selection_md = base.Selection()
+    receptor_selection_md = engines_structures.Selection()
     receptor_selection_md.name = "host"
     receptor_selection_md.atom_indices = receptor_indices_md
-    ligand_selection_md = base.Selection()
+    ligand_selection_md = engines_structures.Selection()
     ligand_selection_md.name = "guest"
     ligand_selection_md.atom_indices = ligand_indices_md
     seekr_input.md_settings.systemwide_settings.selections\
         = [receptor_selection_md, ligand_selection_md]
     if bd:
-        seekr_input.bd_settings = browdye_input.Browndye_settings_input()
+        seekr_input.bd_settings = browdye_preparer.Browndye_settings_input()
         seekr_input.bd_settings.apbs_grid_spacing = 2.0
-        ion1 = base.Ion()
+        ion1 = browndye_structures.Ion()
         ion1.name = "Cl-"
         ion1.radius = 1.2
         ion1.charge = -1.0
@@ -163,12 +165,12 @@ def create_host_guest_example_input(
         ligand_selection_bd = base.Selection()
         ligand_selection_bd.name = "guest"
         ligand_selection_bd.atom_indices = ligand_indices_bd
-        receptor_molecule = browdye_input.Browndye_molecule_input()
+        receptor_molecule = browdye_preparer.Browndye_molecule_input()
         receptor_molecule.name = "beta-cyclodextrin"
         receptor_molecule.pqr_filename = os.path.join(
             HOSTGUEST_DIRECTORY, "hostguest_receptor.pqr")
         receptor_molecule.selections = [receptor_selection_bd]
-        ligand_molecule = browdye_input.Browndye_molecule_input()
+        ligand_molecule = browdye_preparer.Browndye_molecule_input()
         ligand_molecule.name = "1-butanol"
         ligand_molecule.pqr_filename = os.path.join(
             HOSTGUEST_DIRECTORY, "hostguest_ligand.pqr")
@@ -176,60 +178,59 @@ def create_host_guest_example_input(
         seekr_input.bd_settings.molecules = [receptor_molecule, ligand_molecule]
     else:
         seekr_input.bd_settings = None
-
-    stage1 = prepare_base.Input_stage_md()
+    
+    stage1 = preparer.Input_stage_md()
     stage1.name = "equilibration"
     stage1.run_minimization = True
-    stage1.output_interval = 1000
-    stage1.ensemble = data_structures.NVT_ensemble()
-    stage1.sampling_method = sampling_input.Conventional_md_input()
-    stage1.completion_criteria = data_structures.Number_of_steps_completion_criteria()
+    stage1.checkpoint_interval = 1000
+    stage1.ensemble = structures.NVT_ensemble()
+    stage1.sampling_method = sampling_preparer.Conventional_md_input()
+    stage1.completion_criteria = compl_crit_struct.Number_of_steps_completion_criteria()
     stage1.completion_criteria.number_of_steps = 10000
-
-    stage2 = prepare_base.Input_stage_md()
+    
+    stage2 = preparer.Input_stage_md()
     stage2.name = "metadynamics"
     stage2.run_minimization = False
-    stage2.output_interval = 1000
-    stage2.ensemble = data_structures.NVT_ensemble()
-    stage2.sampling_method = sampling_input.Metadynamics_md_input()
+    stage2.checkpoint_interval = 1000
+    stage2.ensemble = structures.NVT_ensemble()
+    stage2.sampling_method = sampling_preparer.Metadynamics_md_input()
     stage2.sampling_method.gaussian_height = 1.0
-    stage2.completion_criteria = data_structures.All_anchors_filled_completion_criteria()
+    stage2.completion_criteria = compl_crit_struct.All_anchors_filled_completion_criteria()
 
-    stage3 = prepare_base.Input_stage_md()
+    stage3 = preparer.Input_stage_md()
     stage3.name = "MMVT"
     stage3.run_minimization = False
-    stage3.output_interval = 1000
-    stage3.ensemble = data_structures.NVT_ensemble()
-    stage3.sampling_method = sampling_input.Milestoning_md_input()
-    stage3.sampling_method.milestoning_method = "MMVT"
-    stage3.completion_criteria = data_structures.Number_of_steps_completion_criteria()
+    stage3.checkpoint_interval = 1000
+    stage3.ensemble = structures.NVT_ensemble()
+    stage3.sampling_method = sampling_preparer.MMVT_md_input()
+    stage3.completion_criteria = compl_crit_struct.Number_of_steps_completion_criteria()
     stage3.completion_criteria.number_of_steps = 10000
 
-    stage4 = prepare_base.Input_stage_bd()
+    stage4 = preparer.Input_stage_bd()
     stage4.name = "bd"
     stage4.n_trajectories_per_output = 1000
     stage4.n_steps_per_output = 100000
-    stage4.sampling_method = sampling_input.NAM_bd_input()
-    stage4.completion_criteria = data_structures.Surface_crossed_completion_criteria()
+    stage4.sampling_method = sampling_preparer.NAM_bd_input()
+    stage4.completion_criteria = compl_crit_struct.Surface_crossed_completion_criteria()
     
     seekr_input.stages = [stage1, stage2, stage3, stage4]
-    seekr_input.partitions = [prepare_base.Partition_input()]
+    seekr_input.partitions = [preparer.Partition_input()]
     distance_cv_input = distance_cv.Distance_cv_input()
     distance_cv_input.group1_name = "host"
     distance_cv_input.group2_name = "guest"
     seekr_input.partitions[0].cvs = [distance_cv_input]
     
-    bound_state_point = prepare_base.State_point()
+    bound_state_point = preparer.State_point()
     bound_state_point.name = "bound"
     bound_state_point.value = [0.05]
-    bulk_state_point = prepare_base.State_point()
+    bulk_state_point = preparer.State_point()
     bulk_state_point.name = "bulk"
     bulk_state_point.value = [1.35]
     seekr_input.partitions[0].state_points = [bound_state_point, bulk_state_point]
     
     seekr_input.partitions[0].anchors = []
     for i, (value, pdb_filename) in enumerate(zip(values_list, pdb_filenames)):
-        input_anchor = data_structures.Anchor_input()
+        input_anchor = preparer.Anchor_input()
         input_anchor.value = [value]
         if pdb_filename == "":
             pdb_filename_full = ""
