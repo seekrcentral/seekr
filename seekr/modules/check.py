@@ -21,6 +21,10 @@ import seekr.modules.structures as structures
 import seekr.modules.collective_variables.structures as cv_structures
 import seekr.modules.engines.structures as engines_structures
 
+# TODO: implement a check for a sequential series of bounces later in 
+#  the simulation. Suggest that this could be remedied by using a
+#  smaller friction coefficient.
+
 # The charges of common ions
 ION_CHARGE_DICT = {"li":1.0, "na":1.0, "k":1.0, "rb":1.0, "cs":1.0, "fr":1.0,
                    "be":2.0, "mg":2.0, "ca":2.0, "sr":2.0, "ba":2.0, "ra":2.0,

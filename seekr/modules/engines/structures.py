@@ -93,8 +93,57 @@ class Langevin_integrator_settings:
     rigid_tolerance: float = field(default=1e-6,
                                    validator=[validators.instance_of(float),
                                               validators.gt(0)])
+    
+@define
+class Langevin_middle_integrator_settings:
+    type: typing.Literal["langevinMiddle"] = "langevinMiddle"
+    timestep: float = field(default=0.002,
+                            validator=[validators.instance_of(float),
+                                       validators.gt(0)])
+    friction: float = field(default=1.0,
+                            validator=[validators.instance_of(float),
+                                       validators.ge(0)])
+    target_temperature: float = field(default=298.15,
+                                      validator=[validators.instance_of(float),
+                                                 validators.gt(0)])
+    random_seed: int = field(default=0,
+                             validator=[validators.instance_of(int)])
+    rigid_tolerance: float = field(default=1e-6,
+                                   validator=[validators.instance_of(float),
+                                              validators.gt(0)])
+    
+@define
+class Brownian_integrator_settings:
+    type: typing.Literal["brownian"] = "brownian"
+    timestep: float = field(default=0.002,
+                            validator=[validators.instance_of(float),
+                                       validators.gt(0)])
+    friction: float = field(default=1.0,
+                            validator=[validators.instance_of(float),
+                                       validators.ge(0)])
+    target_temperature: float = field(default=298.15,
+                                      validator=[validators.instance_of(float),
+                                                 validators.gt(0)])
+    random_seed: int = field(default=0,
+                             validator=[validators.instance_of(int)])
+    rigid_tolerance: float = field(default=1e-6,
+                                   validator=[validators.instance_of(float),
+                                              validators.gt(0)])
+    
+@define
+class Verlet_integrator_settings:
+    type: typing.Literal["verlet"] = "verlet"
+    timestep: float = field(default=0.002,
+                            validator=[validators.instance_of(float),
+                                       validators.gt(0)])
+    rigid_tolerance: float = field(default=1e-6,
+                                   validator=[validators.instance_of(float),
+                                              validators.gt(0)])
 
-Integrator_settings = typing.Union[Langevin_integrator_settings]
+Integrator_settings = typing.Union[Langevin_integrator_settings,
+                                   Langevin_middle_integrator_settings,
+                                   Brownian_integrator_settings,
+                                   Verlet_integrator_settings]
 
 @define
 class Cuda_platform_settings:

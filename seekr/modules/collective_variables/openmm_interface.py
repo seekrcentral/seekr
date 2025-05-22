@@ -493,6 +493,13 @@ class RMSD_cv_openmm_interface:
         pdb_file = openmm_app.PDBFile(self.ref_structure)
         if self.group_rmsd_atom_indices == self.group_align_atom_indices:
             rmsd_force = openmm.RMSDForce(pdb_file.positions, self.group_rmsd_atom_indices)
+
+            # Adding "ghost force", which keeps the molecules in the same periodic image
+            #ghost_force = openmm.CustomCentroidBondForce(
+            #    1, "ghost_variable*(x1-y1)")
+            #ghost_force.addGlobalParameter("ghost_variable", 0.0)
+            #ghost_group1 = ghost_force.addGroup(self.group_rmsd_atom_indices)
+            #ghost_force.addBond([ghost_group1], [])
         else:
             try:
                 import rmsdplusforceplugin
@@ -505,7 +512,17 @@ class RMSD_cv_openmm_interface:
             rmsd_force = rmsdplusforceplugin.RMSDPlusForce(
                 pdb_file.positions, self.group_align_atom_indices, 
                 self.group_rmsd_atom_indices)
+            
+            # Adding "ghost force", which keeps the molecules in the same periodic image
+            #ghost_force = openmm.CustomCentroidBondForce(
+            #    2, "ghost_variable*distance(g1, g2)")
+            #ghost_force.addGlobalParameter("ghost_variable", 0.0)
+            #ghost_group1 = ghost_force.addGroup(self.group_rmsd_atom_indices)
+            #ghost_group2 = ghost_force.addGroup(self.group_align_atom_indices)
+            #ghost_force.addBond([ghost_group1, ghost_group2], [])
+
         force.addCollectiveVariable("RMSD", rmsd_force)
+        #force.addCollectiveVariable("ghost_variable", ghost_force)
         for key, value in boundary_parameters.items():
             force.addGlobalParameter(key, value)
         return

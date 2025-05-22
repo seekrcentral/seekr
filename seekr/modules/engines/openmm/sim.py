@@ -419,11 +419,11 @@ class Sim_openmm:
         self.timestep = timestep
         integrator = openmm.CustomIntegrator(timestep * unit.picoseconds)
         integrator_type = integrator_settings.type
-        if integrator_type == "langevin":
+        if integrator_type == "langevinMiddle":
             if ensemble is not None:
                 assert ensemble.type in ["NVT", "NPT", "NPT_membrane"], \
                     "Ensemble type not allowed or recognized for Langevin "\
-                    f"integrator: {ensemble.type}"
+                    f"middle integrator: {ensemble.type}"
             temperature = integrator_settings.target_temperature * unit.kelvin
             friction = integrator_settings.friction
             integrator.addGlobalVariable("a", np.exp(-friction*timestep))
@@ -432,14 +432,17 @@ class Sim_openmm:
             sampling_engine_interface.add_global_variables_integrator(
                 integrator=integrator, anchor=anchor)
             integrator.addPerDofVariable("x1", 0)
+            integrator.addPerDofVariable("old_x", 0)
+            integrator.addPerDofVariable("old_v", 0)
             sampling_engine_interface.add_per_DOF_variables_integrator(
                 integrator=integrator)
             sampling_engine_interface.pre_integration_instructions(
                 integrator=integrator)
+            integrator.addComputePerDof("old_x", "x")
             integrator.addUpdateContextState()
             integrator.addComputePerDof("v", "v + dt*f/m")
-            # Note: Should old_v update go here? It is here in the plugins
             integrator.addConstrainVelocities()
+            integrator.addComputePerDof("old_v", "v")
             integrator.addComputePerDof("x", "x + 0.5*dt*v")
             integrator.addComputePerDof("v", "a*v + b*sqrt(kT/m)*gaussian")
             integrator.addComputePerDof("x", "x + 0.5*dt*v")
@@ -457,13 +460,115 @@ class Sim_openmm:
             random_seed = integrator_settings.random_seed + random_sum_factor
             if random_seed is not None:
                 integrator.setRandomNumberSeed(random_seed)
-        #elif integrator_type == "brownian":
-        #    integrator_object = openmm.BrownianIntegrator
-        #elif integrator_type == "verlet":
-        #    integrator_object = openmm.VerletIntegrator
+
+        elif integrator_type == "langevin":
+            if ensemble is not None:
+                assert ensemble.type in ["NVT", "NPT", "NPT_membrane"], \
+                    "Ensemble type not allowed or recognized for Langevin "\
+                    f"integrator: {ensemble.type}"
+            temperature = integrator_settings.target_temperature * unit.kelvin
+            friction = integrator_settings.friction
+            integrator.addGlobalVariable("thermal_energy", kB*temperature)
+            integrator.addGlobalVariable("friction_coeff", friction)
+            integrator.addGlobalVariable("vscale", 0.0)
+            integrator.addGlobalVariable("fscale", 0.0)
+            integrator.addGlobalVariable("noisescale", 0.0)
+            sampling_engine_interface.add_global_variables_integrator(
+                integrator=integrator, anchor=anchor)
+            integrator.addPerDofVariable("old_x", 0)
+            integrator.addPerDofVariable("old_v", 0)
+            sampling_engine_interface.add_per_DOF_variables_integrator(
+                integrator=integrator)
+            sampling_engine_interface.pre_integration_instructions(
+                integrator=integrator)
+            integrator.addComputeGlobal("vscale", "exp(-dt*friction_coeff)")
+            integrator.addComputeGlobal("fscale", "(1-vscale)/friction_coeff")
+            integrator.addComputeGlobal("noisescale", 
+                                        "sqrt(thermal_energy*(1-vscale*vscale))")
+            integrator.addUpdateContextState()
+            integrator.addComputePerDof("old_x", "x")
+            integrator.addComputePerDof("v", 
+                              "vscale*v + fscale*f/m "\
+                              "+ noisescale*gaussian/sqrt(m)")
+            integrator.addComputePerDof("x", "x + dt*v")
+            integrator.addComputePerDof("old_v", "v")
+            integrator.addConstrainPositions()
+            integrator.addComputePerDof("v", "(x-old_x)/dt")
+            sampling_engine_interface.post_integration_instructions(
+                integrator=integrator, anchor=anchor)
+            if anchor_index is None:
+                random_sum_factor = 0
+            else:
+                random_sum_factor = anchor_index + 1
+            random_seed = integrator_settings.random_seed + random_sum_factor
+            if random_seed is not None:
+                integrator.setRandomNumberSeed(random_seed)
+
+        elif integrator_type == "brownian":
+            if ensemble is not None:
+                assert ensemble.type in ["NVT", "NPT", "NPT_membrane"], \
+                    "Ensemble type not allowed or recognized for Brownian "\
+                    f"integrator: {ensemble.type}"
+            temperature = integrator_settings.target_temperature * unit.kelvin
+            friction = integrator_settings.friction
+            integrator.addGlobalVariable("thermal_energy", kB*temperature)
+            integrator.addGlobalVariable("friction_coeff", friction)
+            integrator.addGlobalVariable("fscale", 0.0)
+            integrator.addGlobalVariable("noiseAmplitude", 0.0)
+            sampling_engine_interface.add_global_variables_integrator(
+                integrator=integrator, anchor=anchor)
+            integrator.addPerDofVariable("old_x", 0)
+            integrator.addPerDofVariable("old_v", 0)
+            sampling_engine_interface.add_per_DOF_variables_integrator(
+                integrator=integrator)
+            sampling_engine_interface.pre_integration_instructions(
+                integrator=integrator)
+            integrator.addUpdateContextState()
+            integrator.addComputeGlobal("fscale", "dt/friction_coeff")
+            integrator.addComputeGlobal("noiseAmplitude", 
+                                        "sqrt(2*thermal_energy*dt/friction_coeff)")
+            integrator.addComputePerDof("old_x", "x")
+            integrator.addComputePerDof("x", "x + fscale*f/m + noiseAmplitude*gaussian/sqrt(m)")
+            integrator.addComputePerDof("old_v", "v")
+            integrator.addConstrainPositions()
+            integrator.addComputePerDof("v", "(x-old_x)/dt")
+            sampling_engine_interface.post_integration_instructions(
+                integrator=integrator, anchor=anchor)
+            if anchor_index is None:
+                random_sum_factor = 0
+            else:
+                random_sum_factor = anchor_index + 1
+            random_seed = integrator_settings.random_seed + random_sum_factor
+            if random_seed is not None:
+                integrator.setRandomNumberSeed(random_seed)
+        elif integrator_type == "verlet":
+            #integrator_object = openmm.VerletIntegrator
+            if ensemble is not None:
+                assert ensemble.type in ["NVE"], \
+                    "Ensemble type not allowed or recognized for Verlet "\
+                    f"integrator: {ensemble.type}"
+            sampling_engine_interface.add_global_variables_integrator(
+                integrator=integrator, anchor=anchor)
+            integrator.addPerDofVariable("old_x", 0)
+            integrator.addPerDofVariable("old_v", 0)
+            sampling_engine_interface.add_per_DOF_variables_integrator(
+                integrator=integrator)
+            sampling_engine_interface.pre_integration_instructions(
+                integrator=integrator)
+            integrator.addUpdateContextState()
+            integrator.addComputePerDof("old_x", "x")
+            integrator.addComputePerDof("v", "v+dt*f/m")
+            integrator.addComputePerDof("old_v", "v")
+            integrator.addComputePerDof("x", "x+dt*v")
+            integrator.addConstrainPositions()
+            integrator.addComputePerDof("v", "(x-old_x)/dt")
+            sampling_engine_interface.post_integration_instructions(
+                integrator=integrator, anchor=anchor)
+
         else:
             raise Exception("Integrator type not available: "\
                             f"{integrator_type}")
+        
         if rigid_constraint_tolerance is not None:
             integrator.setConstraintTolerance(
                 rigid_constraint_tolerance)

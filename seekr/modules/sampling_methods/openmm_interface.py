@@ -276,8 +276,34 @@ class Base_md_openmm_interface:
                     steps_to_take_after_benchmark = steps_to_take - INITIAL_BENCHMARK_STEPS
                     steps_to_take = INITIAL_BENCHMARK_STEPS
                 start_time = time.time()
-            #self._simulation_obj.step(steps_to_take)
+            # DEBUG - uncomment
             self._step(steps_to_take)
+            # begin DEBUG
+            """
+            for i in range(steps_to_take):
+                print("step", i)
+                oldenergy=float(self._simulation_obj.context.getIntegrator().getGlobalVariableByName("oldenergy"))
+                print("oldenergy", oldenergy)
+                #encounter_this_step=float(self._simulation_obj.context.getIntegrator().getGlobalVariableByName("encounter_this_step"))
+                #print("encounter_this_step", encounter_this_step)
+                #first_encounter_time=float(self._simulation_obj.context.getIntegrator().getGlobalVariableByName("first_encounter_time"))
+                #print("first_encounter_time", first_encounter_time)
+                #last_milestone_time_touched=float(self._simulation_obj.context.getIntegrator().getGlobalVariableByName("last_milestone_time_touched"))
+                #print("last_milestone_time_touched", last_milestone_time_touched)
+                #time_count=float(self._simulation_obj.context.getIntegrator().getGlobalVariableByName("time_count"))
+                #print("time_count", time_count)
+                #step_count=int(self._simulation_obj.context.getIntegrator().getGlobalVariableByName("step_count"))
+                #print("step_count", step_count)
+                #state = self._simulation_obj.context.getState(getPositions=True, getVelocities=True, enforcePeriodicBox=True)
+                #positions = state.getPositions()
+                #velocities = state.getVelocities()
+                #print("positions", positions[0])
+                #print("velocities", velocities[0])
+                cv_value = self._openmm_cv_list[0].getCollectiveVariableValues(self._simulation_obj.context)
+                print("cv_value", cv_value[0])
+                self._simulation_obj.step(1)
+            """
+            # end DEBUG
             num_steps += steps_to_take
             on_step += steps_to_take
             if num_steps == 0 and do_initial_benchmark:
@@ -842,6 +868,8 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
         integrator.addGlobalVariable("encounter_this_step", 0)
         integrator.addGlobalVariable("bitvar", 0)
         integrator.addGlobalVariable("threshold", 0)
+        # DEBUG
+        integrator.addGlobalVariable("oldenergy", 0)
 
         return None
     
@@ -856,8 +884,8 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
         """
         
         integrator: openmm.System = kwargs["integrator"]
-        integrator.addPerDofVariable("old_x", 0)
-        integrator.addPerDofVariable("old_v", 0)
+        #integrator.addPerDofVariable("old_x", 0)
+        #integrator.addPerDofVariable("old_v", 0)
         for i in range(BUFFER_FRAMES):
             integrator.addPerDofVariable(f"encounter_pos_{i}", 0)
         return None
@@ -872,8 +900,8 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
         Some steps to do for milestoning.
         """
         integrator: openmm.System = kwargs["integrator"]
-        integrator.addComputePerDof("old_x", "x")
-        integrator.addComputePerDof("old_v", "v")
+        #integrator.addComputePerDof("old_x", "x")
+        #integrator.addComputePerDof("old_v", "v")
         anchor = self._anchor_obj
         assert anchor is not None
         # Check to make sure no encounter on first step.
@@ -897,7 +925,9 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
         integrator: openmm.System = kwargs["integrator"]
         anchor = self._anchor_obj
         assert anchor is not None
+        integrator.addComputeGlobal("encounter_this_step", "0")
         integrator.addComputeGlobal("bitvar", "energy1")
+        integrator.addComputeGlobal("oldenergy", "bitvar")
         
         for j, milestone in enumerate(anchor.milestones):
             i = len(anchor.milestones) - (j + 1)
@@ -939,8 +969,7 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
 
         integrator.addComputeGlobal("step_count", "step_count + 1")
         integrator.addComputeGlobal("time_count", "time_count + dt")
-        integrator.addComputeGlobal("encounter_this_step", "0")
-
+        
         return None
     
     def pre_simulation_preparations(
@@ -991,6 +1020,7 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
                 boundary_force, variables)
             boundary_force.setForceGroup(1)
             system.addForce(boundary_force)
+            self._openmm_cv_list.append(boundary_force)
 
         else: # num_cvs > 1
             me_expr_list_all_milestones = []

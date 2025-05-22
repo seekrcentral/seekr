@@ -49,7 +49,10 @@ class Openmm_settings_input:
     integrator_type: str = field(default="langevin",
                                  converter=base.string_lower,
                                  validator=[validators.instance_of(str),
-                                            validators.in_(["langevin", ])])
+                                            validators.in_(["langevin", 
+                                                            "langevinMiddle",
+                                                            "brownian",
+                                                            "verlet",])])
     platform_type: str = field(default="cuda",
                               converter=base.string_lower,
                               validator=[validators.instance_of(str),
@@ -75,6 +78,20 @@ class Openmm_settings_input:
                 engines_structures.Langevin_integrator_settings()
             openmm_engine.integrator_settings.timestep = self.timestep
             openmm_engine.integrator_settings.target_temperature = model_temperature
+        elif self.integrator_type == "langevinMiddle":
+            openmm_engine.integrator_settings = \
+                engines_structures.Langevin_middle_integrator_settings()
+            openmm_engine.integrator_settings.timestep = self.timestep
+            openmm_engine.integrator_settings.target_temperature = model_temperature
+        elif self.integrator_type == "brownian":
+            openmm_engine.integrator_settings = \
+                engines_structures.Brownian_integrator_settings()
+            openmm_engine.integrator_settings.timestep = self.timestep
+            openmm_engine.integrator_settings.target_temperature = model_temperature
+        elif self.integrator_type == "verlet":
+            openmm_engine.integrator_settings = \
+                engines_structures.Verlet_integrator_settings()
+            openmm_engine.integrator_settings.timestep = self.timestep
         
         if self.platform_type == "cuda":
             openmm_engine.platform_settings = engines_structures.Cuda_platform_settings()
