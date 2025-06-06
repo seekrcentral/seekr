@@ -6,12 +6,15 @@ The OpenMM interface for the collective variables.
 
 import os
 import typing
+import importlib
 
 from attrs import define, field
 import openmm
 import openmm.app as openmm_app
 import openmm.unit as unit
 
+import seekr.modules.base as base
+import seekr.modules.collective_variables.base as cv_base
 import seekr.modules.collective_variables.distance_cv as distance_cv
 import seekr.modules.collective_variables.external_cv as external_cv
 import seekr.modules.collective_variables.structures as cv_structures
@@ -494,12 +497,6 @@ class RMSD_cv_openmm_interface:
         if self.group_rmsd_atom_indices == self.group_align_atom_indices:
             rmsd_force = openmm.RMSDForce(pdb_file.positions, self.group_rmsd_atom_indices)
 
-            # Adding "ghost force", which keeps the molecules in the same periodic image
-            #ghost_force = openmm.CustomCentroidBondForce(
-            #    1, "ghost_variable*(x1-y1)")
-            #ghost_force.addGlobalParameter("ghost_variable", 0.0)
-            #ghost_group1 = ghost_force.addGroup(self.group_rmsd_atom_indices)
-            #ghost_force.addBond([ghost_group1], [])
         else:
             try:
                 import rmsdplusforceplugin
@@ -513,16 +510,7 @@ class RMSD_cv_openmm_interface:
                 pdb_file.positions, self.group_align_atom_indices, 
                 self.group_rmsd_atom_indices)
             
-            # Adding "ghost force", which keeps the molecules in the same periodic image
-            #ghost_force = openmm.CustomCentroidBondForce(
-            #    2, "ghost_variable*distance(g1, g2)")
-            #ghost_force.addGlobalParameter("ghost_variable", 0.0)
-            #ghost_group1 = ghost_force.addGroup(self.group_rmsd_atom_indices)
-            #ghost_group2 = ghost_force.addGroup(self.group_align_atom_indices)
-            #ghost_force.addBond([ghost_group1, ghost_group2], [])
-
         force.addCollectiveVariable("RMSD", rmsd_force)
-        #force.addCollectiveVariable("ghost_variable", ghost_force)
         for key, value in boundary_parameters.items():
             force.addGlobalParameter(key, value)
         return
@@ -598,9 +586,11 @@ CV_openmm_interface = typing.Union[Distance_cv_openmm_interface,
                                    RMSD_cv_openmm_interface]
 
 def assign_cv_interface(
-        collective_variable: cv_structures.Collective_variable,
+        collective_variable: cv_base.Base_CV,
         md_engine: structures.MD_engine,
-        root_directory: str) -> CV_openmm_interface:
+        root_directory: str,
+        plugin_list: list[str]
+        ) -> CV_openmm_interface | None:
     """
     Given a collective variable object, assign the appropriate OpenMM interface.
     """
@@ -636,4 +626,15 @@ def assign_cv_interface(
             ref_structure=ref_structure_full_path)
 
     else:
-        return None
+        # Run through plugins
+        for plugin_name in plugin_list:
+            cvs_module_str = base.get_plugin_str(plugin_name, submodule_name="collective_variables")
+            if cvs_module_str is not None:
+                plugin_module_cv_interface = importlib.import_module(
+                    cvs_module_str+".openmm_interface")
+            found, cv_interface = plugin_module_cv_interface.assign_cv_interface(
+                collective_variable, md_engine, root_directory)
+            if found:
+                return cv_interface
+            
+    return None

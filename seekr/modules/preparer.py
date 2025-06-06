@@ -14,12 +14,15 @@ import os
 import glob
 import json
 from collections import defaultdict
+import types
 import typing
 import shutil
 import random
 import logging
+import importlib
 
 from attrs import define, field, validators, Factory
+import cattrs
 from cattrs import Converter
 import numpy as np
 from scipy.spatial import Delaunay
@@ -27,6 +30,7 @@ from scipy.spatial import QhullError
 import mdtraj
 
 import seekr.modules.base as base
+import seekr.modules.collective_variables.base as cv_base
 import seekr.modules.engines.base as engines_base
 import seekr.modules.structures as structures
 import seekr.modules.collective_variables.structures as cv_structures
@@ -38,10 +42,37 @@ import seekr.modules.reporters.preparer as reporters_preparer
 import seekr.modules.sampling_methods.preparer as sampling_methods_preparer
 import seekr.modules.collective_variables.preparer as cv_preparer
 import seekr.modules.engines.browndye.preparer as browndye_preparer
-import seekr.modules.engines.openmm.preparer as openmm_preparer    
-# TODO: add SDA
-BD_settings_input = typing.Union[browndye_preparer.Browndye_settings_input]
+import seekr.modules.engines.sda.preparer as sda_preparer
+import seekr.modules.engines.openmm.preparer as openmm_preparer
+
+BD_settings_input = typing.Union[browndye_preparer.Browndye_settings_input,
+                                sda_preparer.SDA_settings_input]
 MD_settings_input = typing.Union[openmm_preparer.Openmm_settings_input]
+
+#MD_sampling_method_input = typing.Union[
+#    sampling_methods_preparer.MD_sampling_method_input]
+
+restraint_inputs: typing.Dict[str, typing.Type[restraints_preparer.Base_restraint_input]] \
+        = {"positional": restraints_preparer.Positional_restraint_input,
+           "pairwise": restraints_preparer.Pairwise_restraint_input,
+           "proximity": restraints_preparer.Proximity_restraint_input,}
+reporter_inputs: typing.Dict[str, typing.Type[reporters_preparer.Base_reporter_input]] \
+        = {"dcd": reporters_preparer.DCD_reporter_input,
+           "pdb": reporters_preparer.PDB_reporter_input,
+           "state": reporters_preparer.State_reporter_input,}
+compl_crit_inputs: typing.Dict[str, typing.Type[compl_crit_struct.Base_completion_criteria]] \
+        = structures.completion_criteria
+#cv_inputs: typing.Dict[str, typing.Type[cv_base.Base_CV_input]] \
+#        = cv_preparer.cv_inputs
+from seekr.modules.collective_variables.preparer import cv_inputs
+md_sampling_methods_input: typing.Dict[str, typing.Type[sampling_methods_preparer.Base_md_sampling_method_input]] \
+        = {"conventional": sampling_methods_preparer.Conventional_md_input,
+           "metadynamics": sampling_methods_preparer.Metadynamics_md_input,
+           "steered": sampling_methods_preparer.Steered_md_input,
+           "mmvt": sampling_methods_preparer.MMVT_md_input,}
+bd_sampling_methods_input: typing.Dict[str, typing.Type[sampling_methods_preparer.Base_md_sampling_method_input]] \
+        = {"NAM": sampling_methods_preparer.NAM_bd_input,
+           "WE": sampling_methods_preparer.WE_bd_input,}
 
 @define
 class Input_stage_md:
@@ -60,11 +91,11 @@ class Input_stage_md:
                                              validators.gt(0)])
     ensemble: structures.Ensemble = field(default=Factory(
         structures.NVT_ensemble))
-    sampling_method: sampling_methods_preparer.MD_sampling_method_input = field(
+    sampling_method: sampling_methods_preparer.Base_md_sampling_method_input = field(
         default=Factory(sampling_methods_preparer.Conventional_md_input))
-    completion_criteria: compl_crit_struct.MD_completion_criteria | None = None
-    restraints: list[restraints_preparer.Restraint_input] = field(default=Factory(list))
-    reporters: list[reporters_preparer.Reporter_input] = field(default=Factory(list))
+    completion_criteria: compl_crit_struct.Base_completion_criteria | None = None
+    restraints: list[restraints_preparer.Base_restraint_input] = field(default=Factory(list))
+    reporters: list[reporters_preparer.Base_reporter_input] = field(default=Factory(list))
     
     def make_model_stage(
             self, 
@@ -129,9 +160,9 @@ class Input_stage_bd:
     n_steps_per_output: int = field(default=100000,
                                     validator=[validators.instance_of(int),
                                                validators.gt(0)])
-    sampling_method: sampling_methods_preparer.BD_sampling_method_input = field(
+    sampling_method: sampling_methods_preparer.Base_bd_sampling_method_input = field(
         default=Factory(sampling_methods_preparer.NAM_bd_input))
-    completion_criteria: compl_crit_struct.BD_completion_criteria = field(
+    completion_criteria: compl_crit_struct.Base_completion_criteria = field(
         default=Factory(compl_crit_struct.Number_of_trajectories_completion_criteria))
     
     def make_model_stage(
@@ -438,7 +469,7 @@ class Partition_input:
     partitions - that is, involving functions of the N-D positions.
     This means CVs, anchors, state_points, etc.
     """
-    cvs: list[cv_preparer.CV_input] = field(default=Factory(list),)
+    cvs: list[cv_base.Base_CV_input] = field(default=Factory(list),)
                             #validator=validators.deep_iterable(
                             #    member_validator=validators.instance_of(
                             #        cv_preparer.CV_input),
@@ -562,6 +593,7 @@ class Seekr_input:
     """
     directory: str = field(default="",
                             validator=validators.instance_of(str))
+    plugins: list[str] = field(default=Factory(list),)
     temperature: float = field(default=298.15,
                                validator=[validators.instance_of(float),
                                           validators.gt(0)])
@@ -602,6 +634,12 @@ class Seekr_input:
             model.directory = self.directory
         else:
             model.directory = "."
+        # Check the input plugins
+        for plugin in self.plugins:
+            spec = importlib.util.find_spec(plugin)
+            assert spec is not None, \
+                f"Plugin '{plugin}' not found. Please install it or check the spelling."
+        model.plugins = self.plugins
         model.temperature = self.temperature
         if self.md_settings is not None:
             model.md_engine = self.md_settings.make_model_engine(self.temperature)
@@ -676,15 +714,93 @@ def generate_directory(
     
     return
 
+def struct_restraint_inputs(
+        obj: typing.Dict[str, typing.Any],
+        _: typing.Type[restraints_preparer.Base_restraint_input]
+        ) -> restraints_preparer.Base_restraint_input:
+    typ = obj.pop("type")
+    return cattrs.structure(obj, restraint_inputs[typ])
+
+def struct_reporter_inputs(
+        obj: typing.Dict[str, typing.Any],
+        _: typing.Type[reporters_preparer.Base_reporter_input]
+        ) -> reporters_preparer.Base_reporter_input:
+    typ = obj.pop("type")
+    return cattrs.structure(obj, reporter_inputs[typ])
+
+def struct_completion_criteria(
+        obj: typing.Dict[str, typing.Any],
+        _: typing.Type[compl_crit_struct.Base_completion_criteria]
+        ) -> compl_crit_struct.Base_completion_criteria:
+    typ = obj.pop("type")
+    return cattrs.structure(obj, compl_crit_inputs[typ])
+
+def struct_cv_inputs(
+        obj: typing.Dict[str, typing.Any],
+        _: typing.Type[cv_base.Base_CV_input]
+        ) -> cv_base.Base_CV_input:
+    typ = obj.pop("type")
+    return cattrs.structure(obj, cv_inputs[typ])
+
+def struct_md_sampling_method_inputs(
+        obj: typing.Dict[str, typing.Any],
+        _: typing.Type[sampling_methods_preparer.Base_md_sampling_method_input]
+        ) -> sampling_methods_preparer.Base_md_sampling_method_input:
+    typ = obj.pop("type")
+    return cattrs.structure(obj, md_sampling_methods_input[typ])
+
+def struct_bd_sampling_method_inputs(
+        obj: typing.Dict[str, typing.Any],
+        _: typing.Type[sampling_methods_preparer.Base_bd_sampling_method_input]
+        ) -> sampling_methods_preparer.Base_bd_sampling_method_input:
+    typ = obj.pop("type")
+    return cattrs.structure(obj, bd_sampling_methods_input[typ])
+
 def read_input(input_filename: str) -> Seekr_input:
     """
     Read the input JSON file into the input object.
     """
+    global restraint_inputs
+    global reporter_inputs
+    global compl_crit_inputs
     with open(input_filename, "r") as file:
         json_string = json.load(file)
     
+    for plugin_name in json_string['plugins']:
+        restraints_module_str = base.get_plugin_str(
+            plugin_name, submodule_name="restraints", require_preparer=True)
+        if restraints_module_str is not None:
+            restraints_module_prep = importlib.import_module(restraints_module_str+".preparer")
+            restraint_inputs.update(restraints_module_prep.restraint_inputs)
+
+        reporters_module_str = base.get_plugin_str(
+            plugin_name, submodule_name="reporters", require_preparer=True)
+        if reporters_module_str is not None:
+            reporters_module_prep = importlib.import_module(reporters_module_str+".preparer")
+            reporter_inputs.update(reporters_module_prep.reporter_inputs)
+
+        compl_crit_module_str = base.get_plugin_str(
+            plugin_name, submodule_name="completion_criteria", require_runner=True)
+        if compl_crit_module_str is not None:
+            compl_crit_module_struct = importlib.import_module(compl_crit_module_str+".structures")
+            compl_crit_inputs.update(compl_crit_module_struct.completion_criteria)
+
+        cv_module_str = base.get_plugin_str(
+            plugin_name, submodule_name="collective_variables", require_preparer=True)
+        if cv_module_str is not None:
+            cv_module_prep = importlib.import_module(cv_module_str+".preparer")
+            cv_inputs.update(cv_module_prep.cv_inputs)
+
+        sampl_meth_module_str = base.get_plugin_str(
+            plugin_name, submodule_name="sampling_methods", require_preparer=True)
+        if sampl_meth_module_str is not None:
+            sampl_meth_module_prep = importlib.import_module(sampl_meth_module_str+".preparer")
+            md_sampling_methods_input.update(sampl_meth_module_prep.md_sampling_methods_input)
+            bd_sampling_methods_input.update(sampl_meth_module_prep.bd_sampling_methods_input)
+        
     # Use a cattrs Converter to define how to structure the dictionary input
     converter = Converter()
+    
     # Register a structure hook for the Positions_type
     converter.register_structure_hook(base.Positions_type, 
                                       structures.structure_positions_type_union)
@@ -692,13 +808,28 @@ def read_input(input_filename: str) -> Seekr_input:
                                       structures.structure_float_or_list_type_union)
     converter.register_structure_hook(base.Int_or_list_type, 
                                       structures.structure_int_or_list_type_union)
+    
+    converter.register_structure_hook(restraints_preparer.Base_restraint_input,
+                                        struct_restraint_inputs)
+    converter.register_structure_hook(reporters_preparer.Base_reporter_input,
+                                        struct_reporter_inputs)
+    converter.register_structure_hook(compl_crit_struct.Base_completion_criteria,
+                                        struct_completion_criteria)
+    converter.register_structure_hook(cv_base.Base_CV_input,
+                                        struct_cv_inputs)
+    converter.register_structure_hook(sampling_methods_preparer.Base_md_sampling_method_input,
+                                        struct_md_sampling_method_inputs)
+    converter.register_structure_hook(sampling_methods_preparer.Base_bd_sampling_method_input,
+                                        struct_bd_sampling_method_inputs)
+    
     seekr_input = converter.structure(json_string, Seekr_input)
+
     return seekr_input
 
 def create_cvs(
         seekr_input: Seekr_input, 
         root_directory: str
-        ) -> list[cv_structures.Collective_variable]:
+        ) -> list[cv_base.Base_CV]:
     """
     Create the collective variable objects for the model.
     """
@@ -710,7 +841,7 @@ def create_cvs(
         for cv_input in partition.cvs:
             # TODO: remove - or put into partition for checking
             #cv_input.check()
-            cv: cv_structures.Collective_variable \
+            cv: cv_base.Base_CV \
                 = cv_input.make_cv_object(index=cv_counter, 
                                           root_directory=root_directory)
             cvs.append(cv)
@@ -834,7 +965,7 @@ def prepare_model_cvs_and_anchors(
     #  it incorrectly assigned the name of a Voronoi anchor in a 2D
     #  tesselation.
     state_points = make_state_points(seekr_input, len(cvs))
-    # Note: this must be done BEFORE resolve_connections() because
+    # NOTE: this must be done BEFORE resolve_connections() because
     #  it calls modify_model() which requires the BD anchors to be
     #  assigned.
     
@@ -930,6 +1061,15 @@ def cleanse_outputs_stage(
                     os.remove(traj_file)
     else:
         raise Exception(f"Unknown stage type: {stage.type}")
+    
+    for plugin in model.plugins:
+        plugin_module_str = base.get_plugin_str(
+            plugin, submodule_name="", require_structures=False, require_preparer=True,
+            require_runner=False, require_openmm_interface=False)
+        if plugin_module_str is not None:
+            plugin_module_prep = importlib.import_module(plugin_module_str+".preparer")
+            plugin_module_prep.cleanse_outputs_stage(model, anchor_or_systemwide, stage_index)
+
     return
 
 def modify_model(
@@ -1224,9 +1364,13 @@ def generate_bd_files(
     if model.bd_engine.type == "browndye":
         browndye_preparer.generate_bd_files(model, directory)
         found_function = True
-    # TODO: implement SDA
+    if model.bd_engine.type == "sda":
+        sda_preparer.generate_bd_files(model, directory)
+        found_function = True
     else:
         # implement check of installed plugins for other BD engines
+        # Loop over modules:
+        # found_function = function_in_module(...)
         pass#
 
     if not found_function:

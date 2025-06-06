@@ -14,6 +14,7 @@ import json
 import glob
 import typing
 import logging
+import importlib
 
 import numpy.typing as nptyping
 import mdtraj
@@ -295,3 +296,68 @@ def mdtraj_center_of_mass(
     else:
         com_array = mdtraj.compute_center_of_mass(traj)
     return com_array
+
+def get_plugin_str(
+        plugin_name: str,
+        submodule_name: str,
+        require_structures: bool = True,
+        require_preparer: bool = False,
+        require_runner: bool = False,
+        require_openmm_interface: bool = True,
+        skip_silently: bool = True
+        ) -> None | str:
+    """
+    Import a sub-module of a seekr plugin and check the necessary sub-modules.
+    """
+    if submodule_name != "":
+        dot_submodule_name = "."+submodule_name
+    else:
+        dot_submodule_name = ""
+
+    plugin_spec = importlib.util.find_spec(plugin_name)
+    if plugin_spec is None:
+        raise ImportError(f"Plugin '{plugin_name}' not found. Please install it or check the spelling.")
+    
+    # see if plugin.modules exists, and if not, raise an error
+    modules_spec = importlib.util.find_spec(plugin_name+".modules")
+    if modules_spec is None:
+        raise ImportError(f"Directory 'modules' not found for plugin '{plugin_name}'.")
+    
+    # Then if plugin.modules.{submodule} doesn't exist, skip quietly
+    submodule_spec = importlib.util.find_spec(plugin_name+f".modules{dot_submodule_name}")
+    if submodule_spec is None:
+        if skip_silently:
+            logging.warning(f"Plugin '{plugin_name}' does not have a '{submodule_name}' module. Skipping.")
+            return None
+        else:
+            raise ImportError(f"Directory '{submodule_name}' not found for plugin '{plugin_name}'.")
+        
+    if require_structures:
+        # Then if plugin.modules.{submodule}.structures doesn't exist, raise an error
+        structures_spec = importlib.util.find_spec(plugin_name+f".modules{dot_submodule_name}.structures")
+        if structures_spec is None:
+            raise ImportError(f"Module 'structures.py' not found for plugin '{plugin_name}' "\
+                            f"submodule '{submodule_name}'.")
+        
+    if require_preparer:
+        # Then if plugin.modules.{submodule}.preparer doesn't exist, raise an error
+        preparer_spec = importlib.util.find_spec(plugin_name+f".modules{dot_submodule_name}.preparer")
+        if preparer_spec is None:
+            raise ImportError(f"Module 'preparer.py' not found for plugin '{plugin_name}' "\
+                            f"submodule '{submodule_name}'.")
+        
+    if require_runner:
+        # Then if plugin.modules.{submodule}.runner doesn't exist, raise an error
+        runner_spec = importlib.util.find_spec(plugin_name+f".modules{dot_submodule_name}.runner")
+        if runner_spec is None:
+            raise ImportError(f"Module 'runner.py' not found for plugin '{plugin_name}' "\
+                            f"submodule '{submodule_name}'.")
+        
+    if require_openmm_interface:
+        # Then if plugin.modules.{submodule}.openmm_interface doesn't exist, raise an error
+        openmm_spec = importlib.util.find_spec(plugin_name+f".modules{dot_submodule_name}.openmm_interface")
+        if openmm_spec is None:
+            raise ImportError(f"Module 'openmm_interface.py' not found for plugin '{plugin_name}' "\
+                            f"submodule '{submodule_name}'.")
+    module_str = plugin_name+f".modules{dot_submodule_name}"
+    return module_str

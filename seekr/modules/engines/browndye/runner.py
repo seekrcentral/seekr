@@ -53,36 +53,42 @@ def run_bd_top(
     bd_directory = os.path.join(model.directory, model.bd_engine.b_surface_directory)
     browndye_bin_dir = model.bd_engine.binary_directory
     curdir = os.getcwd()
-    logging.info("moving to directory:", bd_directory)
+    logging.info("moving to directory: " + bd_directory)
     os.chdir(bd_directory)
+
+    simulation_glob = "*_simulation.xml"
+    simulation_files = glob.glob(simulation_glob)
+    #assert len(simulation_files) == 1, \
+    #    "There should be exactly one simulation file in the "\
+    #    "browndye directory. Found %d files." % len(simulation_files)
+    if len(simulation_files) > 0:
+        simulation_filename = simulation_files[0]
+        if os.path.exists(simulation_filename) and not restart:
+            if force_overwrite:
+                logging.warning("force_overwrite set to True: existing files will be "\
+                    "overwritten.")
+                os.remove(simulation_filename)
+            else:
+                logging.critical("This anchor already has existing output files and the "\
+                    "entered command would overwrite them. If you desire to "\
+                    "overwrite the existing files, then use the "\
+                    "--force_overwrite (-f) option, and all outputs will be "\
+                    "deleted and replaced by a new run.")
+                raise Exception("Cannot overwrite existing Browndye outputs.")
+            
+    bd_command = os.path.join(browndye_bin_dir, "bd_top")
+    command = bd_command + " " + browndye_base.BROWNDYE_INPUT_FILENAME
+    assert os.path.exists(browndye_base.BROWNDYE_INPUT_FILENAME), \
+        "Necessary file doesn't exist: %s" % \
+        browndye_base.BROWNDYE_INPUT_FILENAME
+    logging.info("running command: " + command)
+    os.system(command)
     simulation_glob = "*_simulation.xml"
     simulation_files = glob.glob(simulation_glob)
     assert len(simulation_files) == 1, \
         "There should be exactly one simulation file in the "\
         "browndye directory. Found %d files." % len(simulation_files)
     simulation_filename = simulation_files[0]
-    #simulation_filename = browndye_base.BROWNDYE_RECEPTOR + "_" \
-    #    + browndye_base.BROWNDYE_LIGAND + "_simulation.xml"
-    if os.path.exists(simulation_filename) and not restart:
-        if force_overwrite:
-            logging.warning("force_overwrite set to True: existing files will be "\
-                  "overwritten.")
-            os.remove(simulation_filename)
-        else:
-            logging.critical("This anchor already has existing output files and the "\
-                  "entered command would overwrite them. If you desire to "\
-                  "overwrite the existing files, then use the "\
-                  "--force_overwrite (-f) option, and all outputs will be "\
-                  "deleted and replaced by a new run.")
-            raise Exception("Cannot overwrite existing Browndye outputs.")
-        
-    bd_command = os.path.join(browndye_bin_dir, "bd_top")
-    command = bd_command + " " + browndye_base.BROWNDYE_INPUT_FILENAME
-    assert os.path.exists(browndye_base.BROWNDYE_INPUT_FILENAME), \
-        "Necessary file doesn't exist: %s" % \
-        browndye_base.BROWNDYE_INPUT_FILENAME
-    logging.info("running command:", command)
-    os.system(command)
     assert os.path.exists(simulation_filename), "Problem occurred running "\
         f"bd_top: simulation file {simulation_filename} was not generated."
     os.chdir(curdir)
@@ -186,7 +192,7 @@ def run_nam_simulation(
     browndye_bin_dir = model.bd_engine.binary_directory
     bd_output_glob = model.bd_engine.results_glob
     curdir = os.getcwd()
-    logging.info("moving to directory:", bd_directory)
+    logging.info("moving to directory: " + bd_directory)
     os.chdir(bd_directory)
     bd_command = os.path.join(browndye_bin_dir, "nam_simulation")
     simulation_glob = "*_simulation.xml"
@@ -198,7 +204,7 @@ def run_nam_simulation(
     #simulation_filename = browndye_base.BROWNDYE_RECEPTOR + "_" \
     #    + browndye_base.BROWNDYE_LIGAND + "_simulation.xml"
     command = bd_command + " " + simulation_filename
-    logging.info("running command:", command)
+    logging.info("running command: " + command)
     os.system(command)
     results_glob = glob.glob(bd_output_glob)
     assert len(results_glob) > 0, "Problem occurred running "\

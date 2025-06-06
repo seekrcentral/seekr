@@ -88,10 +88,13 @@ def run(
                 num_transitions = instruction.num_transitions
                 if force_overwrite and restart:
                     restart = False
-                log_string = f"running from b-surface anchor: {b_surface_anchor_index}"\
-                    +f"restart: {restart} trajectories to run: {trajs_to_go_min}"\
-                    +f"trajectories so far: {trajs_so_far}"\
+                log_string = f"running from b-surface anchor: {b_surface_anchor_index} "\
+                    +f"restart: {restart} trajectories to run: {trajs_to_go_min} "\
+                    +f"trajectories so far: {trajs_so_far} "\
                     +f"number of transitions: {num_transitions}"
+                calculation_dir = runner.get_calculation_directory_bd(
+                    model.bd_engine, model.directory)
+                log_filename = os.path.join(calculation_dir, "run.log")
                 base.configure_file_and_stdout_logger(
                     log_filename, overwrite=force_overwrite)
                 logging.info(log_string)

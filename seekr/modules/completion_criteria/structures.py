@@ -10,9 +10,34 @@ import typing
 from attrs import define, field, validators
 
 MAX_ANCHORS_FILLED_STEPS = 2000000 # ~4 ns
+MAX_BD_STEPS = 1e12 # a large number - essential infinite
+
+class Base_completion_criteria(typing.Protocol):
+    """
+    Base class for all completion criteria.
+    """
+    type: typing.Literal["base"] = "base"
+
+    def get_min_sim_len(self) -> int:
+        """
+        Return the minimum simulation length for this completion criteria.
+        """
+        raise NotImplementedError("Subclasses must implement this method.")
+    
+    def get_max_sim_len(self) -> int:
+        """
+        Return the maximum simulation length for this completion criteria.
+        """
+        raise NotImplementedError("Subclasses must implement this method.")
+    
+    def get_evaluation_interval(self) -> int:
+        """
+        Return the evaluation interval for this completion criteria.
+        """
+        raise NotImplementedError("Subclasses must implement this method.")
 
 @define
-class Number_of_steps_completion_criteria:
+class Number_of_steps_completion_criteria(Base_completion_criteria):
     """
     A completion criteria based on the number of steps.
     """
@@ -39,7 +64,7 @@ class Number_of_steps_completion_criteria:
 
 # TODO: generalize this to a predefined subset of anchors filled
 @define
-class All_anchors_filled_completion_criteria:
+class All_anchors_filled_completion_criteria(Base_completion_criteria):
     """
     A completion criteria based on all anchors being filled.
     """
@@ -73,7 +98,7 @@ class All_anchors_filled_completion_criteria:
 #class Surface_crossed_completion_criteria:
 
 @define
-class Number_of_trajectories_completion_criteria:
+class Number_of_trajectories_completion_criteria(Base_completion_criteria):
     """
     A completion criteria based on the number of trajectories in a 
     BD simulation.
@@ -85,8 +110,24 @@ class Number_of_trajectories_completion_criteria:
     max_number_of_steps: int = field(default=100000000,
                                     validator=[validators.instance_of(int),
                                                validators.gt(0)])
+    
+    # NOTE: these functions are needed for chunking in runner modules
+    def get_min_sim_len(self) -> int:
+        """
+        Return the minimum simulation length for this completion criteria.
+        """
+        return 0
+    
+    def get_max_sim_len(self) -> int:
+        """
+        Return the minimum simulation length for this completion criteria.
+        """
+        return MAX_BD_STEPS
+    
+    def get_evaluation_interval(self) -> int:
+        return 0
 
-MD_completion_criteria = typing.Union[Number_of_steps_completion_criteria,
-                                      All_anchors_filled_completion_criteria,]
+#MD_completion_criteria = typing.Union[Number_of_steps_completion_criteria,
+#                                      All_anchors_filled_completion_criteria,]
 
-BD_completion_criteria = typing.Union[Number_of_trajectories_completion_criteria,]
+#BD_completion_criteria = typing.Union[Number_of_trajectories_completion_criteria,]

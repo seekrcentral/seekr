@@ -139,6 +139,7 @@ def load_structure_with_mdtraj(
         pdb_filename = os.path.join(full_directory, "toy.pdb")
         if mode == "pdb":
             traj = mdtraj.load(pdb_filename)
+            traj.xyz = np.loadtxt(input_positions_filename, ndmin=2)
             
         elif mode == "traj":
             if not len(traj_filenames) > 0:

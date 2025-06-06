@@ -15,8 +15,39 @@ from attrs import define, field, validators, Factory
 
 import seekr.modules.base as base
 
+class Base_md_sampling_method(typing.Protocol):
+    """
+    Base class for all MD sampling methods.
+    """
+    type: typing.Literal["base"] = "base"
+
+    def input_from_systemwide_settings_output_to_anchors(self) -> bool:
+        raise NotImplementedError("Subclasses must implement this method.")
+    
+    def input_from_anchors_output_to_systemwide_settings(self) -> bool:
+        raise NotImplementedError("Subclasses must implement this method.")
+    
+    def needs_to_be_in_anchor(self) -> bool:
+        raise NotImplementedError("Subclasses must implement this method.")
+    
+    def get_output_positions_basename_noext(self) -> str:
+        raise NotImplementedError("Subclasses must implement this method.")
+    
+    def get_output_positions_glob_list(self) -> list[str]:
+        raise NotImplementedError("Subclasses must implement this method.")
+    
+    def get_final_pdb_output_basename(
+            self, 
+            toy_mode: bool,
+            frame_number: int | None = None,
+            ) -> str:
+        raise NotImplementedError("Subclasses must implement this method.")
+    
+    def get_output_md_parameters_topology(self) -> None:
+        raise NotImplementedError("Subclasses must implement this method.")
+
 @define
-class Conventional_md_sampling_method:
+class Conventional_md_sampling_method(Base_md_sampling_method):
     """
     A conventional MD sampling method.
     """
@@ -55,21 +86,23 @@ class Conventional_md_sampling_method:
         return None
 
 @define
-class Metadynamics_md_sampling_method:
+class Metadynamics_md_sampling_method(Base_md_sampling_method):
     """
     A Metadynamics MD sampling method.
     """
     type: typing.Literal["metadynamics"] = "metadynamics"
     cv_names: typing.List[str] = field(default=Factory(list),
                                             validator=validators.instance_of(list))
-    number_of_points: base.Int_or_list_type = field(default=101)
+    #number_of_points: base.Int_or_list_type = field(default=101)
+    number_of_points: list[int] = field(default=Factory(list),)
     bias_factor: float = field(default=10.0,
                                 validator=[validators.instance_of(float),
                                            validators.ge(0)])
     gaussian_height: float = field(default=0.5,
                                     validator=[validators.instance_of(float),
                                                validators.gt(0)])
-    gaussian_width: base.Float_or_list_type = field(default=0.1)
+    #gaussian_width: base.Float_or_list_type = field(default=0.1)
+    gaussian_width: list[float] = field(default=Factory(list),)
     steps_per_update: int = field(default=250,
                                     validator=[validators.instance_of(int),
                                                validators.gt(0)])
@@ -109,7 +142,7 @@ class Metadynamics_md_sampling_method:
         return None
 
 @define
-class Steered_md_sampling_method:
+class Steered_md_sampling_method(Base_md_sampling_method):
     """
     A Steered MD sampling method.
     """
@@ -157,7 +190,7 @@ class Steered_md_sampling_method:
     
 
 @define
-class MMVT_md_sampling_method:
+class MMVT_md_sampling_method(Base_md_sampling_method):
     """
     A generic milestoning MD sampling method.
     """
@@ -224,6 +257,12 @@ class MMVT_md_sampling_method:
 #  Alternatively, it can be run separately between stages, but modifies the
 #  model JSON file.
 
+class Base_bd_sampling_method(typing.Protocol):
+    """
+    Base class for all BD sampling methods.
+    """
+    pass
+
 @define
 class NAM_bd_sampling_method:
     """
@@ -238,10 +277,10 @@ class WE_bd_sampling_method:
     """
     type: typing.Literal["WE"] = "WE"
 
-MD_sampling_method = typing.Union[Conventional_md_sampling_method,
-                                    Metadynamics_md_sampling_method,
-                                    Steered_md_sampling_method,
-                                    MMVT_md_sampling_method]
+#MD_sampling_method = typing.Union[Conventional_md_sampling_method,
+#                                    Metadynamics_md_sampling_method,
+#                                    Steered_md_sampling_method,
+#                                    MMVT_md_sampling_method]
 
-BD_sampling_method = typing.Union[NAM_bd_sampling_method,
-                                  WE_bd_sampling_method]
+#BD_sampling_method = typing.Union[NAM_bd_sampling_method,
+#                                  WE_bd_sampling_method]

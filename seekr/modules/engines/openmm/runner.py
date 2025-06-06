@@ -112,25 +112,26 @@ class Runner_openmm():
             frame_number=swarm_index)
         self.sampling_engine_interface = sampling_openmm_interface\
             .assign_sampling_method_interface(
-                self._stage_output_index, sampling_method, self._model.md_engine)
+                self._stage_output_index, sampling_method, self._model.md_engine,
+                self._model.plugins)
         # Completion criteria interfaces.
         completion_criteria = stage_output.completion_criteria
         self.completion_criteria_interface = completion_openmm_interface\
             .assign_completion_interface(
-                completion_criteria, self._model, stage_output)
+                completion_criteria, self._model, stage_output, anchor_systemwide)
         # Restraints interfaces.
         self.restraints_interfaces = []
         for restraint in stage_output.restraints:
             self.restraints_interfaces.append(
                 restraints_openmm_interface.assign_restraints_interface(
-                    restraint, self._model.md_engine)
+                    restraint, self._model.md_engine, self._model.plugins)
             )
         # Reporters interfaces.
         self.reporters_interfaces = []
         for reporter in stage_output.reporters:
             self.reporters_interfaces.append(
                 reporters_openmm_interface.assign_reporter_interface(
-                    reporter, self._model.md_engine)
+                    reporter, self._model.md_engine, self._model.plugins)
             )
         # TODO: check in loaded modules from model JSON to see if any of these
         #  modules contain a "assign_interface" function, and run them.
@@ -249,13 +250,15 @@ class Runner_openmm():
                 else:
                     for output_file in output_files_list:
                         os.remove(output_file)
-                    if anchor is None:
-                        preparer.cleanse_outputs_stage(
-                            self._model, self._model.md_engine.systemwide_settings, 
-                            self._stage_output_index)
-                    else:
-                        preparer.cleanse_outputs_stage(
-                            self._model, anchor, self._stage_output_index)
+                    
+            if force_overwrite:
+                if anchor is None:
+                    preparer.cleanse_outputs_stage(
+                        self._model, self._model.md_engine.systemwide_settings, 
+                        self._stage_output_index)
+                else:
+                    preparer.cleanse_outputs_stage(
+                        self._model, anchor, self._stage_output_index)
                         
         return restart_index
     
@@ -269,8 +272,10 @@ class Runner_openmm():
         Run the SEEKR simulation.
         """
         self.sim_openmm = sim_openmm_obj
+        system = self.sim_openmm.system
         simulation = self.sim_openmm.simulation
         assert self.sampling_engine_interface is not None
+        self.sampling_engine_interface.assign_system_openmm(system)
         self.sampling_engine_interface.assign_sim_openmm(simulation)
         output_stage = self._model.stages[self._stage_output_index]
         assert output_stage.type == "md_stage"
@@ -303,7 +308,7 @@ class Runner_openmm():
         self._min_steps = output_stage.completion_criteria.get_min_sim_len()
         self._max_steps = output_stage.completion_criteria.get_max_sim_len()
         self.sampling_engine_interface.pre_simulation_preparations(
-            system=self.sim_openmm.system,
+            #system=self.sim_openmm.system,
             model=self._model,
             directory=self.running_directory,)
         for i, reporter_interface in enumerate(self.reporters_interfaces):

@@ -30,6 +30,23 @@ class Selection:
                                                     validators.ge(0)],
                                         iterable_validator=validators.instance_of(list),
                                     ))
+    
+@define
+class Ion:
+    """
+    Ion objects used for Browndye and SDA engines.
+    """
+    name: str | None = field(default=None,
+                             validator=validators.optional(
+                                 validators.instance_of(str)))
+    radius: float = field(default=0.9,
+                            validator=[validators.instance_of(float),
+                                         validators.gt(0)])
+    charge: float = field(default=1.0,
+                            validator=[validators.instance_of(float)])
+    concentration: float = field(default=0.0,
+                                    validator=[validators.instance_of(float),
+                                                validators.ge(0)])
 
 @define
 class Checkpoint_information:
@@ -46,6 +63,14 @@ class Checkpoint_information:
     timestep: float = field(default=0.002,
                             validator=[validators.instance_of(float),
                                        validators.gt(0)])
+    cv_values: tuple[float] | None = field(
+        default=None,
+        validator=validators.optional(
+            validators.deep_iterable(
+                member_validator=[validators.instance_of(float)],
+                iterable_validator=validators.instance_of(tuple),
+            )
+        ))
     
     def save(
             self, 
@@ -68,11 +93,13 @@ def write_checkpoint_information_file(
         step: int, 
         restart_index: int,
         timestep: float,
+        cv_values: tuple[float] | None,
         filename: str) -> None:
     """
     Write the checkpoint information to a file.
     """
-    checkpoint_information = Checkpoint_information(step, restart_index, timestep)
+    checkpoint_information = Checkpoint_information(step, restart_index, timestep, 
+                                                    cv_values)
     checkpoint_information.save(filename)
     return
 

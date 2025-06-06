@@ -8,8 +8,20 @@ import typing
 
 from attrs import define, field, validators
 
+class Base_reporter(typing.Protocol):
+    """
+    Base class for all reporters.
+    """
+    type: typing.Literal["base"] = "base"
+
+    def get_reporter_extension(self) -> str:
+        """
+        Get the file extension for the reporter.
+        """
+        raise NotImplementedError("Subclasses must implement this method.")
+
 @define
-class DCD_reporter:
+class DCD_reporter(Base_reporter):
     """
     A DCD reporter for SEEKR.
     """
@@ -36,7 +48,7 @@ class DCD_reporter:
         return "dcd"
     
 @define
-class PDB_reporter:
+class PDB_reporter(Base_reporter):
     """
     A PDB reporter for SEEKR.
     """
@@ -60,7 +72,7 @@ class PDB_reporter:
         return "pdb"
     
 @define
-class State_reporter:
+class State_reporter(Base_reporter):
     """
     A state reporter for SEEKR.
     """
@@ -97,8 +109,8 @@ class State_reporter:
         """
         return "dat"
     
-Reporter = typing.Union[
-    DCD_reporter,
-    PDB_reporter,
-    State_reporter
-]
+#Reporter = typing.Union[
+#    DCD_reporter,
+#    PDB_reporter,
+#    State_reporter
+#]

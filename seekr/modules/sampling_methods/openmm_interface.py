@@ -12,6 +12,7 @@ import time
 import glob
 import typing
 import logging
+import importlib
 
 from attrs import define
 import numpy as np
@@ -19,6 +20,7 @@ import openmm
 import openmm.app as openmm_app
 import openmm.unit as unit
 
+import seekr.modules.base as base
 import seekr.modules.structures as structures
 import seekr.modules.engines.base as engines_base
 import seekr.modules.engines.structures as engines_structures
@@ -111,10 +113,68 @@ class Base_md_openmm_interface:
     A base class for a MD sampling method using the OpenMM engine.
     """
     _stage_index: int
-    sampling_method: sampling_methods_structures.MD_sampling_method
+    sampling_method: sampling_methods_structures.Base_md_sampling_method
+    _system_obj: openmm.System | None = None
     _simulation_obj: openmm_app.Simulation | None = None
     _steps_between_evals: int = 0
     _model: structures.Seekr_model | None = None
+    _openmm_cv_list: list[typing.Any] | None = None
+    _cv_interface_list: list[collective_variables_openmm_interface\
+                             .CV_openmm_interface] | None = None
+    _openmm_cv_object: typing.Any | None = None
+
+    # TODO: return a list of names?
+    def create_openmm_cv_list(self) -> None:
+        """
+        Create a list of OpenMM CVs for the simulation.
+        This can be called, if need be, by a sampling method, or on behalf of a
+        completion criteria.
+        """
+        if self._cv_interface_list is not None:
+            return None
+        elif self._openmm_cv_list is not None:
+            return None
+        else:
+            self._cv_interface_list = []
+            self._openmm_cv_list = []
+            for i, cv in enumerate(self._model.collective_variables):
+                cv_interface = collective_variables_openmm_interface.assign_cv_interface(
+                    cv, self._model.md_engine, self._model.directory, self._model.plugins)
+                assert cv_interface is not None
+                self._cv_interface_list.append(cv_interface)
+                cv_force = cv_interface.make_cv_force()
+                cv_interface.add_cv_groups_and_variables(cv_force)
+                self._openmm_cv_list.append(cv_force)
+
+        # else, do nothing - it's already filled out.
+        return None
+
+    def create_openmm_cv_object(self) -> None:
+        """
+
+        """
+        if self._openmm_cv_object is not None:
+            return None
+        else:
+            cv_names = []
+            for i, openmm_cv in enumerate(self._openmm_cv_list):
+                cv_name = f"cv_{i}"
+                cv_names.append(cv_name)
+            expression = "0.0*(" + " + ".join(cv_names) + ")"
+            openmm_cv_object = openmm.CustomCVForce(expression)
+            for i, openmm_cv in enumerate(self._openmm_cv_list):
+                cv_name = cv_names[i]
+                openmm_cv_object.addCollectiveVariable(cv_name, openmm_cv)
+            
+            self._openmm_cv_object = openmm_cv_object
+            freeGroups = set(range(32)) - set(force.getForceGroup() for force in self._system_obj.getForces())
+            if len(freeGroups) == 0:
+                raise RuntimeError('Cannot assign a force group to the OpenMM CV object. '
+                                'The maximum number (32) of the force groups is already used.')
+            openmm_cv_object.setForceGroup(max(freeGroups))
+            self._system_obj.addForce(openmm_cv_object)
+            self._simulation_obj.context.reinitialize(preserveState=True)
+            return None
 
     def create_sim_openmm(self) -> None:
         """
@@ -173,6 +233,16 @@ class Base_md_openmm_interface:
         """
         return None
     
+    def assign_system_openmm(
+            self,
+            system: openmm.System
+        ) -> None:
+        """
+        Assign the system object from an OpenMM system object.
+        """
+        self._system_obj = system
+        return None
+
     # TODO: simulation itself should be passed in here
     def assign_sim_openmm(
             self,
@@ -249,11 +319,13 @@ class Base_md_openmm_interface:
         if steps_between_evals == 0:
             steps_between_evals = steps_between_checkpoints
         stopping = False
+        cv_values = None
         num_steps = 0
         on_step = start_step
         lock_string = engines_base.create_lock(lock_filename)
         assert self._simulation_obj is not None
         steps_to_take_after_benchmark = 0
+        finish_benchmark = False
         while not stopping:
             criteria_satisfied = False
             early_simulation_abort = False
@@ -271,42 +343,20 @@ class Base_md_openmm_interface:
             else:
                 steps_to_take = steps_until_eval
                 make_eval = True
-            if num_steps == 0 and do_initial_benchmark:
-                if INITIAL_BENCHMARK_STEPS < steps_to_take:
-                    steps_to_take_after_benchmark = steps_to_take - INITIAL_BENCHMARK_STEPS
-                    steps_to_take = INITIAL_BENCHMARK_STEPS
-                start_time = time.time()
-            # DEBUG - uncomment
+            if num_steps == 0:
+                if completion_openmm_interface.needs_cv_values():
+                    self.create_openmm_cv_list()
+                    self.create_openmm_cv_object()
+                if do_initial_benchmark:
+                    if INITIAL_BENCHMARK_STEPS < steps_to_take:
+                        steps_to_take_after_benchmark = steps_to_take - INITIAL_BENCHMARK_STEPS
+                        steps_to_take = INITIAL_BENCHMARK_STEPS
+                    finish_benchmark = True
+                    start_time = time.time()
             self._step(steps_to_take)
-            # begin DEBUG
-            """
-            for i in range(steps_to_take):
-                print("step", i)
-                oldenergy=float(self._simulation_obj.context.getIntegrator().getGlobalVariableByName("oldenergy"))
-                print("oldenergy", oldenergy)
-                #encounter_this_step=float(self._simulation_obj.context.getIntegrator().getGlobalVariableByName("encounter_this_step"))
-                #print("encounter_this_step", encounter_this_step)
-                #first_encounter_time=float(self._simulation_obj.context.getIntegrator().getGlobalVariableByName("first_encounter_time"))
-                #print("first_encounter_time", first_encounter_time)
-                #last_milestone_time_touched=float(self._simulation_obj.context.getIntegrator().getGlobalVariableByName("last_milestone_time_touched"))
-                #print("last_milestone_time_touched", last_milestone_time_touched)
-                #time_count=float(self._simulation_obj.context.getIntegrator().getGlobalVariableByName("time_count"))
-                #print("time_count", time_count)
-                #step_count=int(self._simulation_obj.context.getIntegrator().getGlobalVariableByName("step_count"))
-                #print("step_count", step_count)
-                #state = self._simulation_obj.context.getState(getPositions=True, getVelocities=True, enforcePeriodicBox=True)
-                #positions = state.getPositions()
-                #velocities = state.getVelocities()
-                #print("positions", positions[0])
-                #print("velocities", velocities[0])
-                cv_value = self._openmm_cv_list[0].getCollectiveVariableValues(self._simulation_obj.context)
-                print("cv_value", cv_value[0])
-                self._simulation_obj.step(1)
-            """
-            # end DEBUG
             num_steps += steps_to_take
             on_step += steps_to_take
-            if num_steps == 0 and do_initial_benchmark:
+            if finish_benchmark:
                 total_time = time.time() - start_time
                 early_simulation_abort = self.perform_early_simulation_eval(
                     restart_index, swarm_index)
@@ -318,6 +368,8 @@ class Base_md_openmm_interface:
                     num_steps += steps_to_take_after_benchmark
                     on_step += steps_to_take_after_benchmark
 
+                finish_benchmark = False
+
             if early_simulation_abort:
                 raise Exception("Simulation aborted early.")
             else:
@@ -328,13 +380,17 @@ class Base_md_openmm_interface:
                     #abort = integrator.getGlobalVariableByName("abort")
                     self.perform_eval(restart_index, swarm_index)
                     # NOTE: an logging update is printed every checkpoint. Is this right?
+                    if completion_openmm_interface.needs_cv_values():
+                        cv_values = self._openmm_cv_object.getCollectiveVariableValues(
+                            self._simulation_obj.context)
+                        
                     criteria_satisfied = completion_openmm_interface.criteria_satisfied(
-                        current_step=on_step, print_update=False)
+                        current_step=on_step, print_update=False, cv_values=cv_values,)
                         #current_step=on_step, print_update=make_checkpoint)
                 if make_checkpoint:
                     self._simulation_obj.saveCheckpoint(checkpoint_filename)
                     engines_structures.write_checkpoint_information_file(
-                        on_step, restart_index, timestep, checkpoint_info_filename)
+                        on_step, restart_index, timestep, cv_values, checkpoint_info_filename)
                     lock_string = engines_base.update_lock(
                         lock_filename, lock_string)
                     
@@ -346,7 +402,7 @@ class Base_md_openmm_interface:
             
         self._simulation_obj.saveCheckpoint(checkpoint_filename)
         engines_structures.write_checkpoint_information_file(
-            on_step, restart_index, timestep, checkpoint_info_filename)
+            on_step, restart_index, timestep, cv_values, checkpoint_info_filename)
         os.remove(lock_filename)
         return num_steps
     
@@ -473,9 +529,25 @@ class Conventional_md_openmm_interface(Base_md_openmm_interface):
     """
     _stage_index: int
     sampling_method: sampling_methods_structures.Conventional_md_sampling_method
+    _system_obj: openmm.System | None = None
     _simulation_obj: openmm_app.Simulation | None = None
     _steps_between_evals: int = 0
     _model: structures.Seekr_model | None = None
+    _openmm_cv_list: list[typing.Any] | None = None
+    _cv_interface_list: list[collective_variables_openmm_interface\
+                             .CV_openmm_interface] | None = None
+    _openmm_cv_object: typing.Any | None = None
+
+    def pre_simulation_preparations(
+            self, 
+            **kwargs: typing.Any
+            ) -> None:
+        """
+        Perform any necessary preparations before the simulation starts.
+        """
+        model: structures.Seekr_model = kwargs["model"]
+        self._model = model
+        return
     
 @define
 class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
@@ -485,13 +557,18 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
     """
     _stage_index: int
     sampling_method: sampling_methods_structures.Metadynamics_md_sampling_method
+    _system_obj: openmm.System | None = None
     _simulation_obj: openmm_app.Simulation | None = None
-    _metadynamics_obj: openmm_app.Metadynamics | None = None
     _steps_between_evals: int = 0
-    _openmm_cv_list: list[typing.Any] | None = None
     _model: structures.Seekr_model | None = None
+    _openmm_cv_list: list[typing.Any] | None = None
+    _cv_interface_list: list[collective_variables_openmm_interface\
+                             .CV_openmm_interface] | None = None
+    _openmm_cv_object: typing.Any | None = None
+
+    _metadynamics_obj: openmm_app.Metadynamics | None = None
     _current_alpha: int | None = None
-    _directory: str | None = None
+    #_directory: str | None = None
 
     def pre_simulation_preparations(
             self, 
@@ -500,33 +577,21 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
         """
         Perform any necessary preparations before the simulation starts.
         """
-        system: openmm.System = kwargs["system"]
+        #system: openmm.System = kwargs["system"]
+        system = self._system_obj
+        assert system is not None, \
+            "The system object must be assigned before calling this method."
         model: structures.Seekr_model = kwargs["model"]
         self._model = model
         directory: str = kwargs["directory"]
-        self._directory = directory
+        #self._directory = directory
         md_engine = model.md_engine
         assert md_engine is not None
         assert md_engine.type == "openmm", \
             "Only OpenMM engines can be used in the openmm_interface module."
-        if self._openmm_cv_list is None:
-            self._openmm_cv_list = []
-        for i, cv in enumerate(model.collective_variables):
-            cv_interface = collective_variables_openmm_interface.assign_cv_interface(
-                cv, md_engine, self._model.directory)
-            assert cv_interface is not None
-            cv_force = cv_interface.make_cv_force()
-            cv_interface.add_cv_groups_and_variables(cv_force)
-            cv_name = f"0*x_{i}"
-            openmm_cv_object = openmm.CustomCVForce(cv_name)
-            openmm_cv_object.addCollectiveVariable(cv_name, cv_force)
-            freeGroups = set(range(32)) - set(force.getForceGroup() for force in system.getForces())
-            if len(freeGroups) == 0:
-                raise RuntimeError('Cannot assign a force group to the metadynamics stage. '
-                                'The maximum number (32) of the force groups is already used.')
-            openmm_cv_object.setForceGroup(max(freeGroups))
-            system.addForce(openmm_cv_object)
-            self._openmm_cv_list.append(openmm_cv_object)
+        
+        self.create_openmm_cv_list()
+        #self.create_openmm_cv_object()
 
         boosted_cvs: list[collective_variables_structures.Collective_variable] = []
         if len(self.sampling_method.cv_names) == 0:
@@ -559,11 +624,13 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
             save_frequency = None
         metaD_force_biases = []
         for i, cv in enumerate(boosted_cvs):
-            cv_interface = collective_variables_openmm_interface.assign_cv_interface(
-                cv, md_engine, self._model.directory)
-            metaD_force = cv_interface.make_cv_force()
+            #cv_interface = collective_variables_openmm_interface.assign_cv_interface(
+            #    cv, md_engine, self._model.directory)
+            #cv_interface = self._cv_interface_list[cv.index]
+            #metaD_force = cv_interface.make_cv_force()
+            metaD_force = self._openmm_cv_list[cv.index]
             #metaD_force.setForceGroup(0)
-            cv_interface.add_cv_groups_and_variables(metaD_force)
+            #cv_interface.add_cv_groups_and_variables(metaD_force)
             force_bias = openmm_app.BiasVariable(
                 metaD_force, minValue=cv.get_min_value(), maxValue=cv.get_max_value(),
                 biasWidth=bias_widths[i], periodic=cv.is_periodic(), gridWidth=grid_widths[i])
@@ -592,10 +659,11 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
         cv_values: list[float] = []
         assert self._simulation_obj is not None
         assert self._openmm_cv_list is not None
-        for i, cv in enumerate(self._openmm_cv_list):
-            cv_value = cv.getCollectiveVariableValues(self._simulation_obj.context)
-            cv_values.append(cv_value[0])
-
+        #for i, cv in enumerate(self._openmm_cv_list):
+        #    cv_value = cv.getCollectiveVariableValues(self._simulation_obj.context)
+        #    cv_values.append(cv_value[0])
+        cv_values = self._metadynamics_obj.getCollectiveVariables(self._simulation_obj)
+        
         current_anchor_index = self.find_current_anchor_index(cv_values)
         if current_anchor_index != self._current_alpha:
             self._current_alpha = current_anchor_index
@@ -621,15 +689,17 @@ class Steered_md_openmm_interface(Base_md_openmm_interface):
     """
     _stage_index: int
     sampling_method: sampling_methods_structures.Steered_md_sampling_method
+    _system_obj: openmm.System | None = None
     _simulation_obj: openmm_app.Simulation | None = None
     _steps_between_evals: int = 0
+    _model: structures.Seekr_model | None = None
     _openmm_cv_list: list[typing.Any] | None = None
-    _openmm_cv_object: openmm.CustomCVForce | None = None
     _cv_interface_list: list[collective_variables_openmm_interface\
                              .CV_openmm_interface] | None = None
-    _model: structures.Seekr_model | None = None
+    _openmm_cv_object: openmm.CustomCVForce | None = None
+
     _current_alpha: int | None = None
-    _directory: str | None = None
+    #_directory: str | None = None
     _procedure: list | None = None
     _current_step_in_procedure: int = 0
     _windows_list_zipped: list[list[float]] | None = None
@@ -642,11 +712,13 @@ class Steered_md_openmm_interface(Base_md_openmm_interface):
         """
         Perform any necessary preparations before the simulation starts.
         """
-        system: openmm.System = kwargs["system"]
+        #system: openmm.System = kwargs["system"]
+        #self._system_obj = system
+        system = self._system_obj
         model: structures.Seekr_model = kwargs["model"]
         self._model = model
-        directory: str = kwargs["directory"]
-        self._directory = directory
+        #directory: str = kwargs["directory"]
+        #self._directory = directory
         md_engine = model.md_engine
         assert md_engine is not None
         assert md_engine.type == "openmm", \
@@ -654,11 +726,14 @@ class Steered_md_openmm_interface(Base_md_openmm_interface):
         
         stage = model.stages[self._stage_index]
         assert stage.type == "md_stage"
-        if self._openmm_cv_list is None:
-            self._openmm_cv_list = []
+        
+        # TODO: remove
+        #if self._openmm_cv_list is None:
+        #    self._openmm_cv_list = []
 
         expr_list = []
         force_list = []
+        """
         self._cv_interface_list = []
         # TODO: need a way to toggle CVs within this expression on or off
         for cv_index, cv in enumerate(model.collective_variables):
@@ -670,16 +745,30 @@ class Steered_md_openmm_interface(Base_md_openmm_interface):
             force_list.append(force)
             cv_expr = f"(cv_{cv_index} - value_{cv_index})^2" #f"toggle_{cv_index} * cv_{cv_index}"
             expr_list.append(cv_expr)
-        
+        """
+        self.create_openmm_cv_list()
+        cv_name_list = []
+        value_name_list = []
+        for cv_index, openmm_cv in enumerate(self._openmm_cv_list):
+            cv_name = f"cv_{cv_index}"
+            cv_name_list.append(cv_name)
+            value_name = f"value_{cv_index}"
+            value_name_list.append(value_name)
+            cv_expr = f"({cv_name} - {value_name})^2"
+            expr_list.append(cv_expr)
+
         full_expr = "smd_force_const*(" + " + ".join(expr_list) + ")"
         self._openmm_cv_object = openmm.CustomCVForce(full_expr)
         self._openmm_cv_object.addGlobalParameter("smd_force_const", self.sampling_method.force_constant)
-        for i in range(len(expr_list)):
-            force = force_list[i]
-            cv_name = f"cv_{i}"
-            self._openmm_cv_object.addGlobalParameter(f"value_{i}", 0.0)
-            self._openmm_cv_object.addCollectiveVariable(cv_name, force)
-            self._openmm_cv_list.append(force)
+        #for i in range(len(expr_list)):
+        for cv_index, openmm_cv in enumerate(self._openmm_cv_list):
+            #force = force_list[i]
+            #cv_name = f"cv_{i}"
+            cv_name = cv_name_list[cv_index]
+            value_name = value_name_list[cv_index]
+            self._openmm_cv_object.addGlobalParameter(value_name, 0.0)
+            self._openmm_cv_object.addCollectiveVariable(cv_name, openmm_cv)
+            #self._openmm_cv_list.append(force)
 
         freeGroups = set(range(32)) - set(myforce.getForceGroup() for myforce in system.getForces())
         if len(freeGroups) == 0:
@@ -813,8 +902,6 @@ class Steered_md_openmm_interface(Base_md_openmm_interface):
                 # Simulation is complete: let the completion criteria finish
                 pass
 
-
-
 @define
 class MMVT_md_openmm_interface(Base_md_openmm_interface):
     """
@@ -822,10 +909,15 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
     """
     _stage_index: int
     sampling_method: sampling_methods_structures.MMVT_md_sampling_method
-    _model: structures.Seekr_model | None = None
+    _system_obj: openmm.System | None = None
     _simulation_obj: openmm_app.Simulation | None = None
     _steps_between_evals: int = 0
+    _model: structures.Seekr_model | None = None
     _openmm_cv_list: list[typing.Any] | None = None
+    _cv_interface_list: list[collective_variables_openmm_interface\
+                             .CV_openmm_interface] | None = None
+    _openmm_cv_object: typing.Any | None = None
+
     _anchor_obj: structures.Anchor | None = None
 
     def add_global_variables_integrator(
@@ -837,7 +929,7 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
 
         Some global variables for milestoning method.
         """
-        integrator: openmm.System = kwargs["integrator"]
+        integrator: openmm.Integrator = kwargs["integrator"]
         # TODO: make anchor and/or integrator an attribute of this class?
         anchor: structures.Anchor = kwargs["anchor"]
         self._anchor_obj = anchor
@@ -883,7 +975,7 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
         Some per-DOF variables for MetaD.
         """
         
-        integrator: openmm.System = kwargs["integrator"]
+        integrator: openmm.Integrator = kwargs["integrator"]
         #integrator.addPerDofVariable("old_x", 0)
         #integrator.addPerDofVariable("old_v", 0)
         for i in range(BUFFER_FRAMES):
@@ -899,7 +991,7 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
 
         Some steps to do for milestoning.
         """
-        integrator: openmm.System = kwargs["integrator"]
+        integrator: openmm.Integrator = kwargs["integrator"]
         #integrator.addComputePerDof("old_x", "x")
         #integrator.addComputePerDof("old_v", "v")
         anchor = self._anchor_obj
@@ -922,7 +1014,7 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
 
         Some steps to do for milestoning.
         """
-        integrator: openmm.System = kwargs["integrator"]
+        integrator: openmm.Integrator = kwargs["integrator"]
         anchor = self._anchor_obj
         assert anchor is not None
         integrator.addComputeGlobal("encounter_this_step", "0")
@@ -979,15 +1071,17 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
         """
         Perform any necessary preparations before the simulation starts.
         """
-        system: openmm.System = kwargs["system"]
+        #system: openmm.System = kwargs["system"]
+        system: openmm.System = self._system_obj
         model: structures.Seekr_model = kwargs["model"]
         self._model = model
         md_engine = model.md_engine
         assert md_engine is not None
-        if self._openmm_cv_list is None:
-            self._openmm_cv_list = []
+        #if self._openmm_cv_list is None:
+        #    self._openmm_cv_list = []
         assert md_engine.type == "openmm", \
             "Only OpenMM engines can be used in the openmm_interface module."
+        self.create_openmm_cv_list()
         
         anchor = self._anchor_obj
         assert anchor is not None
@@ -997,8 +1091,9 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
         if num_cvs == 1:
             my_cv_index = anchor_cv_indices[0]
             my_cv = model.collective_variables[my_cv_index]
-            cv_interface = collective_variables_openmm_interface.assign_cv_interface(
-                my_cv, md_engine, self._model.directory)
+            #cv_interface = collective_variables_openmm_interface.assign_cv_interface(
+            #    my_cv, md_engine, self._model.directory)
+            cv_interface = self._cv_interface_list[my_cv_index]
             assert cv_interface is not None, f"An interface was not found for cv {cv_index}"
             variables: dict[str, unit.Quantity] = {}
             for i, milestone in enumerate(anchor.milestones):
@@ -1020,7 +1115,7 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
                 boundary_force, variables)
             boundary_force.setForceGroup(1)
             system.addForce(boundary_force)
-            self._openmm_cv_list.append(boundary_force)
+            #self._openmm_cv_list.append(boundary_force)
 
         else: # num_cvs > 1
             me_expr_list_all_milestones = []
@@ -1040,8 +1135,9 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
                     if variable.startswith("me"):
                         cv_index = int(variable.split("_")[1])
                         cv = model.collective_variables[cv_index]
-                        cv_interface = collective_variables_openmm_interface.assign_cv_interface(
-                            cv, md_engine, self._model.directory)
+                        #cv_interface = collective_variables_openmm_interface.assign_cv_interface(
+                        #    cv, md_engine, self._model.directory)
+                        cv_interface = self._cv_interface_list[cv_index]
                         assert cv_interface is not None, f"An interface was not found for cv {cv_index}"
                         me_key_name = f"me_{cv_index}"
                         neighbor_key_name = f"neighbor_{cv_index}"
@@ -1079,7 +1175,7 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
 
             openmm_cv_object.setForceGroup(1)
             system.addForce(openmm_cv_object)
-            self._openmm_cv_list.append(openmm_cv_object)
+            #self._openmm_cv_list.append(openmm_cv_object)
             
         assert self._simulation_obj is not None
         self._simulation_obj.context.reinitialize(preserveState=True)
@@ -1095,7 +1191,7 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
         """
         assert self._model is not None
         assert self._simulation_obj is not None
-        integrator = self._simulation_obj.context.getIntegrator()
+        integrator: openmm.Integrator = self._simulation_obj.context.getIntegrator()
         anchor = self._anchor_obj
         assert anchor is not None
         assert anchor.stage_parameters[self._stage_index+1] is not None
@@ -1156,9 +1252,10 @@ Sampling_md_openmm_interface = typing.Union[Conventional_md_openmm_interface,
 
 def assign_sampling_method_interface(
         stage_index: int,
-        sampling_method: sampling_methods_structures.MD_sampling_method, 
-        md_engine: structures.MD_engine
-        ) -> Sampling_md_openmm_interface | None:
+        sampling_method: sampling_methods_structures.Base_md_sampling_method, 
+        md_engine: structures.MD_engine,
+        plugin_list: list[str]
+        ) -> Sampling_md_openmm_interface:
     """
     Given a sampling_method and an md_engine, confirm that the OpenMM
     MD engine is being used, and return the corresponding interface
@@ -1174,4 +1271,15 @@ def assign_sampling_method_interface(
     elif sampling_method.type == "mmvt":
         return MMVT_md_openmm_interface(stage_index, sampling_method)
     else:
-        return None
+        # Run through plugins
+        for plugin_name in plugin_list:
+            sampl_meth_module_str = base.get_plugin_str(plugin_name, submodule_name="sampling_methods")
+            if sampl_meth_module_str is not None:
+                plugin_module_sampl_meth_interface = importlib.import_module(
+                    sampl_meth_module_str+".openmm_interface")
+            found, sampl_meth_interface = plugin_module_sampl_meth_interface.assign_sampling_method_interface(
+                stage_index, sampling_method)
+            if found:
+                return sampl_meth_interface
+
+    raise Exception("Sampling method not found: " + sampling_method.type)

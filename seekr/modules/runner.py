@@ -85,13 +85,12 @@ def get_calculation_directory_md(
     return full_directory
 
 def get_calculation_directory_bd(
-        anchor: structures.Anchor,
+        bd_engine: structures.BD_engine,
         root_directory: str):
     """
     Return the calculation directory for a given BD stage index.
     """
-    assert anchor.bd
-    full_directory = os.path.join(root_directory, anchor.directory)
+    full_directory = os.path.join(root_directory, bd_engine.b_surface_directory)
     return full_directory
 
 def get_restart_checkpoint_filename(
@@ -184,7 +183,7 @@ def choose_next_simulation_md(
             
             if not force_overwrite:
                 run_finished, message = completion_criteria_runner.is_finished_md_with_message(
-                    model, stage_md, current_step)
+                    model, stage_md, anchor_or_systemwide, current_step, swarm_frame)
             else:
                 run_finished = False
                 message = "Force overwrite."
@@ -210,6 +209,8 @@ def choose_next_simulation_bd(
     # Device_index is currently irrelevant because no BD engine
     #  has been implemented that uses a GPU.
     bulk_index = model.get_bulk_index()
+    assert bulk_index is not None
+    bulk_anchor = model.anchors[bulk_index]
     if stage_bd.completion_criteria.type == "number_of_trajectories":
         num_trajs_needed = stage_bd.completion_criteria.number_of_trajectories
         min_b_surface_encounters = None
@@ -221,12 +222,20 @@ def choose_next_simulation_bd(
         #  to be set based on the completion criteria.
 
     if force_overwrite:
-        assert bulk_index is not None
-        bulk_anchor = model.anchors[bulk_index]
         engines_runner.cleanse_outputs_bd(bulk_anchor, model)
 
     run_instructions_unsorted: list[typing.NamedTuple] = []
     bd_transition_counts = model.bd_engine.get_bd_transition_counts(model.directory)
+    
+    # Find the lower and upper milestone indices
+    bulk_anchor_neighbor_index = bulk_anchor.neighbor_anchor_indices[0]
+    bulk_anchor_neighbor = model.anchors[bulk_anchor_neighbor_index]
+    assert len(bulk_anchor_neighbor.milestones) == 2, \
+        "Bulk anchor neighbor must have exactly two milestones."
+    lower_milestone_index = bulk_anchor_neighbor.milestones[0].index
+    upper_milestone_index = bulk_anchor_neighbor.milestones[1].index
+    bd_transition_counts = model.bd_engine.modify_bd_transition_counts(
+        bd_transition_counts, lower_milestone_index, upper_milestone_index)
     if "b_surface" not in bd_transition_counts:
         run_instruction = Run_instruction_bd(
             num_trajs_needed, 0, bulk_index, False, 0)

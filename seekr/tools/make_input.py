@@ -16,6 +16,7 @@ import seekr.modules.collective_variables.external_cv as external_cv
 import seekr.modules.collective_variables.rmsd_cv as rmsd_cv
 import seekr.modules.engines.structures as engines_structures
 import seekr.modules.engines.browndye.structures as browndye_structures
+import seekr.modules.engines.sda.structures as sda_structures
 import seekr.modules.completion_criteria.structures as compl_crit_struct
 import seekr.modules.restraints.preparer as restraints_preparer
 import seekr.modules.reporters.preparer as reporters_preparer
@@ -23,6 +24,7 @@ import seekr.modules.structures as structures
 import seekr.modules.engines.preparer as engines_preparer
 import seekr.modules.engines.openmm.preparer as openmm_preparer
 import seekr.modules.engines.browndye.preparer as browndye_preparer
+import seekr.modules.engines.sda.preparer as sda_preparer
 import seekr.modules.sampling_methods.preparer as sampling_preparer
 import seekr.modules.preparer as preparer
 
@@ -31,7 +33,8 @@ DATA_DIRECTORY = os.path.abspath(os.path.join(TOOLS_DIRECTORY, "..", "data"))
 HOSTGUEST_DIRECTORY = os.path.join(DATA_DIRECTORY, "hostguest_files")
 
 def create_toy_model_input(
-        root_dir: str
+        root_dir: str,
+        use_smd: bool = False
     ) -> preparer.Seekr_input:
     """
     Create a toy model input.
@@ -74,17 +77,17 @@ def create_toy_model_input(
     stage1.reporters = [stage1_state_reporter, stage1_dcd_reporter]
 
     stage2 = preparer.Input_stage_md()
-    """
-    stage2.name = "metadynamics"
-    stage2.sampling_method = sampling_preparer.Metadynamics_md_input()
-    stage2.sampling_method.gaussian_height = 1.0
-    stage2.sampling_method.cv_names = ["progress_coordinate"]
-    """
-    stage2.name = "steered"
-    stage2.sampling_method = sampling_preparer.Steered_md_input()
-    stage2.sampling_method.cv_names = ["progress_coordinate"]
-    stage2.sampling_method.force_constant = 100000.0
-    stage2.sampling_method.velocity = 1.0
+    if use_smd:
+        stage2.name = "steered"
+        stage2.sampling_method = sampling_preparer.Steered_md_input()
+        stage2.sampling_method.cv_names = ["progress_coordinate"]
+        stage2.sampling_method.force_constant = 100000.0
+        stage2.sampling_method.velocity = 1.0
+    else:
+        stage2.name = "metadynamics"
+        stage2.sampling_method = sampling_preparer.Metadynamics_md_input()
+        stage2.sampling_method.gaussian_height = 1.0
+        stage2.sampling_method.cv_names = ["progress_coordinate"]
     
     stage2.run_minimization = False
     stage2.checkpoint_interval = 10
@@ -156,7 +159,9 @@ def create_host_guest_example_input(
         root_dir: str, 
         bd: bool = True, 
         ff: str = "amber",
-        use_rmsd_cv: bool = False
+        use_rmsd_cv: bool = False,
+        use_sda: bool = False,
+        use_smd: bool = False
         ) -> preparer.Seekr_input:
     """
     Create an example input object for loading and testing in SEEKR.
@@ -231,36 +236,57 @@ def create_host_guest_example_input(
         = [receptor_selection_md, ligand_selection_md, ligand_noh_selection_md, 
            solute_selection_md, o5_group]
     if bd:
-        seekr_input.bd_settings = browndye_preparer.Browndye_settings_input()
-        seekr_input.bd_settings.apbs_grid_spacing = 2.0
-        ion1 = browndye_structures.Ion()
+        ion1 = engines_structures.Ion()
         ion1.name = "Cl-"
         ion1.radius = 1.2
         ion1.charge = -1.0
         ion1.concentration = 0.0
-        ion2 = browndye_structures.Ion()
+        ion2 = engines_structures.Ion()
         ion2.name = "Na+"
         ion2.radius = 0.9
         ion2.charge = 1.0
         ion2.concentration = 0.0
-        seekr_input.bd_settings.ions = [ion1, ion2]
         receptor_selection_bd = engines_structures.Selection()
         receptor_selection_bd.name = "host"
         receptor_selection_bd.atom_indices = receptor_indices_bd
         ligand_selection_bd = engines_structures.Selection()
         ligand_selection_bd.name = "guest"
         ligand_selection_bd.atom_indices = ligand_indices_bd
-        receptor_molecule = browndye_preparer.Browndye_molecule_input()
-        receptor_molecule.name = "beta-cyclodextrin"
-        receptor_molecule.pqr_filename = os.path.join(
-            HOSTGUEST_DIRECTORY, "hostguest_receptor.pqr")
-        receptor_molecule.selections = [receptor_selection_bd]
-        ligand_molecule = browndye_preparer.Browndye_molecule_input()
-        ligand_molecule.name = "1-butanol"
-        ligand_molecule.pqr_filename = os.path.join(
-            HOSTGUEST_DIRECTORY, "hostguest_ligand.pqr")
-        ligand_molecule.selections = [ligand_selection_bd]
-        seekr_input.bd_settings.molecules = [receptor_molecule, ligand_molecule]
+        if use_sda:
+            seekr_input.bd_settings = sda_preparer.SDA_settings_input()
+            seekr_input.bd_settings.binary_directory = "~/Downloads/sda_flex-7.4.0/bin"
+            seekr_input.bd_settings.aux_directory = "~/Downloads/sda_flex-7.4.0/auxi"
+            seekr_input.bd_settings.hydropro_directory = "~/Downloads/hydropro10"
+            seekr_input.bd_settings.apbs_grid_spacing = 2.0
+            seekr_input.bd_settings.ions = [ion1, ion2]
+            receptor_molecule = sda_preparer.SDA_molecule_input()
+            receptor_molecule.name = "beta-cyclodextrin"
+            receptor_molecule.type = "non_protein"
+            receptor_molecule.pqr_filename = os.path.join(
+                HOSTGUEST_DIRECTORY, "hostguest_receptor.pqr")
+            receptor_molecule.selections = [receptor_selection_bd]
+            ligand_molecule = sda_preparer.SDA_molecule_input()
+            ligand_molecule.name = "1-butanol"
+            ligand_molecule.type = "non_protein"
+            ligand_molecule.pqr_filename = os.path.join(
+                HOSTGUEST_DIRECTORY, "hostguest_ligand.pqr")
+            ligand_molecule.selections = [ligand_selection_bd]
+            seekr_input.bd_settings.molecules = [receptor_molecule, ligand_molecule]
+        else:
+            seekr_input.bd_settings = browndye_preparer.Browndye_settings_input()
+            seekr_input.bd_settings.apbs_grid_spacing = 2.0
+            seekr_input.bd_settings.ions = [ion1, ion2]
+            receptor_molecule = browndye_preparer.Browndye_molecule_input()
+            receptor_molecule.name = "beta-cyclodextrin"
+            receptor_molecule.pqr_filename = os.path.join(
+                HOSTGUEST_DIRECTORY, "hostguest_receptor.pqr")
+            receptor_molecule.selections = [receptor_selection_bd]
+            ligand_molecule = browndye_preparer.Browndye_molecule_input()
+            ligand_molecule.name = "1-butanol"
+            ligand_molecule.pqr_filename = os.path.join(
+                HOSTGUEST_DIRECTORY, "hostguest_ligand.pqr")
+            ligand_molecule.selections = [ligand_selection_bd]
+            seekr_input.bd_settings.molecules = [receptor_molecule, ligand_molecule]
     else:
         seekr_input.bd_settings = None
 
@@ -284,17 +310,18 @@ def create_host_guest_example_input(
     stage1.reporters = [stage1_state_reporter, stage1_dcd_reporter]
     
     stage2 = preparer.Input_stage_md()
-    """
-    stage2.name = "metadynamics"
-    stage2.sampling_method = sampling_preparer.Metadynamics_md_input()
-    stage2.sampling_method.gaussian_height = 1.0
-    """
-    stage2.name = "steered"
-    stage2.sampling_method = sampling_preparer.Steered_md_input()
-    stage2.sampling_method.velocity = 10.0
-    stage2.sampling_method.force_constant = 100000.0
-    stage2.sampling_method.cv_names = ["distance_host_guest"]
-    
+    if use_smd:
+        stage2.name = "steered"
+        stage2.sampling_method = sampling_preparer.Steered_md_input()
+        stage2.sampling_method.velocity = 10.0
+        stage2.sampling_method.force_constant = 100000.0
+        stage2.sampling_method.cv_names = ["distance_host_guest"]
+    else:
+        stage2.name = "metadynamics"
+        stage2.sampling_method = sampling_preparer.Metadynamics_md_input()
+        stage2.sampling_method.gaussian_height = 1.0
+        stage2.sampling_method.cv_names = ["distance_host_guest"]
+
     stage2.run_minimization = False
     stage2.checkpoint_interval = 1000
     stage2.ensemble = structures.NVT_ensemble()
@@ -399,7 +426,9 @@ if __name__ == "__main__":
     args = vars(argspace)
     json_filename = args["input_file"]
     toy_mode = args["toy_mode"]
-    use_rmsd_cv = True # TODO: replace with argument?
+    use_rmsd_cv = False # TODO: replace with argument?
+    use_sda = False # TODO: replace with argument?
+    use_smd = True # TODO: replace with argument?
 
     if use_rmsd_cv:
         bd = False
@@ -408,11 +437,12 @@ if __name__ == "__main__":
 
     if toy_mode:
         root_dir = "~/tmp/seekr3_test_toy"
-        seekr_input = create_toy_model_input(root_dir)
+        seekr_input = create_toy_model_input(root_dir, use_smd)
     else:
         root_dir = "~/tmp/seekr3_test"
         seekr_input = create_host_guest_example_input(root_dir, bd=bd, 
-                                                      use_rmsd_cv=use_rmsd_cv)
+                                                      use_rmsd_cv=use_rmsd_cv,
+                                                      use_sda=use_sda, use_smd=use_smd)
     
     seekr_input_dict = unstructure(seekr_input)
     seekr_input_dict = base.wrap_noindent_integers(seekr_input_dict)

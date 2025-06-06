@@ -14,7 +14,9 @@ from attrs.validators import instance_of, optional, gt, ge
 
 import seekr.modules.base as base
 import seekr.modules.engines.browndye.base as browndye_base
+import seekr.modules.engines.structures as engines_structures
 
+""" # TODO: marked for removal
 @define
 class Ion:
     name: str | None = field(default=None,
@@ -28,6 +30,7 @@ class Ion:
     concentration: float = field(default=0.0,
                                     validator=[validators.instance_of(float),
                                                 validators.ge(0)])
+"""
 
 @define
 class Browndye_molecule:
@@ -87,9 +90,10 @@ class Browndye_bd_engine:
                                     validator=[instance_of(float),
                                                gt(0)])
     
-    ions: list[Ion] = field(default=Factory(list),
+    ions: list[engines_structures.Ion] = field(default=Factory(list),
                             validator=validators.deep_iterable(
-                                member_validator=instance_of(Ion),
+                                member_validator=instance_of(
+                                    engines_structures.Ion),
                                 iterable_validator=instance_of(list),
                             ))
     debye_length: float = field(default=9e9,
@@ -120,6 +124,18 @@ class Browndye_bd_engine:
         if len(output_file_list) > 0:
             transition_counts = browndye_base.compute_transition_counts(output_file_list)
             bd_transition_counts["b_surface"] = transition_counts
+        return bd_transition_counts
+    
+    def modify_bd_transition_counts(
+            self, 
+            bd_transition_counts: dict, 
+            lower_milestone_index: int,
+            upper_milestone_index: int,
+            ) -> None:
+        """
+        Dont' need to modify anything for Browndye.
+        """
+        
         return bd_transition_counts
     
     def get_random_seed(

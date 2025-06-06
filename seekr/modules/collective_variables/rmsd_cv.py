@@ -18,12 +18,13 @@ import numpy as np
 import mdtraj
 
 import seekr.modules.base as base
+import seekr.modules.collective_variables.base as cv_base
 
 if typing.TYPE_CHECKING:
     import seekr.modules.structures as structures
 
 @define
-class RMSD_CV:
+class RMSD_CV(cv_base.Base_CV):
     """
     A RMSD collective variable represents the RMSD of a group of
     atoms compared to a reference structure.
@@ -103,7 +104,7 @@ class RMSD_CV:
         return [self.group_rmsd_name, self.group_align_name]
 
 @define
-class RMSD_cv_input:
+class RMSD_cv_input(cv_base.Base_CV_input):
     """
     RMSD CV input resulting in concentric spherical anchors
     and milestones.

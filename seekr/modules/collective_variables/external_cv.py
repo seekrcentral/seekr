@@ -14,12 +14,13 @@ import numpy as np
 import mdtraj
 
 import seekr.modules.engines.openmm.base as engines_openmm_base
+import seekr.modules.collective_variables.base as cv_base
 
 if typing.TYPE_CHECKING:
     import seekr.modules.structures as structures
 
 @define
-class External_CV:
+class External_CV(cv_base.Base_CV):
     """
     An external collective variable is a general arbitrary function of
     atomic positions. This CV is generally intended for toy systems.
@@ -118,7 +119,7 @@ class External_CV:
         return self.group_names
 
 @define
-class External_cv_input:
+class External_cv_input(cv_base.Base_CV_input):
     """
     External CV input resulting in a general function of atomic
     positions.

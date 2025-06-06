@@ -10,10 +10,24 @@ from attrs import define, field, validators, Factory
 import seekr.modules.engines.structures as engines_structures
 import seekr.modules.restraints.structures as restraints_structures
 import seekr.modules.engines.preparer as engines_preparer
-import seekr.modules.structures as structures
+
+class Base_restraint_input(typing.Protocol):
+    """
+    Base class for restraint inputs.
+    """
+    type: typing.Literal["base"] = "base"
+
+    def make_restraint(
+            self, 
+            systemwide_settings: engines_preparer.MD_systemwide_settings_input
+            ) -> restraints_structures.Base_restraint:
+        """
+        Make the restraint object for the model.
+        """
+        raise NotImplementedError("Subclasses must implement this method.")
 
 @define
-class Positional_restraint_input:
+class Positional_restraint_input(Base_restraint_input):
     """
     Input for positional restraints.
     """
@@ -27,7 +41,6 @@ class Positional_restraint_input:
     def make_restraint(
             self, 
             systemwide_settings: engines_preparer.MD_systemwide_settings_input
-            #    | engines_preparer.BD_settings_input
             ) -> restraints_structures.Positional_restraint:
         """
         Make the restraint object for the model.
@@ -40,7 +53,7 @@ class Positional_restraint_input:
         return restraint
 
 @define
-class Pairwise_restraint_input:
+class Pairwise_restraint_input(Base_restraint_input):
     """
     Input for pairwise restraints.
     """
@@ -54,7 +67,6 @@ class Pairwise_restraint_input:
     def make_restraint(
             self, 
             systemwide_settings: engines_preparer.MD_systemwide_settings_input
-            #    | engines_preparer.BD_settings_input
             ) -> restraints_structures.Pairwise_restraint:
         """
         Make the restraint object for the model.
@@ -74,7 +86,7 @@ class Pairwise_restraint_input:
         return restraint
     
 @define
-class Proximity_restraint_input:
+class Proximity_restraint_input(Base_restraint_input):
     """
     Input for proximity restraints.
     """
@@ -93,7 +105,6 @@ class Proximity_restraint_input:
     def make_restraint(
             self, 
             systemwide_settings: engines_preparer.MD_systemwide_settings_input
-            #    | engines_preparer.BD_settings_input
             ) -> restraints_structures.Proximity_restraint:
         """
         Make the restraint object for the model.
@@ -109,8 +120,3 @@ class Proximity_restraint_input:
         restraint.force_constant = self.force_constant
         return restraint
     
-Restraint_input = typing.Union[
-    Positional_restraint_input,
-    Pairwise_restraint_input,
-    Proximity_restraint_input
-]

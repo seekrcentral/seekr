@@ -10,9 +10,11 @@ import json
 import cattrs
 
 import seekr.modules.engines.base as engines_base
+import seekr.modules.engines.sda.base as sda_base
 import seekr.modules.structures as structures
 import seekr.modules.engines.structures as engines_structures
 import seekr.modules.engines.browndye.runner as runner_browndye
+import seekr.modules.engines.sda.runner as runner_sda
 
 # NOTE: want this module to only be imported selectively
 
@@ -77,9 +79,8 @@ def run_bd_simulation(
             model, n_trajectories, restart, force_overwrite)
         found_engine = True
     elif model.bd_engine.type == "sda":
-        #TODO: fill out
-        #engines_sda.run_simulation(
-        #    model, stage_index, restart, force_overwrite)
+        runner_sda.run_simulation(
+            model, n_trajectories, restart, force_overwrite)
         found_engine = True
     else:
         # TODO: search plugins for other MD engines
@@ -98,12 +99,13 @@ def cleanse_outputs_bd(
     found_engine = False
     if model.bd_engine.type == "browndye":
         directory = os.path.join(model.directory, bulk_anchor.directory)
-        runner_browndye.cleanse_bd_outputs(directory, model.bd_engine.results_glob)
+        runner_browndye.cleanse_bd_outputs(directory, model.bd_engine.results_glob, 
+                                           check_mode=False)
         found_engine = True
     elif model.bd_engine.type == "sda":
-        #TODO: fill out
-        #engines_sda.run_simulation(
-        #    model, stage_index, restart, force_overwrite)
+        directory = os.path.join(model.directory, bulk_anchor.directory)
+        runner_sda.cleanse_bd_outputs(directory, sda_base.SDA_RESULTS_GLOB, 
+                                      check_mode=False)
         found_engine = True
     else:
         # TODO: search plugins for other MD engines

@@ -10,8 +10,8 @@ import re
 import glob
 import logging
 import typing
-from attrs import define, field, validators, Factory
 
+from attrs import define, field, validators, Factory
 import numpy as np
 import parmed
 
@@ -110,10 +110,10 @@ class Browndye_settings_input:
                                     validator=[validators.instance_of(float),
                                                validators.gt(0)])
     
-    ions: list[browndye_structures.Ion] = field(default=Factory(list),
+    ions: list[engines_structures.Ion] = field(default=Factory(list),
                             validator=validators.deep_iterable(
                                 member_validator=validators.instance_of(
-                                    browndye_structures.Ion),
+                                    engines_structures.Ion),
                                 iterable_validator=validators.instance_of(list),
                             ))
     molecules: list[Browndye_molecule_input] = field(default=Factory(list),
@@ -432,30 +432,60 @@ def make_browndye_reaction_xml(
         rxn_inner.pair_list.append(pair2)
         rxnroot.reaction_list.append(rxn_inner)
         
-        """ # TODO: return to this later - cross-site reactions.
-        for j, bd_milestone3 in enumerate(model.k_on_info.bd_milestones):
-            if bd_milestone2.index == bd_milestone3.index:
+        for other_neighbor_anchor_index in bulk_anchor.neighbor_anchor_indices:
+            if other_neighbor_anchor_index == neighbor_anchor_index:
                 continue
-            rxn_other = sim_browndye2.Reaction()
-            pair3 = sim_browndye2.Pair()
-            from_state = str(bd_milestone2.outer_milestone.index)
-            to_state = str(bd_milestone3.outer_milestone.index)
-            rxn_other.name = "{}_{}".format(from_state, to_state)
-            rxn_other.state_after = str(bd_milestone3.outer_milestone.index)
-            pair3.distance = bd_milestone3.outer_milestone.variables['radius'] * 10.0
-            rxn_other.state_before = str(bd_milestone2.outer_milestone.index)
-            rxn_other.molecule0_group = sim_browndye2.BROWNDYE_RECEPTOR
-            rxn_other.molecule0_core = sim_browndye2.BROWNDYE_RECEPTOR
-            rxn_other.molecule1_group = sim_browndye2.BROWNDYE_LIGAND
-            rxn_other.molecule1_core = sim_browndye2.BROWNDYE_LIGAND
-            rxn_other.n_needed = 1
-            other_ghost_index_rec = ghost_indices_rec[j] # comes from the model?
-            other_ghost_index_lig = ghost_indices_lig[j]
-            pair3.atom1_index = other_ghost_index_rec
-            pair3.atom2_index = other_ghost_index_lig
-            rxn_other.pair_list.append(pair3)
-            rxnroot.reaction_list.append(rxn_other)
-        """
+            other_neighbor_anchor = model.anchors[other_neighbor_anchor_index]
+            other_spherical_milestones_in_this_anchor = []
+            other_anchors_bd_cv_index = None
+            for other_milestone in other_neighbor_anchor.milestones:
+                found_variable_in_this_other_milestone = False
+                for other_variable in other_milestone.variables:
+                    if other_variable.startswith("me"):
+                        other_cv_index = other_milestone.get_cv_index_from_variable(other_variable)
+                        if cvs[other_cv_index].type == "distance":
+                            other_spherical_milestones_in_this_anchor.append(
+                                milestone)
+                            if other_anchors_bd_cv_index is None:
+                                other_anchors_bd_cv_index = other_cv_index
+                            else:
+                                assert other_anchors_bd_cv_index == other_cv_index, \
+                                    "BD anchor is attempting to use multiple cvs to "\
+                                    "define reaction criteria - not implemented."
+                            if not found_variable_in_this_other_milestone:
+                                found_variable_in_this_other_milestone = True
+                            else:
+                                raise AssertionError("Milestone has multiple distance CVs"\
+                                                    " - not implemented")
+                            
+            # Sort by the average between the positions of the neighboring anchors
+            other_spherical_milestones_in_this_anchor.sort(
+                key=lambda x: x.variables["avg_value"], reverse=True)
+
+            """ # TODO: return to this later - cross-site reactions.
+            for j, bd_milestone3 in enumerate(model.k_on_info.bd_milestones):
+                if bd_milestone2.index == bd_milestone3.index:
+                    continue
+                rxn_other = sim_browndye2.Reaction()
+                pair3 = sim_browndye2.Pair()
+                from_state = str(bd_milestone2.outer_milestone.index)
+                to_state = str(bd_milestone3.outer_milestone.index)
+                rxn_other.name = "{}_{}".format(from_state, to_state)
+                rxn_other.state_after = str(bd_milestone3.outer_milestone.index)
+                pair3.distance = bd_milestone3.outer_milestone.variables['radius'] * 10.0
+                rxn_other.state_before = str(bd_milestone2.outer_milestone.index)
+                rxn_other.molecule0_group = sim_browndye2.BROWNDYE_RECEPTOR
+                rxn_other.molecule0_core = sim_browndye2.BROWNDYE_RECEPTOR
+                rxn_other.molecule1_group = sim_browndye2.BROWNDYE_LIGAND
+                rxn_other.molecule1_core = sim_browndye2.BROWNDYE_LIGAND
+                rxn_other.n_needed = 1
+                other_ghost_index_rec = ghost_indices_rec[j] # comes from the model?
+                other_ghost_index_lig = ghost_indices_lig[j]
+                pair3.atom1_index = other_ghost_index_rec
+                pair3.atom2_index = other_ghost_index_lig
+                rxn_other.pair_list.append(pair3)
+                rxnroot.reaction_list.append(rxn_other)
+            """
         
     rxnroot.write(abs_reaction_path)
     return

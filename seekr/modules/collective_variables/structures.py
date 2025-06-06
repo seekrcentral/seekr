@@ -4,7 +4,8 @@ modules/collective_variables/structures.py
 Structures for collective variables within seekr - anything that might
 be found within the model.json file.
 
-This module mainly defines types common to collective variables.
+This module mainly defines types common to collective variables, as
+well as some useful functions.
 """
 
 import typing
@@ -19,9 +20,15 @@ import seekr.modules.collective_variables.rmsd_cv as rmsd_cv
 if typing.TYPE_CHECKING:
     import seekr.modules.structures as structures
 
-Collective_variable = typing.Union[distance_cv.Distance_CV,
-                                   external_cv.External_CV,
-                                   rmsd_cv.RMSD_CV]
+#Collective_variable = typing.Union[distance_cv.Distance_CV,
+#                                   external_cv.External_CV,
+#                                   rmsd_cv.RMSD_CV]
+
+cvs = {
+    "distance": distance_cv.Distance_CV,
+    "external": external_cv.External_CV,
+    "rmsd": rmsd_cv.RMSD_CV
+}
 
 def get_mdtraj_cv_value(
           model: "structures.Seekr_model",
@@ -81,7 +88,6 @@ def check_mdtraj_within_boundary(
     within the expected anchor. Return True if passed, return
     False if failed.
     """
-    #for frame_index in range(traj.n_frames):
     values = get_mdtraj_cv_value(model, traj, frame_index)
     result = check_value_within_boundary(
         values, milestone_variables, tolerance=tolerance)

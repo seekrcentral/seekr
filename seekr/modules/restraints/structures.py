@@ -7,8 +7,14 @@ Structures for any restraints that are applied to the system.
 import typing
 from attrs import define, field, validators, Factory
 
+class Base_restraint(typing.Protocol):
+    """
+    Base class for all restraints.
+    """
+    pass
+
 @define
-class Positional_restraint:
+class Positional_restraint(Base_restraint):
     """
     Restraint that keeps a subset of atoms close to their starting
     Cartesian coordinates.
@@ -25,13 +31,12 @@ class Positional_restraint:
                                             validators.ge(0)])
     
 @define
-class Pairwise_restraint:
+class Pairwise_restraint(Base_restraint):
     """
     Restraint that keeps pairs of atoms close to their starting
     distances from each other.
     """
     type: typing.Literal["pairwise"] = "pairwise"
-    #atom_index_pairs: list[list[int,int]] = field(default=Factory(list),)
     atom_indices: list[int] = field(default=Factory(list),
                                     validator=validators.deep_iterable(
                                         member_validator=[validators.instance_of(int),
@@ -43,7 +48,7 @@ class Pairwise_restraint:
                                             validators.ge(0)])
 
 @define
-class Proximity_restraint:
+class Proximity_restraint(Base_restraint):
     """
     Restraint that keeps two subsets of atoms within a certain 
     distance of each other.
@@ -71,4 +76,4 @@ class Proximity_restraint:
 
 # TODO: cylinder restraint force?
 
-Restraint = typing.Union[Positional_restraint, Pairwise_restraint, Proximity_restraint]
+#Restraint = typing.Union[Positional_restraint, Pairwise_restraint, Proximity_restraint]

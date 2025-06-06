@@ -1,7 +1,7 @@
 """
-collective_variables/input.py
+modules/collective_variables/preparer.py
 
-Collective variable, state, and anchor objects for the prepare
+Collective variable objects for the prepare
 stage of SEEKR.
 """
 
@@ -14,6 +14,13 @@ import seekr.modules.collective_variables.rmsd_cv as rmsd_cv
 CV_input = typing.Union[distance_cv.Distance_cv_input,
                         external_cv.External_cv_input,
                         rmsd_cv.RMSD_cv_input]
-Collective_variable = typing.Union[distance_cv.Distance_CV,
-                                   external_cv.External_CV,
-                                   rmsd_cv.RMSD_CV]
+
+cv_inputs = {
+    "distance": distance_cv.Distance_cv_input,
+    "external": external_cv.External_cv_input,
+    "rmsd": rmsd_cv.RMSD_cv_input
+}
+# TODO: remove
+#Collective_variable = typing.Union[distance_cv.Distance_CV,
+#                                   external_cv.External_CV,
+#                                   rmsd_cv.RMSD_CV]

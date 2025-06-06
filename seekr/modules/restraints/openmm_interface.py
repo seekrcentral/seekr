@@ -5,6 +5,7 @@ Restraints that interface with OpenMM.
 """
 
 import typing
+import importlib
 
 from attrs import define, field
 
@@ -12,6 +13,7 @@ import openmm
 import openmm.unit as unit
 import openmm.app as openmm_app
 
+import seekr.modules.base as base
 import seekr.modules.structures as structures
 import seekr.modules.restraints.structures as restraints_structures
 
@@ -23,7 +25,7 @@ class Base_restraint_openmm_interface:
     """
     A base class for a restraint using the OpenMM engine.
     """
-    _restraint: restraints_structures.Restraint
+    _restraint: restraints_structures.Base_restraint
     def add_forces_to_system(
             self, 
             **kwargs: typing.Any
@@ -34,7 +36,7 @@ class Base_restraint_openmm_interface:
         return
 
 @define
-class Positional_restraint_openmm_interface:
+class Positional_restraint_openmm_interface(Base_restraint_openmm_interface):
     """
     A Positional restraint using the OpenMM engine. This keeps
     the set of atoms or groups close to their starting positions.
@@ -71,7 +73,7 @@ class Positional_restraint_openmm_interface:
         return None
 
 @define
-class Pairwise_restraint_openmm_interface:
+class Pairwise_restraint_openmm_interface(Base_restraint_openmm_interface):
     """
     A Pairwise restraint using the OpenMM engine. Keep pairs of
     atoms or groups at an approximately constant distance - to
@@ -116,7 +118,7 @@ class Pairwise_restraint_openmm_interface:
         return None
 
 @define
-class Proximity_restraint_openmm_interface:
+class Proximity_restraint_openmm_interface(Base_restraint_openmm_interface):
     """
     A Proximity restraint using the OpenMM engine. Keep two groups of
     atoms within a certain distance - to prevent the ligand from escaping too
@@ -147,16 +149,17 @@ class Proximity_restraint_openmm_interface:
         system.addForce(proximityForce)
         return None
 
-Restraint_openmm_interface = typing.Union[
-    Positional_restraint_openmm_interface,
-    Pairwise_restraint_openmm_interface,
-    Proximity_restraint_openmm_interface
-]
+#Restraint_openmm_interface = typing.Union[
+#    Positional_restraint_openmm_interface,
+#    Pairwise_restraint_openmm_interface,
+#    Proximity_restraint_openmm_interface
+#]
 
 def assign_restraints_interface(
-        restraint: restraints_structures.Restraint, 
-        md_engine: structures.MD_engine
-        ) -> Restraint_openmm_interface:
+        restraint: restraints_structures.Base_restraint, 
+        md_engine: structures.MD_engine,
+        plugin_list: list[str],
+        ) -> Base_restraint_openmm_interface:
     """
     Given a sampling_method and an md_engine, confirm that the OpenMM
     MD engine is being used, and return the corresponding interface
@@ -170,4 +173,15 @@ def assign_restraints_interface(
     elif restraint.type == "proximity":
         return Proximity_restraint_openmm_interface(restraint)
     else:
-        return None
+        # Run through plugins
+        for plugin_name in plugin_list:
+            restraints_module_str = base.get_plugin_str(plugin_name, submodule_name="restraints")
+            if restraints_module_str is not None:
+                plugin_module_restraint_interface = importlib.import_module(
+                    restraints_module_str+".openmm_interface")
+                found, restraint_interface = plugin_module_restraint_interface\
+                        .assign_restraints_interface(restraint)
+                if found:
+                    return restraint_interface
+
+    raise Exception("Restraint not found: " + restraint.type)

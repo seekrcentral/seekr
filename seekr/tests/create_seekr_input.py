@@ -9,7 +9,6 @@ import os
 import seekr.modules.base as base
 import seekr.modules.engines.structures as engines_structures
 import seekr.modules.structures as structures
-import seekr.modules.engines.browndye.structures as browndye_structures
 import seekr.modules.completion_criteria.structures as compl_crit_struct
 import seekr.modules.engines.openmm.preparer as openmm_preparer
 import seekr.modules.engines.browndye.preparer as browdye_preparer
@@ -148,7 +147,7 @@ def create_host_guest_example_input(
     if bd:
         seekr_input.bd_settings = browdye_preparer.Browndye_settings_input()
         seekr_input.bd_settings.apbs_grid_spacing = 2.0
-        ion1 = browndye_structures.Ion()
+        ion1 = engines_structures.Ion()
         ion1.name = "Cl-"
         ion1.radius = 1.2
         ion1.charge = -1.0

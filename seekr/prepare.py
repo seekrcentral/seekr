@@ -66,6 +66,7 @@ def prepare(
         assert model.bd_engine is not None
         seekr_input.bd_settings.copy_bd_files(model, directory)
         # NOTE: this is the best place for this function
+        base.configure_file_and_stdout_logger(synopsis_filename, False)
         preparer.generate_bd_files(model, directory)
         
     model.save(file_path)

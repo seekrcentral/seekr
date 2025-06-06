@@ -12,8 +12,14 @@ import seekr.modules.sampling_methods.structures as sampling_method_structures
 #  methods added to this directory, but for now, they must be
 #  defined here
 
+class Base_md_sampling_method_input(typing.Protocol):
+    """
+    Base class for all MD sampling method inputs.
+    """
+    pass
+
 @define
-class Conventional_md_input:
+class Conventional_md_input(Base_md_sampling_method_input):
     """
     A conventional MD sampling method input.
     """
@@ -26,7 +32,7 @@ class Conventional_md_input:
         return sampling_method_structures.Conventional_md_sampling_method()
 
 @define
-class Metadynamics_md_input:
+class Metadynamics_md_input(Base_md_sampling_method_input):
     """
     A metadynamics MD sampling method input.
     """
@@ -54,16 +60,24 @@ class Metadynamics_md_input:
         Make the model sampling method object for this input.
         """
         metaD = sampling_method_structures.Metadynamics_md_sampling_method()
-        metaD.number_of_points = self.number_of_points
+        num_elements = len(self.cv_names)
+        assert num_elements > 0, "At least one CV name must be provided."
+        if isinstance(self.number_of_points, int):
+            metaD.number_of_points = [self.number_of_points for i in range(num_elements)]
+        else:
+            metaD.number_of_points = self.number_of_points
         metaD.bias_factor = self.bias_factor
         metaD.gaussian_height = self.gaussian_height
-        metaD.gaussian_width = self.gaussian_width
+        if isinstance(self.number_of_points, int):
+            metaD.gaussian_width = [self.gaussian_width for i in range(num_elements)]
+        else:
+            metaD.gaussian_width = self.gaussian_width
         metaD.steps_per_update = self.steps_per_update
         metaD.cv_names = self.cv_names
         return metaD
 
 @define
-class Steered_md_input:
+class Steered_md_input(Base_md_sampling_method_input):
     """
     A steered MD sampling method input.
     """
@@ -88,7 +102,7 @@ class Steered_md_input:
         return smd
 
 @define
-class MMVT_md_input:
+class MMVT_md_input(Base_md_sampling_method_input):
     """
     A Markovian Milestoning with Voronoi Tesselation (MMVT) MD sampling method input.
     """
@@ -101,8 +115,14 @@ class MMVT_md_input:
         milestoning = sampling_method_structures.MMVT_md_sampling_method()
         return milestoning
 
+class Base_bd_sampling_method_input(typing.Protocol):
+    """
+    Base class for all BD sampling method inputs.
+    """
+    pass
+
 @define
-class NAM_bd_input:
+class NAM_bd_input(Base_bd_sampling_method_input):
     """
     A Northrup-Allison-McCammon (NAM) BD sampling method input.
     """
@@ -115,7 +135,7 @@ class NAM_bd_input:
         return sampling_method_structures.NAM_bd_sampling_method()
 
 @define
-class WE_bd_input:
+class WE_bd_input(Base_bd_sampling_method_input):
     """
     A weighted-ensemble (WE) BD sampling method input.
     """
@@ -127,10 +147,10 @@ class WE_bd_input:
         """
         return sampling_method_structures.WE_bd_sampling_method()
 
-MD_sampling_method_input = typing.Union[Conventional_md_input,
-                                    Metadynamics_md_input,
-                                    Steered_md_input,
-                                    MMVT_md_input]
+#MD_sampling_method_input = typing.Union[Conventional_md_input,
+#                                    Metadynamics_md_input,
+#                                    Steered_md_input,
+#                                    MMVT_md_input]
 
-BD_sampling_method_input = typing.Union[NAM_bd_input,
-                                        WE_bd_input]
+#BD_sampling_method_input = typing.Union[NAM_bd_input,
+#                                        WE_bd_input]

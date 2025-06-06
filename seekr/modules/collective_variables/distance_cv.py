@@ -2,7 +2,7 @@
 modules/collective_variables/distance_cv.py
 
 Model and input classes for the distance collective variable.
-This CV measures the distance between the center of mass of two 
+This CV measures the distance between the centers of mass of two 
 groups of atoms.
 """
 
@@ -13,19 +13,19 @@ import numpy as np
 import mdtraj
 
 import seekr.modules.base as base
+import seekr.modules.collective_variables.base as cv_base
 
 if typing.TYPE_CHECKING:
     import seekr.modules.structures as structures
 
 @define
-class Distance_CV:
+class Distance_CV(cv_base.Base_CV):
     """
-    A distance collective variable represents the distance between two
-    different groups of atoms.
+    A distance collective variable represents the distance between the
+    centers of mass of two different groups of atoms.
 
     Collective variables represent the function of system positions
-    and velocities along with the anchor cells and boundaries can be
-    defined.
+    and velocities such that the cells and boundaries can be defined.
     """
     index: int = field(validator=[validators.instance_of(int),
                                   validators.ge(0)])
@@ -87,10 +87,11 @@ class Distance_CV:
         return [self.group1_name, self.group2_name]
 
 @define
-class Distance_cv_input:
+class Distance_cv_input(cv_base.Base_CV_input):
     """
     Distance CV input resulting in concentric spherical anchors
-    and milestones.
+    and milestones. This CV input is used as an object for the 
+    input JSON or API within the prepare stage of a seekr calculation.
     """
     name: str = field(default="",
                         validator=validators.instance_of(str))

@@ -428,7 +428,7 @@ class Sim_openmm:
             friction = integrator_settings.friction
             integrator.addGlobalVariable("a", np.exp(-friction*timestep))
             integrator.addGlobalVariable("b", np.sqrt(1-np.exp(-2*friction*timestep)))
-            integrator.addGlobalVariable("kT", kB*temperature)
+            integrator.addGlobalVariable("thermal_energy", kB*temperature)
             sampling_engine_interface.add_global_variables_integrator(
                 integrator=integrator, anchor=anchor)
             integrator.addPerDofVariable("x1", 0)
@@ -444,7 +444,7 @@ class Sim_openmm:
             integrator.addConstrainVelocities()
             integrator.addComputePerDof("old_v", "v")
             integrator.addComputePerDof("x", "x + 0.5*dt*v")
-            integrator.addComputePerDof("v", "a*v + b*sqrt(kT/m)*gaussian")
+            integrator.addComputePerDof("v", "a*v + b*sqrt(thermal_energy/m)*gaussian")
             integrator.addComputePerDof("x", "x + 0.5*dt*v")
             integrator.addComputePerDof("x1", "x")
             integrator.addConstrainPositions()

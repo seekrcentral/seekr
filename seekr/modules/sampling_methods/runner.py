@@ -1,8 +1,8 @@
 """
 modules/sampling_methods/runner.py
 
-Structures for sampling methods within seekr - anything that might
-appear within the model.json file.
+Functions that may be called by a sampling method during the
+run stage.
 """
 
 import numpy as np

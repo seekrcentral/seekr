@@ -11,8 +11,23 @@ from attrs import define, field, validators
 import seekr.modules.reporters.structures as reporters_structures
 import seekr.modules.engines.preparer as engines_preparer
 
+class Base_reporter_input(typing.Protocol):
+    """
+    Base class for reporter inputs.
+    """
+    type: typing.Literal["base"] = "base"
+
+    def make_reporter(
+            self,
+            systemwide_settings: engines_preparer.MD_systemwide_settings_input
+        ) -> reporters_structures.Base_reporter:
+        """
+        Make the reporter object for the model file.
+        """
+        raise NotImplementedError("Subclasses must implement this method.")
+
 @define
-class DCD_reporter_input:
+class DCD_reporter_input(Base_reporter_input):
     """
     Input for DCD reporter.
     """
@@ -48,7 +63,7 @@ class DCD_reporter_input:
         return reporter
 
 @define
-class PDB_reporter_input:
+class PDB_reporter_input(Base_reporter_input):
     """
     Input for PDB reporter.
     """
@@ -80,7 +95,7 @@ class PDB_reporter_input:
         return reporter
     
 @define
-class State_reporter_input:
+class State_reporter_input(Base_reporter_input):
     """
     Input for state reporter
     """
@@ -103,8 +118,3 @@ class State_reporter_input:
         reporter.interval = self.interval
         return reporter
     
-Reporter_input = typing.Union[
-    DCD_reporter_input,
-    PDB_reporter_input,
-    State_reporter_input
-]

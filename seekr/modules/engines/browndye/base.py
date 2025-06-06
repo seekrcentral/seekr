@@ -1,5 +1,5 @@
 """
-modules.engines.browndye.base.py
+modules/engines/browndye/base.py
 
 Base functions, types, and constants for the Browndye engine.
 
