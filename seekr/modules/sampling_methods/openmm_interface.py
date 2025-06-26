@@ -314,6 +314,11 @@ class Base_md_openmm_interface:
         """
         Run the simulation.
         """
+        # TODO: handle minimizations if step == 0, and print the following warning for
+        # certain sampling methods: 
+        #  Warning: running minimizations. It is recommended that structures are minimized and 
+        #  verified by the user before running SEEKR, since minimizations might cause the system 
+        #  to drift out of the MMVT cell.
         # TODO: need to save checkpoint reproducibility files.
         self._steps_between_evals = steps_between_evals
         if steps_between_evals == 0:

@@ -23,8 +23,8 @@ requires-python = ">=3.10"
 dependencies = [
     "attrs",
     "cattrs",
-    "dicttoxml",
-    "xmltodict",
+    #"dicttoxml",
+    #"xmltodict",
     "numpy",
     "scipy",
     "matplotlib",
