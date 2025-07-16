@@ -1,7 +1,7 @@
 """
-test_data_structures.py
+modules/test_structures.py
 
-Test the modules/data_structures.py module.
+Test the modules/structures.py module.
 """
 
 import seekr.modules.structures as structures
