@@ -105,16 +105,16 @@ def create_toy_model_input(
     stage3 = preparer.Input_stage_md()
     stage3.name = "MMVT"
     stage3.run_minimization = False
-    stage3.checkpoint_interval = 50
+    stage3.checkpoint_interval = 5000
     stage3.ensemble = structures.NVT_ensemble()
     stage3.sampling_method = sampling_preparer.MMVT_md_input()
     stage3.completion_criteria = compl_crit_struct.Number_of_steps_completion_criteria()
-    stage3.completion_criteria.number_of_steps = 5000
+    stage3.completion_criteria.number_of_steps = 200000
     stage3_state_reporter = reporters_preparer.State_reporter_input()
     stage3_state_reporter.to_stdout = True
-    stage3_state_reporter.interval = 25
+    stage3_state_reporter.interval = 5000
     stage3_dcd_reporter = reporters_preparer.DCD_reporter_input()
-    stage3_dcd_reporter.interval = 25
+    stage3_dcd_reporter.interval = 5000
     stage3_dcd_reporter.enforce_periodic_box = False
     stage3.reporters = [stage3_state_reporter, stage3_dcd_reporter]
 
@@ -427,8 +427,8 @@ if __name__ == "__main__":
     json_filename = args["input_file"]
     toy_mode = args["toy_mode"]
     use_rmsd_cv = False # TODO: replace with argument?
-    use_sda = False # TODO: replace with argument?
-    use_smd = True # TODO: replace with argument?
+    use_sda = True # TODO: replace with argument?
+    use_smd = False # TODO: replace with argument?
 
     if use_rmsd_cv:
         bd = False

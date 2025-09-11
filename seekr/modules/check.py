@@ -163,6 +163,36 @@ def load_structure_with_mdtraj(
                 #      "anchor: {}.".format(anchor.index))
                 return None
             traj = mdtraj.load(traj_filenames, top=input_positions_filename)
+            raise Exception("TODO: must handle problem where MDtraj won't load correct masses for system XML. Ref code below.")
+            """
+            full_system_filename = os.path.join(
+                building_directory, anchor.forcefield_params.system_filename)
+            with open(full_system_filename) as input:
+                system = openmm.XmlSerializer.deserialize(input.read())
+            for i, atom in enumerate(traj.top.atoms):
+                sys_particle_mass = system.getParticleMass(i).value_in_unit(unit.daltons)
+                md_element_mass = atom.element.mass
+                if not np.isclose(sys_particle_mass, 
+                                  md_element_mass, atol=ELEMENT_MASS_TOLERANCE):
+                    print("Mass mismatch for atom index {}: ".format(i)\
+                            +"mdtraj mass is {}, ".format(md_element_mass)\
+                            +"system mass is {}".format(sys_particle_mass))
+                    # Choose the closest element by mass
+                    md_closest_element = mdtraj.element.Element.getByMass(
+                        sys_particle_mass)
+                    mass_diff = abs(md_closest_element.mass - sys_particle_mass)
+                    if mass_diff < ELEMENT_MASS_TOLERANCE:
+                        print("Changing atom index {} element from ".format(i)\
+                                +f"{atom.element.symbol} to "\
+                                +f"{md_closest_element.symbol}")
+                        atom.element = md_closest_element
+                    else:
+                        # Create a new element with the correct mass
+                        particle_mass = sys_particle_mass
+                        print("Creating new element with symbol:", f"X{i}")
+                        new_element = mdtraj.element.Element(symbol=f"X{i}", name=f"X{i}", number=200+i, radius=atom.element.radius, mass=particle_mass.value_in_unit(unit.daltons))
+                        atom.element = new_element
+            """
         return traj
 
 def get_first_available_anchor_md_stage_structure(

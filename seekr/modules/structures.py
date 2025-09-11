@@ -352,6 +352,52 @@ class Anchor:
                 cv_indices.append(cv_index)
         return cv_indices
     
+    def _make_milestone_collection(self):
+        """
+        Make the dictionaries that allow for easy access of milestone
+        indices, aliases, and neighboring indices.
+        """
+        id_key_alias_value_dict = {}
+        alias_key_id_value_dict = {}
+        neighbor_id_key_alias_value_dict = {}
+        
+        for milestone in self.milestones:
+                index = milestone.index
+                neighbor_index = milestone.neighbor_anchor_index
+                alias_index = milestone.alias_index
+                id_key_alias_value_dict[index] = alias_index
+                neighbor_id_key_alias_value_dict[neighbor_index] = alias_index
+                alias_key_id_value_dict[alias_index] = index
+        
+        return id_key_alias_value_dict, alias_key_id_value_dict, \
+            neighbor_id_key_alias_value_dict
+
+    def alias_from_neighbor_id(
+            self, 
+            neighbor_id: int
+            ):
+        """
+        Take the index of the neighbor anchor's index and provide the
+        milestone's alias index.
+        """
+        _, _, neighbor_id_key_alias_value_dict = self._make_milestone_collection()
+        if neighbor_id in neighbor_id_key_alias_value_dict:
+            return neighbor_id_key_alias_value_dict[neighbor_id]
+        else:
+            return None
+        
+    def id_from_alias(self, alias_id):
+        """
+        Accept the alias index of a milestone and return the model-wide
+        index of the milestone.
+        """
+        _, alias_key_id_value_dict, _ = self._make_milestone_collection()
+        if alias_id in alias_key_id_value_dict:
+            return alias_key_id_value_dict[alias_id]
+        else:
+            return None
+
+    
 @define
 class NVT_ensemble:
     """
@@ -858,7 +904,6 @@ def load_model(
                                       structure_float_or_list_type_union)
     converter.register_structure_hook(base.Int_or_list_type, 
                                       structure_int_or_list_type_union)
-    
     converter.register_structure_hook(restraints_structures.Base_restraint,
                                         struct_restraint)
     converter.register_structure_hook(reporters_structures.Base_reporter,

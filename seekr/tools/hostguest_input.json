@@ -67,8 +67,11 @@
         }
     },
     "bd_settings": {
-        "type": "browndye",
-        "binary_directory": "",
+        "type": "sda",
+        "geometry": "sphere",
+        "binary_directory": "~/Downloads/sda_flex-7.4.0/bin",
+        "aux_directory": "~/Downloads/sda_flex-7.4.0/auxi",
+        "hydropro_directory": "~/Downloads/hydropro10",
         "apbs_grid_spacing": 2.0,
         "ions": [
             {
@@ -87,6 +90,7 @@
         "molecules": [
             {
                 "name": "beta-cyclodextrin",
+                "type": "non_protein",
                 "pqr_filename": "/home/lvotapka/seekr/seekr/data/hostguest_files/hostguest_receptor.pqr",
                 "selections": [
                     {
@@ -106,6 +110,7 @@
             },
             {
                 "name": "1-butanol",
+                "type": "non_protein",
                 "pqr_filename": "/home/lvotapka/seekr/seekr/data/hostguest_files/hostguest_ligand.pqr",
                 "selections": [
                     {
@@ -155,16 +160,19 @@
         },
         {
             "type": "md_stage",
-            "name": "steered",
+            "name": "metadynamics",
             "run_minimization": false,
             "checkpoint_interval": 1000,
             "ensemble": {
                 "type": "NVT"
             },
             "sampling_method": {
-                "type": "steered",
-                "force_constant": 100000.0,
-                "velocity": 10.0,
+                "type": "metadynamics",
+                "number_of_points": 101,
+                "bias_factor": 10.0,
+                "gaussian_height": 1.0,
+                "gaussian_width": 0.1,
+                "steps_per_update": 250,
                 "cv_names": [
                     "distance_host_guest"
                 ]

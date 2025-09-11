@@ -92,7 +92,7 @@ class Solvent:
     kT: float = field(
         default=1.0, validator=[instance_of(float), gt(0)])
     desolvation_parameter: float = field(
-        default=1.0, validator=[instance_of(float), ge(0)])
+        default=1.0, validator=[instance_of(float)])
     ions: typing.List[Ion] = field(default=Factory(list))
     
     def serialize(
@@ -125,7 +125,6 @@ class Solvent:
         assert self.kT > 0.0
         xmlSolventKT = ET.SubElement(xmlSolvent, 'kT')
         xmlSolventKT.text = str(self.kT)
-        assert self.desolvation_parameter >= 0.0
         xmlSolventDesolv = ET.SubElement(xmlSolvent, 'desolvation_parameter')
         xmlSolventDesolv.text = str(self.desolvation_parameter)
         if make_apbs_mode:

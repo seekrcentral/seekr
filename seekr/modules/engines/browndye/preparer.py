@@ -251,7 +251,8 @@ def make_browndye_input_xml(
         make_apbs_mode: bool = True,
         n_trajectories: int = 1,
         n_threads: int = 1,
-        n_steps_per_output: int = 100000
+        n_steps_per_output: int = 100000,
+        desolvation_parameter: float = 1.0
         ) -> typing.Tuple[float, str]:
     """
     Make the Browndye input XML file for the system.
@@ -280,6 +281,7 @@ def make_browndye_input_xml(
         input_xml_filename = os.path.join(bd_directory, "input.xml")
         
     root.system.solvent.kT = temperature / 298.0
+    root.system.solvent.desolvation_parameter = desolvation_parameter
     root.system.time_step_tolerances.minimum_core_dt = 0.2
     root.system.time_step_tolerances.minimum_core_reaction_dt = 0.05
     
