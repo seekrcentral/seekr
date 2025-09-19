@@ -4,14 +4,17 @@ modules/analyzers/base.py
 Base function and constants that might be common for analyzers.
 """
 
+import os
 import copy
 import typing
+from collections import defaultdict
 
 import numpy as np
 from scipy import linalg as la
 import PyGT
 
 import seekr.modules.structures as structures
+import seekr.modules.engines.browndye.preparer as browndye_preparer
 
 LOW_FLUX = 1e-19
 FAST_FLUX = 1e6
@@ -196,7 +199,7 @@ def calculate_thermodynamics(
     return p_i, free_energy_profile
 
 def calculate_kinetics(
-        num_states: int,
+        num_milestones: int,
         Q: np.ndarray,
         K: np.ndarray,
         end_states: typing.DefaultDict[str, list[int]]
@@ -241,7 +244,7 @@ def calculate_kinetics(
                 K_hat_one_dest = copy.deepcopy(K)
                 K_hat_one_dest[dest_milestone_index, :] = 0.0
                 K_hat_one_dest[dest_milestone_index, dest_milestone_index] = 1.0
-                source_vec = np.zeros((num_states, 1))
+                source_vec = np.zeros((num_milestones, 1))
                 source_vec[dest_milestone_index] = 1.0
                 for j, src_milestone_index in enumerate(src_milestone_list):
                     if dest_milestone_index == src_milestone_index:
@@ -274,6 +277,49 @@ def calculate_kinetics(
 
     return milestone_src_to_milestone_dest_MFPTs, committor_function_by_milestone,\
         end_state_to_end_state_probabilities_by_milestone
+
+def calculate_k_on_kinetics(
+        num_milestones: int,
+        K: np.ndarray,
+        end_states_not_bulk: typing.DefaultDict[str, list[int]],
+        transition_counts: dict,
+        transition_probabilities: dict,
+        k_ons_src: dict,
+        outer_milestone_indices: list[int],
+    ) -> tuple[dict[tuple[int, int], float], dict[int, float]]:
+    """
+    Calculate k_on kinetics if bulk anchor stats present.
+    """
+    assert len(end_states_not_bulk) > 0, "No end (bound or otherwise) states "\
+        "defined in this model. K-on calculations will not work."
+    k_ons = defaultdict(float)
+    K_hat_all = copy.deepcopy(K)
+    for state_name, end_milestones in end_states_not_bulk.items():
+        for end_milestone in end_milestones:
+            assert 0 <= end_milestone < num_milestones, \
+                "End milestone {} is out of bounds.".format(end_milestone)
+            K_hat_all[end_milestone, :] = 0.0
+            K_hat_all[end_milestone, end_milestone] = 1.0
+
+    if len(transition_counts) > 0:
+        source_vec = np.zeros((num_milestones, 1))
+        for outer_milestone_index in outer_milestone_indices:
+            k_on_value = k_ons_src[outer_milestone_index]
+            source_vec[outer_milestone_index] = k_on_value
+            transition_probs_milestone = transition_probabilities[outer_milestone_index]
+            K_hat_all[outer_milestone_index, :] = 0.0
+            for inner_milestone_index, value in transition_probs_milestone.items():
+                if inner_milestone_index in ["escaped", "total", "stuck"]:
+                    continue
+                K_hat_all[outer_milestone_index, inner_milestone_index] = value
+        
+        K_hat_inf = np.linalg.matrix_power(K_hat_all, MATRIX_EXPONENTIAL)
+        end_k_ons = np.dot(K_hat_inf.T, source_vec)
+        for state_name, end_milestones in end_states_not_bulk.items():
+            for end_milestone in end_milestones:
+                k_ons[state_name] += float(end_k_ons[end_milestone])
+
+    return k_ons
 
 def pretty_string_value_error(
         value: float | None, 
@@ -382,12 +428,13 @@ def make_milestone_value_dict(
 
 def plot_scalar_conv(
         conv_values: np.ndarray, 
-        conv_times: np.ndarray, 
+        conv_times: np.ndarray,
+        filename: str,
         label: str, 
         title: str, 
         conv_errors: dict | None = None,
         y_axis_logarithmic: bool = True
-        ) -> tuple["plt.Figure", "plt.Axes"]:
+        ) -> None:
     """
     Plot convergence of off/on rate or other scalar values as a 
     function of simulation time.
@@ -447,18 +494,21 @@ def plot_scalar_conv(
     if y_axis_logarithmic:
         plt.yscale("log", nonpositive="mask")
     plt.tight_layout()
-    return fig, ax
+    plt.savefig(filename)
+    plt.close()
+    return
 
 def plot_2d_conv(
         conv_dict: dict, 
         conv_times: np.ndarray, 
+        filename: str,
         title: str, 
         xlabel: str,
         zlabel: str,
         conv_errors: dict | None = None,
         y_axis_logarithmic: bool = True,
         num_convergence_steps: int | None = 8
-        ) -> tuple["plt.Figure", "plt.Axes"]:
+        ) -> None:
     """
     
     """
@@ -536,11 +586,14 @@ def plot_2d_conv(
     ax.set_ylabel("time (ns)", labelpad=12)
     ax.set_zlabel(zlabel + (" (log₁₀ scale)" if y_axis_logarithmic else ""), labelpad=14)
     plt.title(title)
-    return fig, ax
+    plt.savefig(filename)
+    plt.close(fig)
+    return
 
 def plot_dict_conv(
         conv_dict: dict, 
         conv_times: np.ndarray, 
+        directory: str,
         label_base: str,
         unit: str, 
         conv_errors: dict | None = None,
@@ -549,7 +602,7 @@ def plot_dict_conv(
         title_suffix: str = "", 
         name_base: str | None = None,
         draw_double: bool = True
-        ) -> tuple["plt.Figure", "plt.Axes"]:
+        ) -> None:
     """
     Plot convergence of N_ij or R_i or other dictionary-based value 
     as a function of simulation time.
@@ -629,7 +682,7 @@ def plot_dict_conv(
             title = "$" + label_base + "_{" + ",".join(
                 map(str, key)) + "}$" + title_suffix
             name = name_base + "_" + "_".join(map(str, key))
-        elif isinstance(key, int):
+        elif isinstance(key, int) or isinstance(key, str):
             label = "$" + label_base + "_{" + str(key) + "}" + unitstr + "$"
             title = "$" + label_base + "_{" + str(key) + "}$" + title_suffix
             name = name_base + "_" + str(key) + ""
@@ -681,5 +734,7 @@ def plot_dict_conv(
         title_list.append(title)
         name_list.append(name)
         plt.tight_layout()
-        
-    return fig_list, ax_list, title_list, name_list
+        plt.savefig(os.path.join(directory, name + ".png"))
+        plt.close(fig)
+
+    return

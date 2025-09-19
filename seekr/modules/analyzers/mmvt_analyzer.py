@@ -15,22 +15,12 @@ import matplotlib.pyplot as plt
 import seekr.modules.base as base
 import seekr.modules.analyzers.base as analyzers_base
 import seekr.modules.structures as structures
+import seekr.modules.analyzers.bulk_anchor_statistics as bulk_anchor_statistics
+import seekr.modules.scales.mmvt_analyzer as scales_mmvt_analyzer
 import seekr.modules.analyzers.mmvt_anchor_statistics as mmvt_anchor_statistics
 import seekr.modules.analyzers.mmvt_data_window as mmvt_data_window
 import seekr.modules.analyzers.mmvt_error_analysis as mmvt_error_analysis
 import seekr.modules.analyzers.mmvt_convergence as mmvt_convergence
-
-"""
-NS_PER_PS = 1e-3
-N_ALPHA_BETA_DIR = "N_alpha_beta/"
-T_ALPHA_DIR = "T_alpha/"
-K_ALPHA_BETA_DIR = "k_alpha_beta/"
-PI_ALPHA_DIR = "pi_alpha/"
-N_IJ_ALPHA_DIR = "N_ij_alpha/"
-R_I_ALPHA_DIR = "R_i_alpha/"
-N_IJ_DIR = "N_ij/"
-R_I_DIR = "R_i/"
-"""
 
 @define
 class Mmvt_analyzer:
@@ -44,6 +34,10 @@ class Mmvt_analyzer:
     anchor_stats_alpha_list: list = field(
         factory=list,
         validator=validators.instance_of(list),)
+    bulk_stats: bulk_anchor_statistics.Bulk_anchor_statistics | None = field(
+        default=None,
+        validator=validators.optional(validators.instance_of(
+            bulk_anchor_statistics.Bulk_anchor_statistics)),)
     window_index_list: list[int] = field(
         factory=list,
         validator=validators.instance_of(list),)
@@ -57,8 +51,8 @@ class Mmvt_analyzer:
     
     def extract_data(
             self,
-            min_step: int,
-            max_step: int
+            min_time_ps: float,
+            max_time_ps: float
             ) -> None:
         """
         Extract data from the SEEKR MMVT simulation output.
@@ -69,30 +63,22 @@ class Mmvt_analyzer:
             return
         
         time_between_statistics = None
-
         for anchor in self.model.anchors:
-            if anchor.bd and not anchor.md:
-                continue
-            
-            if anchor.md:
-                # TODO: add a way to obtain the output file glob from the sampling method?
-                #  because this feels hacky.
-                output_file_glob = os.path.join(
-                    self.model.directory, anchor.directory, 
-                    anchor.stage_parameters[self.stage_index]["directory"],
-                    "*.out")
-                output_file_list = glob.glob(output_file_glob)
-                output_file_list = base.order_files_numerically(
-                    output_file_list)
-                anchor_stats_alpha, time_between_statistics_this_anchor \
-                      = mmvt_anchor_statistics.read_output_file_list(
-                        output_file_list, anchor, min_step, max_step)
-                if time_between_statistics is None:
-                    time_between_statistics = time_between_statistics_this_anchor
-                assert np.isclose(time_between_statistics_this_anchor, 
-                                  time_between_statistics), \
-                                    "Time between statistics does not match"
-                self.anchor_stats_alpha_list.append(anchor_stats_alpha)
+            anchor_stats_alpha, tmp_time_between_statistics \
+                = scales_mmvt_analyzer.make_anchor_stats_alpha(
+                    self.model, anchor, self.stage_index,
+                    min_time_ps, max_time_ps,
+                    time_between_statistics)
+            if tmp_time_between_statistics is not None:
+                time_between_statistics = tmp_time_between_statistics
+            self.anchor_stats_alpha_list.append(anchor_stats_alpha)
+            if anchor.bulk_anchor:
+                bulk_stats = scales_mmvt_analyzer.make_bulk_anchor_stats(
+                    self.model, anchor)
+                if bulk_stats is not None:
+                    assert self.bulk_stats is None, \
+                        "Only one anchor may have bulk statistics (Like from BD)."
+                self.bulk_stats = bulk_stats
 
         return time_between_statistics
 
@@ -107,7 +93,8 @@ class Mmvt_analyzer:
         # TODO: remake the anchor_stats_alpha_list based
         #  on error sampling method.
         # Choose the length of the longest sublist within the anchor_stats_alpha_list
-        max_windows_this_stats = max(len(stats) for stats in self.anchor_stats_alpha_list)
+        max_windows_this_stats = max(len(stats) for stats in self.anchor_stats_alpha_list \
+                                     if stats is not None)
         # choose a stride, such that the number of windows is evenly spaced, but
         # make sure that it is at least 1
         window_stride = max(1, max_windows_this_stats \
@@ -126,8 +113,8 @@ class Mmvt_analyzer:
             self.anchor_stats_alpha_list, self.window_index_list)
 
         mmvt_data_window.assign_data_windows_sample(
-            self.model, self.anchor_stats_alpha_list, self.window_index_list,
-            self.data_window_list, assign_to_main=True)
+            self.model, self.anchor_stats_alpha_list, self.bulk_stats,
+            self.window_index_list, self.data_window_list, assign_to_main=True)
         self.main_data_window = self.data_window_list[-1]
 
     def error_analysis(
@@ -151,6 +138,9 @@ class Mmvt_analyzer:
             for _ in range(analyzers_base.NUM_BOOTSTRAP_SAMPLES):
                 bootstrap_anchors_statistics_piecewise = []
                 for alpha in range(num_anchors):
+                    if piecewise_anchors_statistics[alpha] is None:
+                        bootstrap_anchors_statistics_piecewise.append(None)
+                        continue
                     N = len(piecewise_anchors_statistics[alpha])
                     indices = np.random.choice(np.arange(N), size=N, replace=True)
                     bootstrap_anchor_statistics_piecewise \
@@ -161,10 +151,12 @@ class Mmvt_analyzer:
                 bootstrap_anchors_statistics_cumulative \
                     = mmvt_anchor_statistics.make_cumulative_anchor_statistics(
                         bootstrap_anchors_statistics_piecewise)
+                resampled_bulk_stats = bulk_anchor_statistics\
+                    .resample_bulk_anchor_statistics(self.bulk_stats)
                 mmvt_data_window.assign_data_windows_sample(
                     self.model, bootstrap_anchors_statistics_cumulative, 
-                    self.window_index_list, self.data_window_list, 
-                    assign_to_main=False)
+                    resampled_bulk_stats, self.window_index_list, 
+                    self.data_window_list, assign_to_main=False)
         elif method == "resample":
             for _ in range(analyzers_base.NUM_RESAMPLES):
                 resampled_anchors_statistics_piecewise = mmvt_error_analysis\
@@ -173,11 +165,15 @@ class Mmvt_analyzer:
                 resampled_anchors_statistics_cumulative \
                     =   mmvt_anchor_statistics.make_cumulative_anchor_statistics(
                         resampled_anchors_statistics_piecewise)
+                resampled_bulk_stats = bulk_anchor_statistics\
+                    .resample_bulk_anchor_statistics(self.bulk_stats)
                 mmvt_data_window.assign_data_windows_sample(
                     self.model, resampled_anchors_statistics_cumulative, 
-                    self.window_index_list, self.data_window_list, 
-                    assign_to_main=False)
+                    resampled_bulk_stats, self.window_index_list, 
+                    self.data_window_list, assign_to_main=False)
         elif method == "montecarlo":
+            resampled_bulk_stats = bulk_anchor_statistics\
+                    .resample_bulk_anchor_statistics(self.bulk_stats)
             mmvt_error_analysis.monte_carlo_data_windows(
                 self.model, self.window_index_list, self.data_window_list,
                 analyzers_base.NUM_MONTE_CARLO_SAMPLES)
@@ -242,7 +238,7 @@ class Mmvt_analyzer:
                       analyzers_base.pretty_string_value_error(
                           float(self.main_data_window.anchor_to_anchor_MFPTs[key]*1.0e-12), None))
 
-        if self.main_data_window.anchor_to_anchor_energies is not None:
+        if len(self.main_data_window.anchor_to_anchor_energies) > 0:
             print("Free energy differences (kcal/mol):")
             for key in self.main_data_window.anchor_to_anchor_energies:
                 state1 = key[0]
@@ -317,29 +313,35 @@ class Mmvt_analyzer:
         for i, anchor in enumerate(self.model.anchors):
             anchor_indices[i] = anchor.index
             anchor_values[i] = list(anchor.variables.values())[0]
+        
+        if self.main_data_window.pi_alpha is not None:
+            # save pi_alpha
+            pi_fig, ax = plt.subplots()
+            plt.errorbar(
+                anchor_values, 
+                self.main_data_window.pi_alpha.flatten()[0:len(anchor_indices)],
+                yerr=self.main_data_window.pi_alpha_err.flatten()[0:len(anchor_indices)], 
+                ecolor="k", capsize=2)
+            plt.title("$\\pi_{\\alpha}$")
+            plt.xticks(anchor_values, anchor_values, rotation=90)
+            plt.ylabel("$\u03C0_{\u03B1}$")
+            plt.xlabel("anchor value")
+            plt.yscale("log", nonpositive="mask")
+            plt.tight_layout()
+            pi_fig.savefig(os.path.join(image_directory, "pi_alpha.png"))
+            plt.close(pi_fig)
+        
+        if self.main_data_window.p_i is None:
+            return
         milestone_indices = np.zeros(self.main_data_window.p_i.shape[0], dtype=np.int8)
         milestone_values = np.zeros(self.main_data_window.p_i.shape[0], dtype=np.float64)
         milestone_value_dict = analyzers_base.make_milestone_value_dict(self.model)
         for i in range(self.main_data_window.p_i.shape[0]):
             milestone_indices[i] = i
             milestone_values[i] = milestone_value_dict[i]
-        # save pi_alpha
-        pi_fig, ax = plt.subplots()
-        plt.errorbar(
-            anchor_values, 
-            self.main_data_window.pi_alpha.flatten()[0:len(anchor_indices)],
-            yerr=self.main_data_window.pi_alpha_err.flatten()[0:len(anchor_indices)], 
-            ecolor="k", capsize=2)
-        plt.title("$\\pi_{\\alpha}$")
-        plt.xticks(anchor_values, anchor_values, rotation=90)
-        plt.ylabel("$\u03C0_{\u03B1}$")
-        plt.xlabel("anchor value")
-        plt.yscale("log", nonpositive="mask")
-        plt.tight_layout()
-        pi_fig.savefig(os.path.join(image_directory, "pi_alpha.png"))
         
         # save p_i
-        pi_fig, ax = plt.subplots()
+        p_i_fig, ax = plt.subplots()
         plt.errorbar(
             np.round(milestone_values, 3), 
             self.main_data_window.p_i.flatten()[0:len(milestone_indices)], 
@@ -352,9 +354,10 @@ class Mmvt_analyzer:
         plt.xlabel("milestone value")
         plt.yscale("log", nonpositive="mask")
         plt.tight_layout()
-        pi_fig.savefig(os.path.join(image_directory, "p_i.png"))
+        p_i_fig.savefig(os.path.join(image_directory, "p_i.png"))
+        plt.close(p_i_fig)
         # save free energy milestone profile
-        pi_fig, ax = plt.subplots()
+        free_energy_milestones_fig, ax = plt.subplots()
         plt.errorbar(
             np.round(milestone_values, 3), 
             self.main_data_window.free_energy_milestones, 
@@ -366,11 +369,12 @@ class Mmvt_analyzer:
         plt.ylabel("\u0394G(milestone) (kcal/mol)")
         plt.xlabel("milestone value")
         plt.tight_layout()
-        pi_fig.savefig(os.path.join(
+        free_energy_milestones_fig.savefig(os.path.join(
             image_directory, "free_energy_profile_milestones.png"))
+        plt.close(free_energy_milestones_fig)
         
         # save free energy anchor profile
-        pi_fig, ax = plt.subplots()
+        free_energy_anchors_fig, ax = plt.subplots()
         plt.errorbar(
             anchor_values, 
             self.main_data_window.free_energy_anchors, 
@@ -381,8 +385,9 @@ class Mmvt_analyzer:
         plt.ylabel("\u0394G(anchor) (kcal/mol)")
         plt.xlabel("anchor value")
         plt.tight_layout()
-        pi_fig.savefig(os.path.join(
+        free_energy_anchors_fig.savefig(os.path.join(
             image_directory, "free_energy_profile_anchor.png"))
+        plt.close(free_energy_anchors_fig)
 
         # Convergence plots
         mmvt_convergence.write_convergence_plots(image_directory, self.data_window_list)
@@ -393,8 +398,8 @@ def analyze_mmvt(
         model: structures.Seekr_model,
         stage_index: int,
         skip_checks: bool = False,
-        min_step: int = 0,
-        max_step: int = np.iinfo(np.int64).max,
+        min_time_ps: float = 0.0,
+        max_time_ps: float = np.finfo(np.float32).max,
         error_analysis_method: str = "bootstrap"
         ) -> Mmvt_analyzer:
     """
@@ -412,10 +417,13 @@ def analyze_mmvt(
     """
     analysis = Mmvt_analyzer(model=model, stage_index=stage_index)
     time_between_statistics = analysis.extract_data(
-        min_step=min_step, max_step=max_step)
+        min_time_ps=min_time_ps, max_time_ps=max_time_ps)
     if not skip_checks:
         mmvt_data_window.check_extraction(
             analysis.model, analysis.anchor_stats_alpha_list)
+        if analysis.bulk_stats is not None:
+            analysis.bulk_stats.check()
+    
     analysis.fill_out_and_process_data_samples(time_between_statistics)
     analysis.error_analysis(error_analysis_method, random_seed=model.get_random_seed())
     return analysis

@@ -462,6 +462,7 @@ class SDA_systemwide_settings:
 @define
 class SDA_bd_engine:
     type: typing.Literal["sda"] = "sda"
+    scale_type: typing.Literal["brownian_dynamics"] = "brownian_dynamics"
     binary_directory: str = field(default="",
                                 validator=instance_of(str))
     aux_directory: str = field(default="",
@@ -552,3 +553,11 @@ class SDA_bd_engine:
         """
         self.random_seed = seed
         return
+    
+    def can_handle_toy(
+            self
+            ) -> bool:
+        """
+        Can this engine handle toy systems?
+        """
+        return False

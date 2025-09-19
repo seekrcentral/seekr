@@ -18,6 +18,7 @@ import matplotlib.animation as animation
 import mdtraj
 
 import seekr.modules.structures as structures
+import seekr.modules.scales.molecular_dynamics.structures as md_structures
 import seekr.run as run
 
 def plot_voronoi_tesselation(
@@ -51,7 +52,7 @@ class Toy_plot():
     def __init__(
             self, 
             model: structures.Seekr_model, 
-            stage: structures.Stage_md,
+            stage: md_structures.Stage_md,
             title: str, 
             boundaries: nptyping.ArrayLike | None, 
             landscape_resolution: int = 100, 
@@ -76,8 +77,9 @@ class Toy_plot():
 
         self.landscape_resolution = landscape_resolution
         self.voronoi = voronoi
+        md_engine = model.get_engine_by_scale_type("molecular_dynamics")
         self.function_str = self.convert_function_str(
-            model.md_engine.toy_settings.potential_energy_expression)
+            md_engine.toy_settings.potential_energy_expression)
         fig, ax = self.plot_energy_landscape()
         self.fig = fig
         self.ax = ax
@@ -134,7 +136,7 @@ class Toy_plot():
     
     def load_trajs(
             self, 
-            stage: structures.Stage_md, 
+            stage: md_structures.Stage_md, 
             anchor_indices: None | list[int]
             ) -> list[list[nptyping.ArrayLike]]:
         """
@@ -148,27 +150,28 @@ class Toy_plot():
         maxx = -9e9
         miny = 9e9
         maxy = -9e9
-        systemwide_object = self.model.md_engine.systemwide_settings
+        md_engine = self.model.get_engine_by_scale_type("molecular_dynamics")
+        systemwide_object = md_engine.systemwide_settings
         if anchor_indices is None:
-            anchor_systemwide_objects = [self.model.md_engine.systemwide_settings]
+            anchor_systemwide_objects = [md_engine.systemwide_settings]
             
         else:
             anchor_systemwide_objects = [self.model.anchors[i] for i in anchor_indices]
 
-        #for anchor_index in anchor_indices:
         for anchor_index, anchor_or_systemwide in enumerate(anchor_systemwide_objects):
-            #anchor = self.model.anchors[anchor_index]
             if anchor_or_systemwide.stage_parameters[stage_id] is None:
                 pdb_path = os.path.join(
-                    rootdir, systemwide_object.directory, systemwide_object.stage_parameters[stage_id]["directory"], "toy.pdb")
+                    rootdir, systemwide_object.directory, 
+                    systemwide_object.stage_parameters[stage_id]["directory"], "toy.pdb")
             else:
                 pdb_path = os.path.join(
-                    rootdir, anchor_or_systemwide.directory, anchor_or_systemwide.stage_parameters[stage_id]["directory"], "toy.pdb")
+                    rootdir, anchor_or_systemwide.directory, 
+                    anchor_or_systemwide.stage_parameters[stage_id]["directory"], "toy.pdb")
             swarm0_dcds_glob = os.path.join(
-                rootdir, anchor_or_systemwide.directory, anchor_or_systemwide.stage_parameters[stage_id]["directory"], 
+                rootdir, anchor_or_systemwide.directory, 
+                anchor_or_systemwide.stage_parameters[stage_id]["directory"], 
                 "*swarm_0.reporter_*.dcd")
             num_swarm0_dcds = len(glob.glob(swarm0_dcds_glob))
-            #assert num_swarm0_dcds > 0, "No DCD detected for anchor {}.".format(anchor_index)
             if num_swarm0_dcds == 0:
                 continue
             positions_frame_list = []
@@ -182,7 +185,6 @@ class Toy_plot():
                     rootdir, anchor_or_systemwide.directory, anchor_or_systemwide.stage_parameters[stage_id]["directory"], 
                     dcd_file_glob)
                 dcd_files = glob.glob(dcd_glob)
-                #assert len(dcd_files) > 0, "No DCD files provided."
                 if len(dcd_files) == 0:
                     continue
                 # TODO: sort the dcd files
@@ -283,7 +285,7 @@ class Toy_plot():
     
     def animate_trajs(
             self, 
-            stage: structures.Stage_md,
+            stage: md_structures.Stage_md,
             animating_anchor_indices: None | list[int]
             ) -> animation.FuncAnimation:
         """

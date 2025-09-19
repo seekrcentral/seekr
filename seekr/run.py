@@ -11,8 +11,7 @@ import logging
 
 import seekr.modules.base as base
 import seekr.modules.structures as structures
-import seekr.modules.runner as runner
-import seekr.modules.engines.runner as engines_runner
+import seekr.modules.scales.runner as scales_runner
 
 MAX_ITER = 999
 
@@ -40,69 +39,16 @@ def run(
     complete = False
     ran_nothing = True
     counter = 0
+    choose_params = {
+        "device_index": device_index,
+        "anchor_index_instruction": anchor_index_instruction,
+    }
     while not complete:
-        if stage.type == "md_stage":
-            run_instructions = runner.choose_next_simulation_md(
-                stage, model, anchor_index_instruction, force_overwrite, device_index)
-        elif stage.type == "bd_stage":
-            run_instructions = runner.choose_next_simulation_bd(stage, model, force_overwrite)
-        else:
-            raise Exception(f"Stage type not recognized: {stage.type}.")
-        
+        run_instructions = scales_runner.choose_next_simulation(
+            model, stage, choose_params, force_overwrite)
         for instruction in run_instructions:
-            if stage.type == "md_stage":
-                current_step = instruction.current_step
-                anchor_index = instruction.anchor_index
-                restart = instruction.restart
-                swarm_index = instruction.swarm_index
-                if swarm_index is None:
-                    swarm_string = ""
-                else:
-                    swarm_string = f", swarm index: {swarm_index}"
-                if force_overwrite and restart:
-                    restart = False
-                if anchor_index is None:
-                    anchor_or_systemwide = model.md_engine.systemwide_settings
-                    partition_name = "systemwide"
-                else:
-                    anchor_or_systemwide = model.anchors[anchor_index]
-                    partition_name = f"anchor {anchor_index}"
-                log_string = f"Running {partition_name}, restart: "\
-                    +f"{restart}{swarm_string}"
-                calculation_dir = runner.get_calculation_directory_md(
-                    anchor_or_systemwide, stage_index, model.directory)
-                log_filename = os.path.join(calculation_dir, "run.log")
-                base.configure_file_and_stdout_logger(
-                    log_filename, overwrite=force_overwrite)
-                logging.info(log_string)
-                engines_runner.run_md_simulation(
-                    model, stage_index, anchor_index, restart, 
-                    swarm_index, device_index, force_overwrite)
-            elif stage.type == "bd_stage":
-                if not model.using_bd():
-                    raise Exception("BD engine is not enabled.")
-                trajs_to_go_min = instruction.trajs_to_go_minimum
-                trajs_so_far = instruction.trajs_so_far
-                b_surface_anchor_index = instruction.anchor_index
-                restart = instruction.restart
-                num_transitions = instruction.num_transitions
-                if force_overwrite and restart:
-                    restart = False
-                log_string = f"running from b-surface anchor: {b_surface_anchor_index} "\
-                    +f"restart: {restart} trajectories to run: {trajs_to_go_min} "\
-                    +f"trajectories so far: {trajs_so_far} "\
-                    +f"number of transitions: {num_transitions}"
-                calculation_dir = runner.get_calculation_directory_bd(
-                    model.bd_engine, model.directory)
-                log_filename = os.path.join(calculation_dir, "run.log")
-                base.configure_file_and_stdout_logger(
-                    log_filename, overwrite=force_overwrite)
-                logging.info(log_string)
-                engines_runner.run_bd_simulation(
-                    model, trajs_to_go_min, restart, force_overwrite)
-            else:
-                raise Exception(f"Stage type not recognized: {stage.type}.")
-            
+            scales_runner.do_run_instruction(
+                model, force_overwrite, stage_index, instruction, device_index)
         if len(run_instructions) > 0:
             complete = False
             ran_nothing = False

@@ -20,6 +20,7 @@ import seekr.modules.base as base
 import seekr.modules.structures as structures
 import seekr.modules.collective_variables.structures as cv_structures
 import seekr.modules.engines.structures as engines_structures
+import seekr.modules.scales.molecular_dynamics.structures as scale_md
 
 # TODO: implement a check for a sequential series of bounces later in 
 #  the simulation. Suggest that this could be remedied by using a
@@ -77,7 +78,7 @@ def box_volume_from_6_vector(box_6_vector):
 def load_structure_with_parmed(
         model: structures.Seekr_model, 
         anchor_or_systemwide: structures.Anchor | engines_structures.MD_systemwide_settings,
-        stage: structures.Stage_md,
+        stage: scale_md.Stage_md,
         swarm_id: int = 0
         ) -> parmed.Structure | None:
     """
@@ -97,7 +98,7 @@ def load_structure_with_parmed(
 def load_structure_with_mdtraj(
         model: structures.Seekr_model,
         anchor_or_systemwide: structures.Anchor | engines_structures.MD_systemwide_settings,
-        stage: structures.Stage_md,
+        stage: scale_md.Stage_md,
         swarm_id: int = 0,
         mode: str = "pdb"
         ) -> mdtraj.Trajectory | None:
@@ -199,25 +200,26 @@ def get_first_available_anchor_md_stage_structure(
         model: structures.Seekr_model,
         ) -> typing.Tuple[
             structures.Anchor | engines_structures.MD_systemwide_settings,
-            structures.Stage_md]:
+            scale_md.Stage_md]:
     """
     Get the first anchor and stage for a given model where a structure can be loaded.
     """
     for stage_id, stage in enumerate(model.stages):
         if stage.type == "md_stage":
             # First, try systemwide
-            if model.md_engine.systemwide_settings.stage_parameters[stage_id] is not None:
-                structure_paths = model.md_engine.systemwide_settings.get_positions_full_paths(
+            md_engine = model.get_engine_by_scale_type("molecular_dynamics")
+            if md_engine.systemwide_settings.stage_parameters[stage_id] is not None:
+                structure_paths = md_engine.systemwide_settings.get_positions_full_paths(
                     model.directory, stage.input_stage_index, 0)
                 if len(structure_paths) > 0:
-                    return (model.md_engine.systemwide_settings, stage)
+                    return (md_engine.systemwide_settings, stage)
             # if that doesn't work, try anchor
             for anchor in model.anchors:
-                if anchor.md:
+                if "molecular_dynamics" in anchor.scale_types:
                     structure_paths = anchor.get_positions_full_paths(
                         model.directory, stage.input_stage_index, 0)
                     if len(structure_paths) > 0:
-                        return (model.md_engine.systemwide_settings, stage)
+                        return (md_engine.systemwide_settings, stage)
                     
     raise Exception("No available anchors or structures found in model.")
 
@@ -234,9 +236,10 @@ def check_pre_sim_MD_and_BD_salt_concentration(
     """
     RELATIVE_TOLERANCE = 0.1
     ABSOLUTE_TOLERANCE = 0.01
-    if model.using_bd():
+    if model.using_scale("brownian_dynamics"):
+        bd_engine = model.get_engine_by_scale_type("brownian_dynamics")
         bd_ionic_strength = 0.0
-        for ion in model.bd_engine.ions:
+        for ion in bd_engine.ions:
             bd_ionic_strength += 0.5 * ion.concentration * ion.charge**2
     else:
         # No BD to check
@@ -298,7 +301,7 @@ def check_systems_within_Voronoi_cells(
     os.chdir(model.directory)
     
     for anchor in model.anchors:
-        if not anchor.md:
+        if "molecular_dynamics" not in anchor.scale_types:
             continue
         
         for stage_id, stage in enumerate(model.stages):
@@ -412,11 +415,12 @@ def check_atom_selections_on_same_molecule(
         traversed_atoms.update(molecule)
         molecules.append(molecule)
     
+    md_engine = model.get_engine_by_scale_type("molecular_dynamics")
     for cv in model.collective_variables:
         atom_group_names = cv.get_atom_group_names()
         for atom_group_name in atom_group_names:
             in_molecule = None
-            atom_group = model.md_engine.get_atom_indices_by_selection_name(atom_group_name)
+            atom_group = md_engine.get_atom_indices_by_selection_name(atom_group_name)
             for atom_index in atom_group:
                 index_found = False
                 for mol_id, molecule in enumerate(molecules):
@@ -458,14 +462,15 @@ def check_atom_selections_MD_BD(
     mind that SEEKR2 requires atom indexing to start from 0 in 
     each molecular structure input file, but PDB and PQR files
     might start their numbering at 1 or another number."""
-    if model.using_bd():
+    if model.using_scale("brownian_dynamics"):
         # First check to ensure that the selection indices are actually contained
         #  within the BD pqr files.
+        bd_engine = model.get_engine_by_scale_type("brownian_dynamics")
         b_surface_dir = os.path.join(
-            model.directory, model.bd_engine.b_surface_directory)
+            model.directory, bd_engine.b_surface_directory)
         pqr_paths = []
         pqr_structures = []
-        for bd_molecule in model.bd_engine.systemwide_settings.molecules:
+        for bd_molecule in bd_engine.systemwide_settings.molecules:
             pqr_path = os.path.join(b_surface_dir, bd_molecule.pqr_filename)
             pqr_paths.append(pqr_path)
             pqr_structure = parmed.load_file(pqr_path)
@@ -482,8 +487,9 @@ def check_atom_selections_MD_BD(
     
     anchor_or_systemwide, stage = get_first_available_anchor_md_stage_structure(model)
     md_structure = load_structure_with_parmed(model, anchor_or_systemwide, stage)
-    for md_selection in model.md_engine.systemwide_settings.selections:
-        for bd_mol_index, bd_molecule in enumerate(model.bd_engine.systemwide_settings.molecules):
+    md_engine = model.get_engine_by_scale_type("molecular_dynamics")
+    for md_selection in md_engine.systemwide_settings.selections:
+        for bd_mol_index, bd_molecule in enumerate(bd_engine.systemwide_settings.molecules):
             for bd_site_name, bd_site_indices in bd_molecule.original_indices.items():
                 if md_selection.name == bd_site_name:
                     md_atom_group = md_selection.atom_indices
@@ -531,13 +537,14 @@ def check_pqr_residues(
     residues. This check will suggest that users split their PQR
     atoms into individual residues to increase accuracy.
     """
-    if model.using_bd():
+    if model.using_scale("brownian_dynamics"):
+        bd_engine = model.get_engine_by_scale_type("brownian_dynamics")
         b_surface_dir = os.path.join(
-            model.directory, model.bd_engine.b_surface_directory)
+            model.directory, bd_engine.b_surface_directory)
         pqr_paths = []
         pqr_structures = []
         list_of_residue_lists = []
-        for bd_molecule in model.bd_engine.systemwide_settings.molecules:
+        for bd_molecule in bd_engine.systemwide_settings.molecules:
             pqr_path = os.path.join(b_surface_dir, bd_molecule.pqr_filename)
             pqr_paths.append(pqr_path)
             pqr_structure = parmed.load_file(pqr_path)
@@ -619,8 +626,9 @@ def check_mmvt_in_Voronoi_cell(
     for stage in model.stages:
         if stage.sampling_method.type != "mmvt":
             continue
-        if model.md_engine is not None:
-            if model.md_engine.hydrogen_mass is not None:
+        if model.using_scale("molecular_dynamics") is not None:
+            md_engine = model.get_engine_by_scale_type("molecular_dynamics")
+            if md_engine.hydrogen_mass is not None:
                 return True
         for anchor in model.anchors:
             traj = load_structure_with_mdtraj(model, anchor, stage, mode="traj")
@@ -648,8 +656,9 @@ def check_for_stuck_BD(
     Examine BD output to ensure that too many BD trajectories weren't
     stuck.
     """
-    if model.using_bd():
-        bd_transition_counts = model.bd_engine.get_bd_transition_counts(model.directory)
+    if model.using_scale("brownian_dynamics"):
+        bd_engine = model.get_engine_by_scale_type("brownian_dynamics")
+        bd_transition_counts = bd_engine.get_bd_transition_counts(model.directory)
         if "stuck" in bd_transition_counts:
             if bd_transition_counts["stuck"] > MAX_BD_STUCK:
                 warnstr = """CHECK FAILURE: A large number of BD

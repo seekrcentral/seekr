@@ -18,8 +18,8 @@ def analyze(
         model: structures.Seekr_model,
         stage_index: int | None = None,
         skip_checks: bool = False,
-        minimum_time: float = 0.0,
-        maximum_time: float | None = None,
+        min_time_ps: float = 0.0,
+        max_time_ps: float | None = None,
         error_analysis_method: str = "bootstrap"
     ) -> mmvt_analyzer.Mmvt_analyzer:
     # TODO: create a more specific type for the return value above
@@ -45,16 +45,13 @@ def analyze(
                 break
     assert 1 <= stage_index < len(model.stages)+1, "Invalid stage index."
     stage = model.stages[stage_index-1]
-    min_step = int(minimum_time / model.get_md_timestep())
-    if maximum_time is None:
-        max_step = np.iinfo(np.int64).max
-    else:
-        max_step = int(maximum_time / model.get_md_timestep())
+    if max_time_ps is None:
+        max_time_ps = np.finfo(np.float32).max
     if stage.sampling_method.type == "mmvt":
         from seekr.modules.analyzers.mmvt_analyzer import analyze_mmvt
         analysis = analyze_mmvt(
             model, stage_index=stage_index, skip_checks=skip_checks,
-            min_step=min_step, max_step=max_step,
+            min_time_ps=min_time_ps, max_time_ps=max_time_ps,
             error_analysis_method=error_analysis_method)
         return analysis
     # TODO: metaD and maybe SMD?

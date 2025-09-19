@@ -14,6 +14,7 @@ import seekr.modules.base as base
 import seekr.modules.structures as structures
 import seekr.modules.completion_criteria.structures as completion_criteria_structures
 import seekr.modules.engines.structures as engines_structures
+import seekr.modules.scales.molecular_dynamics.structures as md_structures
 import seekr.modules.completion_criteria.runner as completion_criteria_runner
 
 # TODO: fill out an object for the anchors-filled completion criteria
@@ -26,7 +27,7 @@ class Base_completion_criteria_openmm_interface:
     """
     _completion_criteria: completion_criteria_structures.Base_completion_criteria
     _model: structures.Seekr_model
-    _stage: structures.Stage_md
+    _stage: md_structures.Stage_md
     _anchor_or_systemwide: engines_structures.MD_systemwide_settings | structures.Anchor
 
     def criteria_satisfied(
@@ -56,7 +57,7 @@ class Number_of_steps_completion_criteria_openmm_interface(
     """
     _completion_criteria: completion_criteria_structures.Number_of_steps_completion_criteria
     _model: structures.Seekr_model
-    _stage: structures.Stage_md
+    _stage: md_structures.Stage_md
 
 @define
 class All_anchors_filled_completion_criteria_openmm_interface(
@@ -67,7 +68,7 @@ class All_anchors_filled_completion_criteria_openmm_interface(
     """
     _completion_criteria: completion_criteria_structures.All_anchors_filled_completion_criteria
     _model: structures.Seekr_model
-    _stage: structures.Stage_md
+    _stage: md_structures.Stage_md
     _anchor_or_systemwide: engines_structures.MD_systemwide_settings | structures.Anchor
 
     def criteria_satisfied(
@@ -82,7 +83,7 @@ class All_anchors_filled_completion_criteria_openmm_interface(
         #stage: structures.Stage_md = kwargs["stage"]
         print_update: bool = kwargs["print_update"]
         current_step: int = kwargs["current_step"]
-        return_message: bool
+        #return_message: bool
         if print_update:
             ending, message = completion_criteria_runner.is_finished_md_with_message(
                 self._model, self._stage, self._anchor_or_systemwide, current_step)
@@ -100,14 +101,14 @@ Completion_criteria_openmm_interface = typing.Union[
 def assign_completion_interface(
         completion_criteria: completion_criteria_structures.Base_completion_criteria, 
         model: structures.Seekr_model,
-        stage: structures.Stage_md,
+        stage: md_structures.Stage_md,
         anchor_or_systemwide: engines_structures.MD_systemwide_settings | structures.Anchor
         )-> Base_completion_criteria_openmm_interface:
     """
     Given a sampling_method and an md_engine, confirm that the OpenMM
     MD engine is being used, and return the corresponding interface
     """
-    md_engine = model.md_engine
+    md_engine = model.get_engine_by_scale_type(stage.scale_type)
     assert md_engine is not None
     assert md_engine.type == "openmm", \
         "Only OpenMM engines can be used in the openmm_interface module."

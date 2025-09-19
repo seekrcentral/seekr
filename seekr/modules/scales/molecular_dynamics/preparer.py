@@ -1,0 +1,123 @@
+"""
+modules/scales/molecular_dynamics/preparer.py
+
+Molecular dynamics input objects and procedures.
+"""
+
+import typing
+
+from attrs import define, field, validators, Factory
+import cattrs
+
+import seekr.modules.base as base
+import seekr.modules.structures as structures
+import seekr.modules.completion_criteria.structures as compl_crit_struct
+import seekr.modules.scales.molecular_dynamics.structures as scale_md
+import seekr.modules.engines.openmm.preparer as openmm_preparer
+import seekr.modules.engines.preparer as engines_preparer
+import seekr.modules.restraints.preparer as restraints_preparer
+import seekr.modules.reporters.preparer as reporters_preparer
+import seekr.modules.sampling_methods.preparer as sampling_methods_preparer
+
+MD_settings_input = typing.Union[openmm_preparer.Openmm_settings_input]
+
+sampling_methods_input_md: typing.Dict[str, typing.Any] \
+        = {"conventional": sampling_methods_preparer.Conventional_md_input,
+           "metadynamics": sampling_methods_preparer.Metadynamics_md_input,
+           "steered": sampling_methods_preparer.Steered_md_input,
+           "mmvt": sampling_methods_preparer.MMVT_md_input,}
+
+@define
+class Input_stage_md:
+    """
+    A MD stage of the SEEKR calculation, whether that is an initial
+    equilibration, a sampling method to obtain starting structures,
+    a settling stage, or a production stage for obtaining kinetics.
+    """
+    type: typing.Literal["md_stage"] = "md_stage"
+    name: str = field(default="equilibration", 
+                      validator=validators.instance_of(str))
+    run_minimization: bool = field(default=False,
+                                      validator=validators.instance_of(bool))
+    checkpoint_interval: int = field(default=1000,
+                                  validator=[validators.instance_of(int),
+                                             validators.gt(0)])
+    ensemble: base.Ensemble = field(default=Factory(
+        base.NVT_ensemble))
+    sampling_method: sampling_methods_preparer.Base_md_sampling_method_input = field(
+        default=Factory(sampling_methods_preparer.Conventional_md_input))
+    completion_criteria: compl_crit_struct.Base_completion_criteria | None = None
+    restraints: list[restraints_preparer.Base_restraint_input] = field(default=Factory(list))
+    reporters: list[reporters_preparer.Base_reporter_input] = field(default=Factory(list))
+    
+    def get_scale_type(self) -> str:
+        return "molecular_dynamics"
+
+    def make_model_stage(
+            self, 
+            index: int,
+            systemwide_stage_input: bool,
+            md_settings: MD_settings_input
+            ) -> typing.Tuple[scale_md.Stage_md, bool]:
+        """
+        Given this input stage object, create the model's Stage object.
+        """
+        systemwide_settings_input: engines_preparer.MD_systemwide_settings_input \
+            = md_settings.systemwide_settings
+        stage = scale_md.Stage_md()
+        stage.index = index
+        stage.name = self.name
+        stage.run_minimization = self.run_minimization
+        #stage.md_state_output_interval = self.output_interval
+        #stage.md_trajectory_output_interval = self.output_interval
+        stage.md_restart_checkpoint_interval = self.checkpoint_interval
+        stage.ensemble = self.ensemble
+        stage.sampling_method = self.sampling_method.make_model_sampling_method()
+        assert self.completion_criteria is not None
+        stage.completion_criteria = self.completion_criteria
+        if systemwide_stage_input: # If coming from systemwide settings
+            assert not stage.sampling_method.needs_to_be_in_anchor(), \
+                f"Stage '{stage.name}' with sampling method '{stage.sampling_method.type}' "\
+                "must be run within one or more anchors. A stage that populates anchors "\
+                "must precede this stage."
+            stage.input_from = "systemwide"
+            if stage.sampling_method.input_from_systemwide_settings_output_to_anchors():
+                new_systemwide_stage_input = False
+                stage.output_to = "anchors"
+                # Handle different situations?
+            else:
+                new_systemwide_stage_input = True
+                stage.output_to = "systemwide"
+        else:
+            stage.input_from = "anchors"
+            if stage.sampling_method.input_from_anchors_output_to_systemwide_settings():
+                new_systemwide_stage_input = True
+                stage.output_to = "systemwide"
+            else:
+                new_systemwide_stage_input = False
+                stage.output_to = "anchors"
+        for restraint_input in self.restraints:
+            restraint = restraint_input.make_restraint(systemwide_settings_input)
+            stage.restraints.append(restraint)
+        for reporter_input in self.reporters:
+            reporter = reporter_input.make_reporter(systemwide_settings_input)
+            stage.reporters.append(reporter)
+        return stage, new_systemwide_stage_input
+    
+def struct_md_sampling_method_inputs(
+        obj: typing.Dict[str, typing.Any],
+        _: typing.Type[sampling_methods_preparer.Base_md_sampling_method_input]
+        ) -> sampling_methods_preparer.Base_md_sampling_method_input:
+    typ = obj.pop("type")
+    return cattrs.structure(obj, sampling_methods_input_md[typ])
+
+def register_structure_hooks(
+        converter: typing.Any
+        ) -> None:
+    """
+    Register the structure hooks for all scales and their sampling methods.
+    """
+    converter.register_structure_hook(
+        sampling_methods_preparer.Base_md_sampling_method_input,
+        struct_md_sampling_method_inputs
+    )

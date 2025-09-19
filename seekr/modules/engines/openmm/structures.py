@@ -32,6 +32,7 @@ Barostat_settings = typing.Union[Monte_carlo_barostat_settings]
 @define
 class Openmm_md_engine:
     type: typing.Literal["openmm"] = "openmm"
+    scale_type: typing.Literal["molecular_dynamics"] = "molecular_dynamics"
     nonbonded_method: str | None = field(
         default="pme", converter=base.string_lower) #, validator=
             #optional(and_(instance_of(str), in_([
@@ -116,4 +117,10 @@ class Openmm_md_engine:
             "systemwide settings not provided."
         return self.systemwide_settings.get_atom_indices_by_selection_name(name)
 
-    
+    def can_handle_toy(
+            self
+            ) -> bool:
+        """
+        Can this engine handle toy systems?
+        """
+        return True

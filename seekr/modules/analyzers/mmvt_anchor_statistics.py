@@ -361,6 +361,9 @@ def make_piecewise_anchor_statistics(
     all_anchors_stats_contrib_list = []
     for alpha in range(len(anchor_statistics_windows_list)):
         anchor_statistics_contributions_list = []
+        if anchor_statistics_windows_list[alpha] is None:
+            all_anchors_stats_contrib_list.append(None)
+            continue
         for i in range(0, len(anchor_statistics_windows_list[alpha])):
             if i == 0:
                 contribution = anchor_statistics_windows_list[alpha][i]
@@ -384,6 +387,9 @@ def make_cumulative_anchor_statistics(
     cumulative_anchor_statistics = []
     for alpha in range(len(anchor_statistics_piecewise_list)):
         cumulative_windows = []
+        if anchor_statistics_piecewise_list[alpha] is None:
+            cumulative_windows.append(None)
+            continue
         for i in range(len(anchor_statistics_piecewise_list[alpha])):
             if i == 0:
                 cumulative_windows.append(anchor_statistics_piecewise_list[alpha][i])
@@ -405,9 +411,10 @@ def pare_down_anchor_statistics(
     Pare down the anchor statistics to only include the specified windows.
     """
     for alpha in range(len(anchor_stats_alpha_list)):
-        anchor_stats_alpha_list[alpha] = [
-            anchor_stats_alpha_list[alpha][i]
-            for i in window_index_list
-            if i < len(anchor_stats_alpha_list[alpha])
-        ]
+        if anchor_stats_alpha_list[alpha] is not None:
+            anchor_stats_alpha_list[alpha] = [
+                anchor_stats_alpha_list[alpha][i]
+                for i in window_index_list
+                if i < len(anchor_stats_alpha_list[alpha])
+            ]
     return

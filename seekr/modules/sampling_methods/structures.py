@@ -13,8 +13,6 @@ from attrs import define, field, validators, Factory
 #  methods added to this directory, but for now, they must be
 #  defined here
 
-import seekr.modules.base as base
-
 class Base_md_sampling_method(typing.Protocol):
     """
     Base class for all MD sampling methods.

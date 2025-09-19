@@ -305,7 +305,6 @@ class External_cv_openmm_interface:
             group_list.append(group)
         variable_values_list = []
         for key, value in boundary_parameters.items():
-            print("adding parameter", key, value)
             force.addPerBondParameter(key)
             variable_values_list.append(value)
         force.addBond(group_list, variable_values_list)

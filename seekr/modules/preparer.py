@@ -14,7 +14,6 @@ import os
 import glob
 import json
 from collections import defaultdict
-import types
 import typing
 import shutil
 import random
@@ -33,24 +32,12 @@ import seekr.modules.base as base
 import seekr.modules.collective_variables.base as cv_base
 import seekr.modules.engines.base as engines_base
 import seekr.modules.structures as structures
-import seekr.modules.collective_variables.structures as cv_structures
 import seekr.modules.completion_criteria.structures as compl_crit_struct
 import seekr.modules.engines.structures as engines_structures
 import seekr.modules.engines.preparer as engines_preparer
 import seekr.modules.restraints.preparer as restraints_preparer
 import seekr.modules.reporters.preparer as reporters_preparer
-import seekr.modules.sampling_methods.preparer as sampling_methods_preparer
-import seekr.modules.collective_variables.preparer as cv_preparer
-import seekr.modules.engines.browndye.preparer as browndye_preparer
-import seekr.modules.engines.sda.preparer as sda_preparer
-import seekr.modules.engines.openmm.preparer as openmm_preparer
-
-BD_settings_input = typing.Union[browndye_preparer.Browndye_settings_input,
-                                sda_preparer.SDA_settings_input]
-MD_settings_input = typing.Union[openmm_preparer.Openmm_settings_input]
-
-#MD_sampling_method_input = typing.Union[
-#    sampling_methods_preparer.MD_sampling_method_input]
+import seekr.modules.scales.preparer as scales_preparer
 
 restraint_inputs: typing.Dict[str, typing.Type[restraints_preparer.Base_restraint_input]] \
         = {"positional": restraints_preparer.Positional_restraint_input,
@@ -65,128 +52,6 @@ compl_crit_inputs: typing.Dict[str, typing.Type[compl_crit_struct.Base_completio
 #cv_inputs: typing.Dict[str, typing.Type[cv_base.Base_CV_input]] \
 #        = cv_preparer.cv_inputs
 from seekr.modules.collective_variables.preparer import cv_inputs
-md_sampling_methods_input: typing.Dict[str, typing.Type[sampling_methods_preparer.Base_md_sampling_method_input]] \
-        = {"conventional": sampling_methods_preparer.Conventional_md_input,
-           "metadynamics": sampling_methods_preparer.Metadynamics_md_input,
-           "steered": sampling_methods_preparer.Steered_md_input,
-           "mmvt": sampling_methods_preparer.MMVT_md_input,}
-bd_sampling_methods_input: typing.Dict[str, typing.Type[sampling_methods_preparer.Base_md_sampling_method_input]] \
-        = {"NAM": sampling_methods_preparer.NAM_bd_input,
-           "WE": sampling_methods_preparer.WE_bd_input,}
-
-@define
-class Input_stage_md:
-    """
-    A MD stage of the SEEKR calculation, whether that is an initial
-    equilibration, a sampling method to obtain starting structures,
-    a settling stage, or a production stage for obtaining kinetics.
-    """
-    type: typing.Literal["md_stage"] = "md_stage"
-    name: str = field(default="equilibration", 
-                      validator=validators.instance_of(str))
-    run_minimization: bool = field(default=False,
-                                      validator=validators.instance_of(bool))
-    checkpoint_interval: int = field(default=1000,
-                                  validator=[validators.instance_of(int),
-                                             validators.gt(0)])
-    ensemble: structures.Ensemble = field(default=Factory(
-        structures.NVT_ensemble))
-    sampling_method: sampling_methods_preparer.Base_md_sampling_method_input = field(
-        default=Factory(sampling_methods_preparer.Conventional_md_input))
-    completion_criteria: compl_crit_struct.Base_completion_criteria | None = None
-    restraints: list[restraints_preparer.Base_restraint_input] = field(default=Factory(list))
-    reporters: list[reporters_preparer.Base_reporter_input] = field(default=Factory(list))
-    
-    def make_model_stage(
-            self, 
-            index: int,
-            systemwide_stage_input: bool,
-            systemwide_settings_input: engines_preparer.MD_systemwide_settings_input
-            ) -> typing.Tuple[structures.Stage_md, bool]:
-        """
-        Given this input stage object, create the model's Stage object.
-        """
-        stage = structures.Stage_md()
-        stage.index = index
-        stage.name = self.name
-        stage.run_minimization = self.run_minimization
-        #stage.md_state_output_interval = self.output_interval
-        #stage.md_trajectory_output_interval = self.output_interval
-        stage.md_restart_checkpoint_interval = self.checkpoint_interval
-        stage.ensemble = self.ensemble
-        stage.sampling_method = self.sampling_method.make_model_sampling_method()
-        assert self.completion_criteria is not None
-        stage.completion_criteria = self.completion_criteria
-        if systemwide_stage_input: # If coming from systemwide settings
-            assert not stage.sampling_method.needs_to_be_in_anchor(), \
-                f"Stage '{stage.name}' with sampling method '{stage.sampling_method.type}' "\
-                "must be run within one or more anchors. A stage that populates anchors "\
-                "must precede this stage."
-            stage.input_from = "systemwide"
-            if stage.sampling_method.input_from_systemwide_settings_output_to_anchors():
-                new_systemwide_stage_input = False
-                stage.output_to = "anchors"
-                # Handle different situations?
-            else:
-                new_systemwide_stage_input = True
-                stage.output_to = "systemwide"
-        else:
-            stage.input_from = "anchors"
-            if stage.sampling_method.input_from_anchors_output_to_systemwide_settings():
-                new_systemwide_stage_input = True
-                stage.output_to = "systemwide"
-            else:
-                new_systemwide_stage_input = False
-                stage.output_to = "anchors"
-        for restraint_input in self.restraints:
-            restraint = restraint_input.make_restraint(systemwide_settings_input)
-            stage.restraints.append(restraint)
-        for reporter_input in self.reporters:
-            reporter = reporter_input.make_reporter(systemwide_settings_input)
-            stage.reporters.append(reporter)
-        return stage, new_systemwide_stage_input
-    
-@define
-class Input_stage_bd:
-    """
-    A BD stage of the SEEKR calculation.
-    """
-    type: typing.Literal["bd_stage"] = "bd_stage"
-    name: str = field(default="BD",
-                        validator=validators.instance_of(str))
-    n_trajectories_per_output: int = field(default=1000,
-                                            validator=[validators.instance_of(int),
-                                                         validators.gt(0)])
-    n_steps_per_output: int = field(default=100000,
-                                    validator=[validators.instance_of(int),
-                                               validators.gt(0)])
-    sampling_method: sampling_methods_preparer.Base_bd_sampling_method_input = field(
-        default=Factory(sampling_methods_preparer.NAM_bd_input))
-    completion_criteria: compl_crit_struct.Base_completion_criteria = field(
-        default=Factory(compl_crit_struct.Number_of_trajectories_completion_criteria))
-    
-    def make_model_stage(
-            self, 
-            index: int,
-            systemwide_stage_input: bool,
-            bd_settings: BD_settings_input
-            ) -> typing.Tuple[structures.Stage_bd, bool]:
-        """
-        Given this input stage object, create the model's Stage object.
-        """
-        stage = structures.Stage_bd()
-        stage.index = index
-        stage.name = self.name
-        stage.n_trajectories_per_output = self.n_trajectories_per_output
-        stage.n_steps_per_output = self.n_steps_per_output
-        stage.completion_criteria = self.completion_criteria
-        # At present, BD stages will always be systemwide
-        #stage.input_from = None
-        #stage.output_to = None
-        # TODO: implement restraints in BD - that will use bd_settings argument
-        return stage, systemwide_stage_input
-
-Input_stage = typing.Union[Input_stage_md, Input_stage_bd]
 
 @define
 class Toy_settings_input:
@@ -230,6 +95,8 @@ class State_point:
                                 #))
     # whether to set the end_anchor attribute to True in an Anchor
     end_state: bool = field(default=True,
+                            validator=validators.instance_of(bool))
+    bulk_state: bool = field(default=False,
                             validator=validators.instance_of(bool))
 
 # TODO: change this function to accept a list of positions, not
@@ -359,6 +226,13 @@ class Anchor_input:
                                     member_validator=[validators.instance_of(float)],
                                     iterable_validator=validators.instance_of(list),
                                 ))
+    # TODO: replace with string list of scales involved in this anchor
+    md: bool = field(default=True,
+                     validator=validators.instance_of(bool))
+    bd: bool = field(default=False,
+                     validator=validators.instance_of(bool))
+    # TODO: somehow replace this parameter with something more general
+    # that could contain parameter and topology information for any type of scale
     md_parameters_topology: engines_structures.Parameters_topology | None = None
     positions: base.Positions_type = None
     selections: list[engines_structures.Selection] | None = field(default=None,
@@ -461,7 +335,9 @@ class Anchor_input:
 # TODO: implement different types of partitions for different
 #  sampling methods: I.E.: Elber milestoning will need different ways
 #  of defining anchors than MMVT.
-# Is this going to require a new type of Partition_input class?
+#  class Partition_input_anchors_as_voronoi_edges
+#  class Partition_input_anchors_as_voronoi_cells
+# Is this going to require a new type of Partition_input class? Yes
 @define
 class Partition_input:
     """
@@ -517,13 +393,16 @@ class Partition_input:
                 anchor.name = input_anchor.name
 
             if not input_anchor.bulk_anchor:
-                anchor.md = True
+                # TODO: find a smarter way to assign scale types - they 
+                #  might or might not be MD or BD.
+                anchor.scale_types.append("molecular_dynamics")
                 if input_anchor.end_anchor:
                     anchor.end_anchor = input_anchor.end_anchor
+                anchor.bulk_anchor = False
             else:
-                anchor.md = False
                 anchor.name = "bulk"
                 anchor.end_anchor = True
+                anchor.bulk_anchor = True
 
             associated_input_anchor[anchor.index] = input_anchor
             cv_indices = []
@@ -601,9 +480,13 @@ class Seekr_input:
                                     validator=validators.optional(
                                         validators.instance_of(int)))
     toy_settings: Toy_settings_input | None = None
-    md_settings: typing.Union[MD_settings_input, None] = None
-    bd_settings: BD_settings_input | None = None
-    stages: list[Input_stage] = field(default=Factory(list),)
+    # TODO: each scale will have its own settings input
+    settings_list: list[scales_preparer.Engine_settings_input] = field(
+        default=Factory(list),)
+                            
+    #md_settings: typing.Union[MD_settings_input, None] = None
+    #bd_settings: BD_settings_input | None = None
+    stages: list[scales_preparer.Input_stage] = field(default=Factory(list),)
                             #validator=validators.deep_iterable(
                             #    member_validator=validators.instance_of(
                             #        Input_stage),
@@ -641,46 +524,49 @@ class Seekr_input:
                 f"Plugin '{plugin}' not found. Please install it or check the spelling."
         model.plugins = self.plugins
         model.temperature = self.temperature
-        if self.md_settings is not None:
-            model.md_engine = self.md_settings.make_model_engine(self.temperature)
+        for settings in self.settings_list:
+            scale = settings.make_model_scale()
+            model.scales.append(scale)
+            engine = settings.make_model_engine(self.temperature)
+            model.engines.append(engine)
+
         if self.toy_settings is None:
             model.is_toy_system = False
         else:
             model.is_toy_system = True
-            if model.md_engine is not None:
-                self.toy_settings.assign_toy_settings(model.md_engine)
-        if self.bd_settings is not None:
-            model.bd_engine = self.bd_settings.make_model_engine()
+            assigned_toy_params = False
+            for scale in model.scales:
+                engine = model.get_engine_by_scale_type(scale.type)
+                if engine.can_handle_toy():
+                    assigned_toy_params = True
+                    self.toy_settings.assign_toy_settings(engine)
+
+            assert assigned_toy_params, \
+                "Toy settings were provided, but no capable engine was found to "\
+                    "assign them to."
+        
         # Assign stage information
         model.stages = []
-        if self.md_settings is not None:
-            if self.md_settings.systemwide_settings is not None:
-                if self.md_settings.systemwide_settings.positions is None:
-                    # Then the first stage is started from the anchors
-                    systemwide_stage_input = False
-                else:
-                    if not model.using_toy():
-                        assert self.md_settings.systemwide_settings\
-                            .md_parameters_topology is not None, \
-                            "If starting from a systemwide position, the topology file "\
-                            "must be specified systemwide unless using toy mode."
-                    systemwide_stage_input = True
-        
-        last_md_stage_index = 0
+        settings_by_scale: dict[str, typing.Any] = {}
+        systemwide_stage_input_by_scale: dict[str, bool] = {}
+        for settings in self.settings_list:
+            systemwide_stage_input_by_scale[settings.scale_type] \
+                = settings.start_from_systemwide(model.using_toy())
+            settings_by_scale[settings.scale_type] = settings
+
+        #last_md_stage_index = 0
+        last_stage_index_by_scale: dict[str, int] = defaultdict(int)
         for i, stage_input in enumerate(self.stages):
-            if stage_input.type == "md_stage":
-                assert self.md_settings is not None
-                assert self.md_settings.systemwide_settings is not None
-                stage_md, systemwide_stage_input = stage_input.make_model_stage(
-                    i+1, systemwide_stage_input, self.md_settings.systemwide_settings)
-                stage_md.input_stage_index = last_md_stage_index
-                last_md_stage_index = stage_md.index
-                model.stages.append(stage_md) 
-            elif stage_input.type == "bd_stage":
-                assert self.bd_settings is not None
-                stage_bd, systemwide_stage_input = stage_input.make_model_stage(
-                    i+1, systemwide_stage_input, self.bd_settings)
-                model.stages.append(stage_bd)  
+            scale_type = stage_input.get_scale_type()
+            settings = settings_by_scale[scale_type]
+            stage, systemwide_stage_input_by_scale[scale_type] \
+                = stage_input.make_model_stage(
+                    i+1, systemwide_stage_input_by_scale[scale_type], 
+                    settings)
+            stage.input_stage_index = last_stage_index_by_scale[scale_type]
+            last_stage_index_by_scale[scale_type] = stage.index
+            model.stages.append(stage)
+
         if self.random_seed is not None:
             model.set_random_seeds(self.random_seed)
         else:
@@ -742,20 +628,6 @@ def struct_cv_inputs(
     typ = obj.pop("type")
     return cattrs.structure(obj, cv_inputs[typ])
 
-def struct_md_sampling_method_inputs(
-        obj: typing.Dict[str, typing.Any],
-        _: typing.Type[sampling_methods_preparer.Base_md_sampling_method_input]
-        ) -> sampling_methods_preparer.Base_md_sampling_method_input:
-    typ = obj.pop("type")
-    return cattrs.structure(obj, md_sampling_methods_input[typ])
-
-def struct_bd_sampling_method_inputs(
-        obj: typing.Dict[str, typing.Any],
-        _: typing.Type[sampling_methods_preparer.Base_bd_sampling_method_input]
-        ) -> sampling_methods_preparer.Base_bd_sampling_method_input:
-    typ = obj.pop("type")
-    return cattrs.structure(obj, bd_sampling_methods_input[typ])
-
 def read_input(input_filename: str) -> Seekr_input:
     """
     Read the input JSON file into the input object.
@@ -793,22 +665,24 @@ def read_input(input_filename: str) -> Seekr_input:
 
         sampl_meth_module_str = base.get_plugin_str(
             plugin_name, submodule_name="sampling_methods", require_preparer=True)
+        
         if sampl_meth_module_str is not None:
             sampl_meth_module_prep = importlib.import_module(sampl_meth_module_str+".preparer")
-            md_sampling_methods_input.update(sampl_meth_module_prep.md_sampling_methods_input)
-            bd_sampling_methods_input.update(sampl_meth_module_prep.bd_sampling_methods_input)
-        
+            for scale_type in sampl_meth_module_prep.get_sampling_methods_input():
+                assert scale_type in scales_preparer.get_sampling_methods_input(), \
+                    f"Scale type '{scale_type}' not recognized in sampling methods."
+                scales_preparer.get_sampling_methods_input()[scale_type].update(
+                    sampl_meth_module_prep.get_sampling_methods_input()[scale_type]
+                )
+           
     # Use a cattrs Converter to define how to structure the dictionary input
     converter = Converter()
-    
-    # Register a structure hook for the Positions_type
     converter.register_structure_hook(base.Positions_type, 
                                       structures.structure_positions_type_union)
     converter.register_structure_hook(base.Float_or_list_type, 
                                       structures.structure_float_or_list_type_union)
     converter.register_structure_hook(base.Int_or_list_type, 
                                       structures.structure_int_or_list_type_union)
-    
     converter.register_structure_hook(restraints_preparer.Base_restraint_input,
                                         struct_restraint_inputs)
     converter.register_structure_hook(reporters_preparer.Base_reporter_input,
@@ -817,11 +691,7 @@ def read_input(input_filename: str) -> Seekr_input:
                                         struct_completion_criteria)
     converter.register_structure_hook(cv_base.Base_CV_input,
                                         struct_cv_inputs)
-    converter.register_structure_hook(sampling_methods_preparer.Base_md_sampling_method_input,
-                                        struct_md_sampling_method_inputs)
-    converter.register_structure_hook(sampling_methods_preparer.Base_bd_sampling_method_input,
-                                        struct_bd_sampling_method_inputs)
-    
+    scales_preparer.register_structure_hooks(converter)
     seekr_input = converter.structure(json_string, Seekr_input)
 
     return seekr_input
@@ -1011,6 +881,7 @@ def cleanse_outputs_stage(
     Delete all simulation outputs from systemwide or anchor.
     """
     stage = model.stages[stage_index]
+    # Replace with methods in the scales
     if stage.type == "md_stage":
         full_directory = os.path.join(model.directory, anchor_or_systemwide.directory, 
                                     stage.get_directory_name())
@@ -1277,6 +1148,9 @@ def modify_model(
     for new_anchor_index_to_create in new_anchors_to_create:
         print("creating new anchor {}".format(new_anchor_index_to_create))
     
+    # TODO: ensure that the new model has the same plugins as the old
+    # as well as the same engines, scales, etc.
+
     return new_anchors_with_starting_pdbs_to_keep
 
 def resolve_modifications_and_filetree(
@@ -1313,6 +1187,7 @@ def resolve_modifications_and_filetree(
         
         did_anchor_stage = False
         did_systemwide_stage = False
+        # TODO: This needs to be resolved another way - using "stage connector"?
         if (stage.input_from == "anchors") \
                 and stage.type == "md_stage":
             # NOTE: mypy error is handled with "md_stage" type check above
@@ -1343,7 +1218,7 @@ def resolve_modifications_and_filetree(
         new_index = index_reference[old_index]
         if new_index < len(anchors):
             input_anchor = associated_input_anchor[old_index]
-            anchors[new_index].generate_filetree(root_directory)
+            anchors[new_index].generate_filetree(model, root_directory)
             if (new_anchors_with_starting_pdbs_to_keep is not None) \
                     and (new_index in new_anchors_with_starting_pdbs_to_keep):
                 logging.info(f"Keeping starting structure for anchor: {new_index}")
@@ -1352,30 +1227,6 @@ def resolve_modifications_and_filetree(
                                                 model.using_toy())
     return
 
-def generate_bd_files(
-        model: structures.Seekr_model, 
-        directory: str
-        ) -> None:
-    """
-    Determine the BD engine and prepare the necessary files for it.
-    """
-    found_function = False
-    assert model.bd_engine is not None
-    if model.bd_engine.type == "browndye":
-        browndye_preparer.generate_bd_files(model, directory)
-        found_function = True
-    if model.bd_engine.type == "sda":
-        sda_preparer.generate_bd_files(model, directory)
-        found_function = True
-    else:
-        # implement check of installed plugins for other BD engines
-        # Loop over modules:
-        # found_function = function_in_module(...)
-        pass#
-
-    if not found_function:
-        raise Exception(f"BD engine type {model.bd_engine.type} not recognized.")
-    
 def resolve_connections(
         connection_flag_dict: dict, 
         model: structures.Seekr_model, 
@@ -1389,19 +1240,19 @@ def resolve_connections(
     anchors: list[structures.Anchor] = model.anchors
     anchor_indices_to_remove = []
     index_reference = {}
-    bulk_anchor: structures.Anchor | None = None
+    bulk_anchors: list[structures.Anchor] = []
     for anchor in anchors:
         index_reference[anchor.index] = anchor.index
     
     for key in connection_flag_dict:
         anchor_connection_list: list[structures.Anchor] \
             = connection_flag_dict[key]
-        bulk_discarded_indices = []
+        #bulk_discarded_indices = []
         if key == "bulk":
-            bulk_anchor = anchor_connection_list[0]
-            for anchor_discarded in anchor_connection_list:
-                anchor_indices_to_remove.append(anchor_discarded.index)
-                bulk_discarded_indices.append(anchor_discarded.index)
+            bulk_anchors.append(anchor_connection_list[0])
+            #for anchor_discarded in anchor_connection_list:
+                #anchor_indices_to_remove.append(anchor_discarded.index)
+                #bulk_discarded_indices.append(anchor_discarded.index)
                 
         else:
             assert len(anchor_connection_list) > 1, \
@@ -1453,14 +1304,7 @@ def resolve_connections(
                 
     for anchor_index_to_remove in anchor_indices_to_remove:
         anchors.pop(anchor_index_to_remove)
-    
-    if bulk_anchor is not None:
-        # make sure the bulk anchor is the last anchor always
-        anchors.append(bulk_anchor)
-        index_reference[bulk_anchor.index] = len(anchors) - 1
-        for bulk_discarded in bulk_discarded_indices:
-            index_reference[bulk_discarded] = len(anchors) - 1
-    
+
     visited_new_indices = []
     
     for old_index in index_reference:
@@ -1483,22 +1327,22 @@ def resolve_connections(
 
         visited_new_indices.append(new_index)
     
-    if bulk_anchor is None:
-        assert not model.using_bd(), "A bulk anchor must be defined "\
-            "if using BD. This can be done by naming an input_anchor "\
-            "with the name 'bulk', or by setting the 'bulk_anchor' flag "\
-            "to True."
+    # TODO: check the scale to ensure that a lack of bulk anchors is alright
+    if len(bulk_anchors) == 0:
+        assert not model.using_scale("brownian_dynamics"), \
+            "A bulk anchor must be defined if using BD. This can be done by "\
+            "naming an input_anchor with the name 'bulk', or by setting the "\
+            "'bulk_anchor' flag to True."
     else:
-        bulk_anchor.md = False
-        if model.using_bd():
-            bulk_anchor.bd = True
-            assert model.bd_engine is not None, "A BD engine must be "\
-                "defined if using BD."
-            bulk_anchor.directory = model.bd_engine.b_surface_directory
-
-            for neighbor_index in bulk_anchor.neighbor_anchor_indices:
-                neighbor_anchor = anchors[neighbor_index]
-                neighbor_anchor.bd = True
-
+        for bulk_anchor in bulk_anchors:
+            bulk_anchor = anchors[bulk_anchor.index]
+            if model.using_scale("brownian_dynamics"):
+                # Will throw error if BD engine not existent
+                bd_engine = model.get_engine_by_scale_type("brownian_dynamics")
+                bulk_anchor.scale_types.append("brownian_dynamics")
+                bulk_anchor.directory = bd_engine.b_surface_directory
+                for neighbor_index in bulk_anchor.neighbor_anchor_indices:
+                    neighbor_anchor = anchors[neighbor_index]
+                    neighbor_anchor.scale_types.append("brownian_dynamics")
 
     return anchors, index_reference

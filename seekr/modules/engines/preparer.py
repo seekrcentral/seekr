@@ -6,6 +6,7 @@ for easy access here.
 """
 
 import os
+import typing
 from shutil import copyfile
 
 import numpy as np

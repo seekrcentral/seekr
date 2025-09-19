@@ -14,6 +14,7 @@ import numpy as np
 
 import seekr.modules.analyzers.base as analyzers_base
 import seekr.modules.structures as structures
+import seekr.modules.analyzers.bulk_anchor_statistics as bulk_anchor_statistics
 import seekr.modules.analyzers.mmvt_anchor_statistics as mmvt_anchor_statistics
 import seekr.modules.analyzers.mmvt_data_sample as mmvt_data_sample
 
@@ -305,8 +306,7 @@ def check_extraction(
     connections_milestone_to_milestone = defaultdict(list)
     # A dictionary whose keys are milestone pairs and values are anchor indices
     for alpha, anchor in enumerate(model.anchors):
-        if anchor.bd and not anchor.md:
-            # bulk state
+        if anchor.bulk_anchor:
             for milestone in anchor.milestones:
                 connections_anchor_to_anchor[anchor.index].append(
                     milestone.neighbor_anchor_index)
@@ -329,13 +329,14 @@ def check_extraction(
             for milestone in anchor.milestones:
                 end_milestone_set.add(milestone.index)
 
-        if anchor.md:
+        if anchor_stats_alpha_list[alpha] is not None:
             existing_alias_alpha_beta = []
             existing_alias_i_j = []
             if len(anchor_stats_alpha_list[alpha]) == 0:
                 anchors_missing_alpha_beta_stats.add(anchor.index)
                 continue
-
+            if window_index >= len(anchor_stats_alpha_list[alpha]):
+                window_index = len(anchor_stats_alpha_list[alpha]) - 1
             anchor_stats_window: mmvt_anchor_statistics.Mmvt_anchor_statistics \
                 = anchor_stats_alpha_list[alpha][window_index]
             for key in anchor_stats_window.k_alpha_beta:
@@ -413,6 +414,7 @@ def check_extraction(
 def assign_data_windows_sample(
         model: structures.Seekr_model, 
         anchor_stats_alpha_list: list[list[mmvt_anchor_statistics.Mmvt_anchor_statistics]],
+        bulk_stats: bulk_anchor_statistics.Bulk_anchor_statistics | None,
         window_index_list: list[int],
         data_window_list: list[Mmvt_data_window],
         assign_to_main: bool):
@@ -427,24 +429,21 @@ def assign_data_windows_sample(
         R_i_alpha_total = []
         T_alpha_total = []
         for alpha, anchor1 in enumerate(model.anchors):
-            if anchor1.bd and not anchor1.md:
+            if anchor1.bulk_anchor:
                 continue
             #if window_index >= len(anchor_stats_alpha_list[alpha]):
             #    window_index = len(anchor_stats_alpha_list[alpha]) - 1
-            #print("i:", i, "window_index:", window_index)
-            #print("len(anchor_stats_alpha_list[alpha]):", len(anchor_stats_alpha_list[alpha]))
-            
-            #anchor_stats_window: mmvt_anchor_statistics.Mmvt_anchor_statistics \
-            #    = anchor_stats_alpha_list[alpha][window_index]
-            
+            if i >= len(anchor_stats_alpha_list[alpha]):
+                i_modified = len(anchor_stats_alpha_list[alpha]) - 1
+            else:
+                i_modified = i
             anchor_stats_window: mmvt_anchor_statistics.Mmvt_anchor_statistics \
-                = anchor_stats_alpha_list[alpha][i]
+                = anchor_stats_alpha_list[alpha][i_modified]
             window_time = anchor_stats_window.time_count
             anchor_N_alpha_beta = anchor_stats_window.N_alpha_beta
             anchor_k_alpha_beta = anchor_stats_window.k_alpha_beta
             for beta, anchor2 in enumerate(model.anchors):
-                if anchor2.bd and not anchor2.md:
-                    # bulk state
+                if anchor2.bulk_anchor:
                     continue
                 if alpha == beta:
                     continue
@@ -499,16 +498,26 @@ def assign_data_windows_sample(
             anchor_T_alpha = anchor_stats_window.T_alpha_total
             T_alpha_total.append(anchor_T_alpha)
         
+        abort_on_check_error = False
+        if assign_to_main and i == len(window_index_list) - 1:
+            abort_on_check_error = True
+
         check_passed = check_extraction(
             model, anchor_stats_alpha_list, window_index=i,
-            abort_on_error=False)
-            #model, anchor_stats_alpha_list, window_index=window_index,
-            #abort_on_error=False)
+            abort_on_error=abort_on_check_error)
+            
         
         data_sample = mmvt_data_sample.Mmvt_data_sample(
             N_alpha_beta, k_alpha_beta, N_i_j_alpha, 
             R_i_alpha_total, T_alpha_total)
-                
+        
+        if bulk_stats is not None:
+            data_sample.k_ons_src = bulk_stats.k_ons_src
+            data_sample.k_on_errors_src = bulk_stats.k_on_errors_src
+            data_sample.transition_counts = bulk_stats.transition_counts
+            data_sample.transition_probabilities = bulk_stats.transition_probabilities
+            data_sample.outer_milestone_indices = bulk_stats.outer_milestone_indices
+
         if check_passed:
             data_sample.preprocess_statistics(model)
             data_sample.calculate_pi_alpha(model)

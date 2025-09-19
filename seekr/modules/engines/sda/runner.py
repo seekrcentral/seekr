@@ -7,11 +7,9 @@ Run simulations for SDA engine.
 import os
 import re
 import glob
-import logging
 
 import seekr.modules.engines.sda.base as sda_base
 import seekr.modules.structures as structures
-import seekr.modules.engines.sda.structures as sda_structures
 
 def cleanse_bd_outputs(directory, results_glob, check_mode=True):
     """
@@ -212,14 +210,14 @@ def run_simulation(
     """
     Determine which bd engine to run and run it
     """
-    assert model.bd_engine is not None
-    assert model.bd_engine.type == "sda"
-    bd_directory = os.path.join(model.directory, model.bd_engine.b_surface_directory)
+    bd_engine = model.get_engine_by_scale_type("brownian_dynamics")
+    assert bd_engine.type == "sda"
+    bd_directory = os.path.join(model.directory, bd_engine.b_surface_directory)
     sda_output_glob = sda_base.SDA_RESULTS_GLOB
-    bd_seed = model.bd_engine.random_seed
+    bd_seed = bd_engine.random_seed
     modify_variables(
         bd_directory, sda_output_glob, n_trajectories, bd_seed, restart=restart)
-    sda_bin_dir = os.path.expanduser(model.bd_engine.binary_directory)
+    sda_bin_dir = os.path.expanduser(bd_engine.binary_directory)
     if not os.path.exists(sda_bin_dir):
         raise FileNotFoundError(f"SDA binary directory does not exist: {sda_bin_dir}")
     # Run the SDA simulation

@@ -18,6 +18,7 @@ import seekr._version as seekr_version
 import seekr.modules.base as base
 import seekr.modules.structures as structures
 import seekr.modules.preparer as preparer
+import seekr.modules.scales.preparer as scale_preparer
 import seekr.modules.check as check
 
 __version__ = seekr_version.__version__
@@ -40,7 +41,7 @@ def prepare(
     log_directory = model.get_log_directory(directory)
     preparer.generate_directory(log_directory)
     synopsis_filename = model.get_synopsis_filename(directory)
-    base.configure_file_only_logger(synopsis_filename, False)
+    base.configure_file_only_logger(synopsis_filename, overwrite=False)
     full_command = " ".join(sys.argv)
     logging.info(f"Preparing new model with command: {full_command}")
     logging.info(f"hostname: {socket.gethostname()}. username: {getpass.getuser()}. "\
@@ -53,21 +54,12 @@ def prepare(
         raise Exception("Partition must be defined in input file, "\
                         "empty partitions are not yet implemented.")
     
-    if model.using_md():
-        assert seekr_input.md_settings is not None
-        assert seekr_input.md_settings.systemwide_settings is not None
-        assert model.md_engine is not None
-        assert model.md_engine.systemwide_settings is not None
-        seekr_input.md_settings.systemwide_settings.copy_initial_files(
-            directory, model.md_engine.systemwide_settings, model.using_toy())
-        
-    if model.using_bd():
-        assert seekr_input.bd_settings is not None
-        assert model.bd_engine is not None
-        seekr_input.bd_settings.copy_bd_files(model, directory)
-        # NOTE: this is the best place for this function
-        base.configure_file_and_stdout_logger(synopsis_filename, False)
-        preparer.generate_bd_files(model, directory)
+    base.configure_file_and_stdout_logger(synopsis_filename, overwrite=False)
+    for settings in seekr_input.settings_list:
+        assert model.get_engine_by_scale_type(settings.scale_type) is not None, \
+            f"Engine for scale type {settings.scale_type} is not defined."
+        settings.copy_initial_files(model, directory, using_toy=model.using_toy())
+        scale_preparer.generate_files(model, directory, settings.scale_type)
         
     model.save(file_path)
     os.chdir(curdir)

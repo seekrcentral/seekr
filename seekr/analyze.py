@@ -19,14 +19,14 @@ def analyze(
         model: structures.Seekr_model,
         stage_index: int | None = None,
         skip_checks: bool = False,
-        minimum_time: float = 0.0,
-        maximum_time: float | None = None,
+        min_time_ps: float = 0.0,
+        max_time_ps: float | None = None,
         error_analysis_method: str = "bootstrap"
     ) -> mmvt_analyzer.Mmvt_analyzer:
     curdir = os.getcwd()
     analysis = analyzer.analyze(
         model, stage_index=stage_index, skip_checks=skip_checks,
-        minimum_time=minimum_time, maximum_time=maximum_time,
+        min_time_ps=min_time_ps, max_time_ps=max_time_ps,
         error_analysis_method=error_analysis_method
     )
     os.chdir(curdir)
@@ -71,15 +71,15 @@ if __name__ == "__main__":
     model_file = args["model_file"]
     stage = args["stage"]
     skip_checks = args["skip_checks"]
-    min_time = args["minimum_time"]
-    max_time = args["maximum_time"]
+    min_time_ps = args["minimum_time"]
+    max_time_ps = args["maximum_time"]
     error_analysis_method = args["error_analysis_method"]
     model = structures.load_model(model_file)
     if not skip_checks:
         check.check_post_simulation_all(model)
     analysis = analyze(
         model, stage_index=stage, skip_checks=skip_checks, 
-        minimum_time=min_time, maximum_time=max_time,
+        min_time_ps=min_time_ps, max_time_ps=max_time_ps,
         error_analysis_method=error_analysis_method)
     analysis.print_results()
     print("All plots being saved to:", analyzer_base.DEFAULT_IMAGE_DIR)

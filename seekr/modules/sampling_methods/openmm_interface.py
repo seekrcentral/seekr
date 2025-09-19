@@ -16,6 +16,7 @@ import importlib
 
 from attrs import define
 import numpy as np
+import mdtraj
 import openmm
 import openmm.app as openmm_app
 import openmm.unit as unit
@@ -67,7 +68,8 @@ def open_txt_file_for_simulation(
 
 def write_pdb_file_from_simulation(
         filename: str,
-        simulation: openmm_app.Simulation
+        simulation: openmm_app.Simulation,
+        image_molecules: bool = True
         ) -> None:
     """
     Write a PDB file with the current state of the system.
@@ -77,6 +79,17 @@ def write_pdb_file_from_simulation(
     positions = state.getPositions()
     box_vectors = state.getPeriodicBoxVectors()
     simulation.topology.setPeriodicBoxVectors(box_vectors)
+    if image_molecules:
+        mdtraj_top = mdtraj.Topology.from_openmm(simulation.topology)
+        positions_np = np.array(positions.value_in_unit(unit.nanometers), dtype=np.float32)
+        traj = mdtraj.Trajectory(
+            xyz=positions_np[np.newaxis, :, :], 
+            topology=mdtraj_top)
+        traj.unitcell_vectors=np.array(
+            box_vectors.value_in_unit(unit.nanometers), dtype=np.float32).T[np.newaxis, :, :]
+        traj.image_molecules(inplace=True)
+        positions = traj.xyz[0] * unit.nanometers
+
     with open(filename, "w") as f:
         openmm_app.PDBFile.writeFile(
             simulation.topology, positions, f, 
@@ -130,6 +143,7 @@ class Base_md_openmm_interface:
         This can be called, if need be, by a sampling method, or on behalf of a
         completion criteria.
         """
+        md_engine = self._model.get_engine_by_scale_type("molecular_dynamics")
         if self._cv_interface_list is not None:
             return None
         elif self._openmm_cv_list is not None:
@@ -139,7 +153,7 @@ class Base_md_openmm_interface:
             self._openmm_cv_list = []
             for i, cv in enumerate(self._model.collective_variables):
                 cv_interface = collective_variables_openmm_interface.assign_cv_interface(
-                    cv, self._model.md_engine, self._model.directory, self._model.plugins)
+                    cv, md_engine, self._model.directory, self._model.plugins)
                 assert cv_interface is not None
                 self._cv_interface_list.append(cv_interface)
                 cv_force = cv_interface.make_cv_force()
@@ -276,8 +290,8 @@ class Base_md_openmm_interface:
 
     def perform_eval(
             self, 
-            restart_index: int, 
-            swarm_index: int
+            _restart_index: int, 
+            _swarm_index: int
             ) -> None:
         """
         Perform an evaluation at a certain point in the simulation.
@@ -454,9 +468,10 @@ class Base_md_openmm_interface:
         assert self._model is not None
         current_anchor = self._model.anchors[current_anchor_index]
         # Check to make sure the system is inside the target anchor
-        if not current_anchor.md:
-            logging.critical(f"System has reached non-MD (BD only?) anchor {current_anchor_index}. "\
-                            "Consider imposing a Proximity restraint or other restraint.")
+        if "molecular_dynamics" not in current_anchor.scale_types:
+            logging.critical(
+                f"System has reached non-MD (BD only?) anchor {current_anchor_index}. "
+                 "Consider imposing a Proximity restraint or other restraint.")
             raise Exception("Simulation has reached a non-MD anchor. Aborting.")
         for milestone in current_anchor.milestones:
             curdir = os.getcwd()
@@ -464,8 +479,9 @@ class Base_md_openmm_interface:
             result = milestone.is_point_within(cv_values)
             os.chdir(curdir)
             if not result:
-                logging.critical(f"System has not reached the target anchor {current_anchor_index}."\
-                                 "If using SMD, stronger force constant needed?")
+                logging.critical(
+                    f"System has not reached the target anchor {current_anchor_index}."
+                     "If using SMD, stronger force constant needed?")
                 raise Exception("Target anchor not reached.")
         anchor_directory = os.path.join(
             self._model.directory, current_anchor.directory,
@@ -481,7 +497,8 @@ class Base_md_openmm_interface:
         output_positions_basename = output_positions_basename_noext + extension
         output_positions_filename = os.path.join(anchor_directory, 
                                             output_positions_basename)
-        current_anchor.change_positions_filename(output_positions_basename_noext, self._stage_index)
+        current_anchor.change_positions_filename(
+            output_positions_basename_noext, self._stage_index)
         if self._model.using_toy():
             write_txt_file_from_simulation(output_positions_filename, self._simulation_obj)
         else:
@@ -498,8 +515,9 @@ class Base_md_openmm_interface:
         assert self._model is not None
         current_anchor = self._model.anchors[current_anchor_index]
         # Check to make sure the system is inside the target anchor
-        if not current_anchor.md:
-            logging.critical(f"Attempting to load a non-MD anchor {current_anchor_index}. Aborting.")
+        if "molecular_dynamics" not in current_anchor.scale_types:
+            logging.critical(
+                f"Attempting to load a non-MD anchor {current_anchor_index}. Aborting.")
             raise Exception("Cannot read non-MD anchor. Aborting.")
         stage_parameter = current_anchor.stage_parameters[self._stage_index+1]
         assert stage_parameter is not None, \
@@ -590,7 +608,7 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
         self._model = model
         directory: str = kwargs["directory"]
         #self._directory = directory
-        md_engine = model.md_engine
+        md_engine = self._model.get_engine_by_scale_type("molecular_dynamics")
         assert md_engine is not None
         assert md_engine.type == "openmm", \
             "Only OpenMM engines can be used in the openmm_interface module."
@@ -652,8 +670,8 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
     
     def perform_eval(
             self, 
-            restart_index: int, 
-            swarm_index: int
+            _restart_index: int, 
+            _swarm_index: int
             ) -> None:
         """
         Perform an evaluation at a certain point in the simulation.
@@ -724,7 +742,7 @@ class Steered_md_openmm_interface(Base_md_openmm_interface):
         self._model = model
         #directory: str = kwargs["directory"]
         #self._directory = directory
-        md_engine = model.md_engine
+        md_engine = self._model.get_engine_by_scale_type("molecular_dynamics")
         assert md_engine is not None
         assert md_engine.type == "openmm", \
             "Only OpenMM engines can be used in the openmm_interface module."
@@ -836,7 +854,7 @@ class Steered_md_openmm_interface(Base_md_openmm_interface):
                 
         distance = np.sqrt(total_sq_distance)
         total_time_ps = 1000.0 * distance / self.sampling_method.velocity
-        timestep = self._model.get_md_timestep()
+        timestep = self._model.get_timestep_by_type("molecular_dynamics")
         total_num_timesteps = int(total_time_ps / timestep)
         num_smd_windows = (total_num_timesteps // self._steps_between_evals) + 1
 
@@ -846,7 +864,9 @@ class Steered_md_openmm_interface(Base_md_openmm_interface):
                 start_value = cv_values[var_cv]
                 last_value = target_anchor.variables[variable_key]
                 cv_name = self._model.collective_variables[var_cv].name
-                logging.info(f"Running CV {cv_name} steered MD from value {start_value} to {last_value}")
+                logging.info(
+                    f"Running CV {cv_name} steered MD from value {start_value} to "
+                    f"{last_value}")
                 windows = np.linspace(start_value, last_value, num_smd_windows)
                 windows_list_unzipped.append(windows)
 
@@ -860,8 +880,8 @@ class Steered_md_openmm_interface(Base_md_openmm_interface):
 
     def perform_eval(
             self, 
-            restart_index: int, 
-            swarm_index: int
+            _restart_index: int, 
+            _swarm_index: int
             ) -> None:
         """
         Perform an evaluation at a certain point in the simulation.
@@ -1080,10 +1100,7 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
         system: openmm.System = self._system_obj
         model: structures.Seekr_model = kwargs["model"]
         self._model = model
-        md_engine = model.md_engine
-        assert md_engine is not None
-        #if self._openmm_cv_list is None:
-        #    self._openmm_cv_list = []
+        md_engine = self._model.get_engine_by_scale_type("molecular_dynamics")
         assert md_engine.type == "openmm", \
             "Only OpenMM engines can be used in the openmm_interface module."
         self.create_openmm_cv_list()

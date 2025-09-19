@@ -84,6 +84,7 @@ class Browndye_systemwide_settings:
 @define
 class Browndye_bd_engine:
     type: typing.Literal["browndye"] = "browndye"
+    scale_type: typing.Literal["brownian_dynamics"] = "brownian_dynamics"
     binary_directory: str = field(default="",
                                     validator=instance_of(str))
     apbs_grid_spacing: float = field(default=0.5,
@@ -155,3 +156,11 @@ class Browndye_bd_engine:
         """
         self.random_seed = seed
         return
+    
+    def can_handle_toy(
+            self
+            ) -> bool:
+        """
+        Can this engine handle toy systems?
+        """
+        return False

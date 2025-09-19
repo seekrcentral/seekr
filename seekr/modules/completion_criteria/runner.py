@@ -11,10 +11,12 @@ import importlib
 import seekr.modules.structures as structures
 import seekr.modules.completion_criteria.structures as completion_criteria_structures
 import seekr.modules.engines.structures as engines_structures
+import seekr.modules.scales.molecular_dynamics.structures as md_structures
 
+# TODO: do these need to be moved or integrated into scales?
 def filled_and_unfilled_anchors(
         model: structures.Seekr_model,
-        stage: structures.Stage_md
+        stage: md_structures.Stage_md
     ) -> tuple[list[int], list[int]]:
     """
     Return two lists: one of the indices of anchors that have been filled
@@ -25,7 +27,7 @@ def filled_and_unfilled_anchors(
     stage_index = stage.index
     stage_output_globs: list[str] = stage.sampling_method.get_output_positions_glob_list()
     for anchor in model.anchors:
-        if not anchor.md:
+        if "molecular_dynamics" not in anchor.scale_types:
             continue
         found_outputs_for_anchor = False
         stage_parameter = anchor.stage_parameters[stage_index]
@@ -52,7 +54,7 @@ def filled_and_unfilled_anchors(
 
 def is_finished_md(
         model: structures.Seekr_model,
-        stage: structures.Stage_md,
+        stage: md_structures.Stage_md,
         anchor_or_systemwide: engines_structures.MD_systemwide_settings | structures.Anchor,
         current_step: int,
         swarm_id: int = 0,
@@ -65,7 +67,7 @@ def is_finished_md(
 
 def is_finished_md_with_message(
         model: structures.Seekr_model,
-        stage: structures.Stage_md,
+        stage: md_structures.Stage_md,
         anchor_or_systemwide: engines_structures.MD_systemwide_settings | structures.Anchor,
         current_step: int,
         swarm_id: int = 0,

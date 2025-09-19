@@ -33,62 +33,39 @@ def load_checkpoint_information(
         = converter.structure(json_string, engines_structures.Checkpoint_information)
     return checkpoint_information
 
-def run_md_simulation(
+def run_simulation(
         model: structures.Seekr_model, 
         stage_index: int, 
-        anchor_index: int, 
         restart: bool, 
+        anchor_index: int | None = None, 
         swarm_index: int | None = None, 
         device_index: str | None = None,
+        n_trajectories: int = 0,
         force_overwrite: bool = False
         ) -> None:
     """
     Determine which md engine to run and run it
     """
-    assert model.md_engine is not None
-    found_engine = False
-    if model.md_engine.type == "openmm":
+    stage = model.stages[stage_index]
+    engine = model.get_engine_by_scale_type(stage.scale_type)
+    if engine.type == "openmm":
         import seekr.modules.engines.openmm.runner as runner_openmm
         runner_openmm.run_simulation(
             model, stage_index, anchor_index, 
             restart, swarm_index, device_index, 
             force_overwrite)
-        found_engine = True
+    elif engine.type == "browndye":
+        runner_browndye.run_simulation(
+            model, n_trajectories, restart, force_overwrite)
+    elif engine.type == "sda":
+        runner_sda.run_simulation(
+            model, n_trajectories, restart, force_overwrite)
     else:
         # TODO: search plugins for other MD engines
         pass
-
-    if not found_engine:
-        raise Exception(f"MD engine not found: {model.md_engine.type}.")
 
     return
     
-def run_bd_simulation(
-        model: structures.Seekr_model, 
-        n_trajectories: int, 
-        restart: bool, 
-        force_overwrite: bool = False
-    ) -> None:
-    """
-    Determine which bd engine to run and run it
-    """
-    assert model.bd_engine is not None
-    found_engine = False
-    if model.bd_engine.type == "browndye":
-        runner_browndye.run_simulation(
-            model, n_trajectories, restart, force_overwrite)
-        found_engine = True
-    elif model.bd_engine.type == "sda":
-        runner_sda.run_simulation(
-            model, n_trajectories, restart, force_overwrite)
-        found_engine = True
-    else:
-        # TODO: search plugins for other MD engines
-        pass
-
-    if not found_engine:
-        raise Exception(f"BD engine not found: {model.bd_engine.type}.")
-
 def cleanse_outputs_bd(
         bulk_anchor, 
         model):

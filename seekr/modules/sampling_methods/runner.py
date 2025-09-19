@@ -85,7 +85,7 @@ def find_next_anchor_index(
     for visited_anchor_index in visited_anchor_dict:
         for milestone in model.anchors[visited_anchor_index].milestones:
             neighbor_index = milestone.neighbor_anchor_index
-            if not model.anchors[neighbor_index].md:
+            if "molecular_dynamics" not in model.anchors[neighbor_index].scale_types:
                 continue
             if neighbor_index not in visited_anchor_dict:
                 edge_distance = find_edge_distance(model, visited_anchor_index, 

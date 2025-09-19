@@ -22,6 +22,8 @@ import seekr.modules.engines.browndye.xml_structures as xml_structures
 import seekr.modules.engines.browndye.structures as browndye_structures
 import seekr.modules.collective_variables.structures as cv_structures
 import seekr.modules.collective_variables.distance_cv as distance_cv
+import seekr.modules.scales.brownian_dynamics.structures as bd_scale
+import seekr.modules.engines.preparer as engines_preparer
 
 @define
 class Browndye_molecule_input:
@@ -104,6 +106,7 @@ class Browndye_molecule_input:
 @define
 class Browndye_settings_input:
     type: typing.Literal["browndye"] = "browndye"
+    scale_type: typing.Literal["brownian_dynamics"] = "brownian_dynamics"
     binary_directory: str = field(default="",
                                     validator=validators.instance_of(str))
     apbs_grid_spacing: float = field(default=0.5,
@@ -122,7 +125,17 @@ class Browndye_settings_input:
                                     Browndye_molecule_input),
                                 iterable_validator=validators.instance_of(list),
                             ))
-    def make_model_engine(self):
+    def make_model_scale(
+            self
+            ) -> bd_scale.Scale_bd:
+        scale = bd_scale.Scale_bd()
+        scale.engine = "browndye"
+        return scale
+
+    def make_model_engine(
+            self,
+            dummy_temperature: float
+            ) -> browndye_structures.Browndye_bd_engine:
         """
         Make the model engine object for this input.
         """
@@ -134,21 +147,33 @@ class Browndye_settings_input:
         bd_engine.systemwide_settings.molecules = []
         return bd_engine
     
-    def copy_bd_files(
+    def start_from_systemwide(
+            self,
+            using_toy: bool
+        ) -> bool:
+        """
+        Whether this engine uses systemwide settings to start from.
+        It does - because BD simulations don't really have anchor-by-anchor
+        parameters. Simulations start from the bulk anchor.
+        """
+        return True
+    
+    def copy_initial_files(
             self,
             model: structures.Seekr_model, 
-            root_directory: str
+            root_directory: str,
+            using_toy: bool = False # dummy parameter
             ) -> None:
         """
         Copy the BD files into the anchor directory.
         """
-        assert model.bd_engine is not None, \
-            "BD engine must be defined to copy BD files."
-        assert model.bd_engine.systemwide_settings is not None, \
+        bd_engine: browndye_structures.Browndye_bd_engine \
+            = model.get_engine_by_scale_type("brownian_dynamics")
+        assert bd_engine.systemwide_settings is not None, \
             "BD systemwide settings must be defined - anchor-by-anchor " \
             "not yet implemented."
         for anchor in model.anchors:
-            if anchor.bd and not anchor.md:
+            if anchor.bulk_anchor:
                 # If anchor.bd is True, while anchor.md is False, then this
                 # must be the b-surface directory - "bulk anchor"
                 b_surface_directory = os.path.join(
@@ -163,7 +188,7 @@ class Browndye_settings_input:
                         pqr_new_filename)
                     new_bd_molecule.original_indices = original_indices
                     new_bd_molecule.ghost_site_indices = ghost_site_indices
-                    model.bd_engine.systemwide_settings.molecules.append(new_bd_molecule)
+                    bd_engine.systemwide_settings.molecules.append(new_bd_molecule)
                     
         return
     
@@ -319,6 +344,41 @@ def make_browndye_input_xml(
                 
     return debye_length, reaction_filename
 
+def get_spherical_milestones_and_cv_index_in_neighbor_anchor(
+        model: structures.Seekr_model,
+        neighbor_anchor: structures.Anchor,
+        ) -> typing.Tuple[typing.List[structures.Milestone], int]:
+    cvs = model.collective_variables
+    spherical_milestones_in_neighbor_anchor = []
+    this_anchors_bd_cv_index = None
+    for milestone in neighbor_anchor.milestones:
+        found_variable_in_this_milestone = False
+        for variable in milestone.variables:
+            if variable.startswith("me"):
+                cv_index = milestone.get_cv_index_from_variable(variable)
+                if cvs[cv_index].type == "distance":
+                    spherical_milestones_in_neighbor_anchor.append(
+                        milestone)
+                    if this_anchors_bd_cv_index is None:
+                        this_anchors_bd_cv_index = cv_index
+                    else:
+                        assert this_anchors_bd_cv_index == cv_index, \
+                            "BD anchor is attempting to use multiple cvs to "\
+                            "define reaction criteria - not implemented."
+                    if not found_variable_in_this_milestone:
+                        found_variable_in_this_milestone = True
+                    else:
+                        raise AssertionError("Milestone has multiple distance CVs"\
+                                            " - not implemented")
+
+    assert len(spherical_milestones_in_neighbor_anchor) == 2, \
+        "BD anchor must have exactly 2 spherical milestones - "\
+        "other arrangements not yet implemented"
+    # Sort by the average between the positions of the neighboring anchors
+    spherical_milestones_in_neighbor_anchor.sort(
+        key=lambda x: x.variables["avg_value"], reverse=True)
+    return spherical_milestones_in_neighbor_anchor, this_anchors_bd_cv_index
+
 def make_browndye_reaction_xml(
         model: structures.Seekr_model | None,
         abs_reaction_path: str
@@ -332,163 +392,180 @@ def make_browndye_reaction_xml(
         rxnroot.write(abs_reaction_path)
         return
 
-    bd_engine = model.bd_engine
+    bd_engine = model.get_engine_by_scale_type("brownian_dynamics")
     cvs = model.collective_variables
-    bulk_anchor: structures.Anchor
+    bulk_anchors: list[structures.Anchor] = []
     for anchor in model.anchors:
-        if anchor.bd and not anchor.md:
-            bulk_anchor = anchor
+        if anchor.bulk_anchor:
+            bulk_anchors.append(anchor)
 
-    assert bulk_anchor is not None, "No BD anchor found"
-    for neighbor_anchor_index in bulk_anchor.neighbor_anchor_indices:
-        neighbor_anchor = model.anchors[neighbor_anchor_index]
-        spherical_milestones_in_this_anchor = []
-        this_anchors_bd_cv_index = None
-        for milestone in neighbor_anchor.milestones:
-            found_variable_in_this_milestone = False
-            for variable in milestone.variables:
-                if variable.startswith("me"):
-                    cv_index = milestone.get_cv_index_from_variable(variable)
-                    if cvs[cv_index].type == "distance":
-                        spherical_milestones_in_this_anchor.append(
-                            milestone)
-                        if this_anchors_bd_cv_index is None:
-                            this_anchors_bd_cv_index = cv_index
-                        else:
-                            assert this_anchors_bd_cv_index == cv_index, \
-                                "BD anchor is attempting to use multiple cvs to "\
-                                "define reaction criteria - not implemented."
-                        if not found_variable_in_this_milestone:
-                            found_variable_in_this_milestone = True
-                        else:
-                            raise AssertionError("Milestone has multiple distance CVs"\
-                                                 " - not implemented")
-                        
-        assert len(spherical_milestones_in_this_anchor) == 2, \
-            "BD anchor must have exactly 2 spherical milestones - "\
-            "other arrangements not yet implemented"
-        # Sort by the average between the positions of the neighboring anchors
-        spherical_milestones_in_this_anchor.sort(
-            key=lambda x: x.variables["avg_value"], reverse=True)
-        assert this_anchors_bd_cv_index is not None
-        this_cv: cv_structures.Collective_variable = cvs[this_anchors_bd_cv_index]
-        assert isinstance(this_cv, distance_cv.Distance_CV), \
-            "BD anchor must use distance CV - other CVs not yet implemented"
-        this_cv_group1_name: str = this_cv.group1_name
-        this_cv_group2_name: str = this_cv.group2_name
-        ghost_index_1: int = -1
-        ghost_index_2: int = -1
-        molecule1_name: str = ""
-        molecule2_name: str = ""
-        assert bd_engine is not None, "BD engine must be set to make reaction files"
-        assert bd_engine.systemwide_settings is not None, \
-            "Systemwide settings must be set to make reaction files"
-        for molecule in bd_engine.systemwide_settings.molecules:
-            assert molecule.ghost_site_indices is not None, \
-                "Ghost site indices must be set for all molecules"
-            if this_cv_group1_name in molecule.ghost_site_indices:
-                ghost_index_1 = molecule.ghost_site_indices[this_cv_group1_name]
-                molecule1_name = molecule.name
-            if this_cv_group2_name in molecule.ghost_site_indices:
-                ghost_index_2 = molecule.ghost_site_indices[this_cv_group2_name]
-                molecule2_name = molecule.name
-        assert ghost_index_1 is not None, f"Ghost index named {this_cv_group1_name} not found"
-        assert ghost_index_2 is not None, f"Ghost index named {this_cv_group2_name} not found"
-        
-        # Next identify which is the inner and the outer milestone
-        rxn_outer = xml_structures.Reaction()
-        pair1 = xml_structures.Pair()
-        from_state: str = "b"
-        outer_milestone: structures.Milestone = spherical_milestones_in_this_anchor[0]
-        to_state: str = str(outer_milestone.index)
-        rxn_outer.name = f"{from_state}_{to_state}"
-        rxn_outer.state_after = str(outer_milestone.index)
-        pair1.distance = outer_milestone.variables['avg_value'] * 10.0
-        rxn_outer.state_before = rxnroot.first_state
-        rxn_outer.molecule0_group = molecule1_name
-        rxn_outer.molecule0_core = molecule1_name
-        rxn_outer.molecule1_group = molecule2_name
-        rxn_outer.molecule1_core = molecule2_name
-        rxn_outer.n_needed = 1
-        pair1.atom1_index = ghost_index_1
-        pair1.atom2_index = ghost_index_2
-        rxn_outer.pair_list.append(pair1)
-        rxnroot.reaction_list.append(rxn_outer)
-        
-        rxn_inner = xml_structures.Reaction()
-        pair2 = xml_structures.Pair()
-        from_state = str(outer_milestone.index)
-        inner_milestone = spherical_milestones_in_this_anchor[1]
-        to_state = str(inner_milestone.index)
-        rxn_inner.name = "{}_{}".format(from_state, to_state)
-        rxn_inner.state_after = str(inner_milestone.index)
-        pair2.distance = inner_milestone.variables['avg_value'] * 10.0
-        rxn_inner.state_before = str(outer_milestone.index)
-        rxn_inner.molecule0_group = molecule1_name
-        rxn_inner.molecule0_core = molecule1_name
-        rxn_inner.molecule1_group = molecule2_name
-        rxn_inner.molecule1_core = molecule2_name
-        rxn_inner.n_needed = 1
-        pair2.atom1_index = ghost_index_1
-        pair2.atom2_index = ghost_index_2
-        rxn_inner.pair_list.append(pair2)
-        rxnroot.reaction_list.append(rxn_inner)
-        
-        for other_neighbor_anchor_index in bulk_anchor.neighbor_anchor_indices:
-            if other_neighbor_anchor_index == neighbor_anchor_index:
-                continue
-            other_neighbor_anchor = model.anchors[other_neighbor_anchor_index]
-            other_spherical_milestones_in_this_anchor = []
-            other_anchors_bd_cv_index = None
-            for other_milestone in other_neighbor_anchor.milestones:
-                found_variable_in_this_other_milestone = False
-                for other_variable in other_milestone.variables:
-                    if other_variable.startswith("me"):
-                        other_cv_index = other_milestone.get_cv_index_from_variable(other_variable)
-                        if cvs[other_cv_index].type == "distance":
-                            other_spherical_milestones_in_this_anchor.append(
+    cross_site_information: dict = {}
+
+    assert len(bulk_anchors) > 0, "No BD anchor found"
+    for bulk_anchor in bulk_anchors:
+        for neighbor_anchor_index in bulk_anchor.neighbor_anchor_indices:
+            neighbor_anchor = model.anchors[neighbor_anchor_index]
+            """ # TODO: remove
+            spherical_milestones_in_neighbor_anchor = []
+            this_anchors_bd_cv_index = None
+            for milestone in neighbor_anchor.milestones:
+                found_variable_in_this_milestone = False
+                for variable in milestone.variables:
+                    if variable.startswith("me"):
+                        cv_index = milestone.get_cv_index_from_variable(variable)
+                        if cvs[cv_index].type == "distance":
+                            spherical_milestones_in_neighbor_anchor.append(
                                 milestone)
-                            if other_anchors_bd_cv_index is None:
-                                other_anchors_bd_cv_index = other_cv_index
+                            if this_anchors_bd_cv_index is None:
+                                this_anchors_bd_cv_index = cv_index
                             else:
-                                assert other_anchors_bd_cv_index == other_cv_index, \
+                                assert this_anchors_bd_cv_index == cv_index, \
                                     "BD anchor is attempting to use multiple cvs to "\
                                     "define reaction criteria - not implemented."
-                            if not found_variable_in_this_other_milestone:
-                                found_variable_in_this_other_milestone = True
+                            if not found_variable_in_this_milestone:
+                                found_variable_in_this_milestone = True
                             else:
                                 raise AssertionError("Milestone has multiple distance CVs"\
                                                     " - not implemented")
-                            
-            # Sort by the average between the positions of the neighboring anchors
-            other_spherical_milestones_in_this_anchor.sort(
-                key=lambda x: x.variables["avg_value"], reverse=True)
 
-            """ # TODO: return to this later - cross-site reactions.
-            for j, bd_milestone3 in enumerate(model.k_on_info.bd_milestones):
-                if bd_milestone2.index == bd_milestone3.index:
-                    continue
-                rxn_other = sim_browndye2.Reaction()
-                pair3 = sim_browndye2.Pair()
-                from_state = str(bd_milestone2.outer_milestone.index)
-                to_state = str(bd_milestone3.outer_milestone.index)
-                rxn_other.name = "{}_{}".format(from_state, to_state)
-                rxn_other.state_after = str(bd_milestone3.outer_milestone.index)
-                pair3.distance = bd_milestone3.outer_milestone.variables['radius'] * 10.0
-                rxn_other.state_before = str(bd_milestone2.outer_milestone.index)
-                rxn_other.molecule0_group = sim_browndye2.BROWNDYE_RECEPTOR
-                rxn_other.molecule0_core = sim_browndye2.BROWNDYE_RECEPTOR
-                rxn_other.molecule1_group = sim_browndye2.BROWNDYE_LIGAND
-                rxn_other.molecule1_core = sim_browndye2.BROWNDYE_LIGAND
-                rxn_other.n_needed = 1
-                other_ghost_index_rec = ghost_indices_rec[j] # comes from the model?
-                other_ghost_index_lig = ghost_indices_lig[j]
-                pair3.atom1_index = other_ghost_index_rec
-                pair3.atom2_index = other_ghost_index_lig
-                rxn_other.pair_list.append(pair3)
-                rxnroot.reaction_list.append(rxn_other)
+            assert len(spherical_milestones_in_neighbor_anchor) == 2, \
+                "BD anchor must have exactly 2 spherical milestones - "\
+                "other arrangements not yet implemented"
+            # Sort by the average between the positions of the neighboring anchors
+            spherical_milestones_in_neighbor_anchor.sort(
+                key=lambda x: x.variables["avg_value"], reverse=True)
             """
-        
+            spherical_milestones_in_neighbor_anchor, this_anchors_bd_cv_index \
+                = get_spherical_milestones_and_cv_index_in_neighbor_anchor(
+                    model, neighbor_anchor)
+            assert this_anchors_bd_cv_index is not None
+            this_cv: cv_structures.Collective_variable = cvs[this_anchors_bd_cv_index]
+            assert isinstance(this_cv, distance_cv.Distance_CV), \
+                "BD anchor must use distance CV - other CVs not yet implemented"
+            this_cv_group1_name: str = this_cv.group1_name
+            this_cv_group2_name: str = this_cv.group2_name
+            ghost_index_1: int = -1
+            ghost_index_2: int = -1
+            molecule1_name: str = ""
+            molecule2_name: str = ""
+            assert bd_engine is not None, "BD engine must be set to make reaction files"
+            assert bd_engine.systemwide_settings is not None, \
+                "Systemwide settings must be set to make reaction files"
+            for molecule in bd_engine.systemwide_settings.molecules:
+                assert molecule.ghost_site_indices is not None, \
+                    "Ghost site indices must be set for all molecules"
+                if this_cv_group1_name in molecule.ghost_site_indices:
+                    ghost_index_1 = molecule.ghost_site_indices[this_cv_group1_name]
+                    molecule1_name = molecule.name
+                if this_cv_group2_name in molecule.ghost_site_indices:
+                    ghost_index_2 = molecule.ghost_site_indices[this_cv_group2_name]
+                    molecule2_name = molecule.name
+            assert ghost_index_1 is not None, f"Ghost index named {this_cv_group1_name} not found"
+            assert ghost_index_2 is not None, f"Ghost index named {this_cv_group2_name} not found"
+            
+            # Next identify which is the inner and the outer milestone
+            rxn_outer = xml_structures.Reaction()
+            pair1 = xml_structures.Pair()
+            from_state: str = "b"
+            outer_milestone: structures.Milestone = spherical_milestones_in_neighbor_anchor[0]
+            to_state: str = str(outer_milestone.index)
+            rxn_outer.name = f"{from_state}_{to_state}"
+            rxn_outer.state_after = str(outer_milestone.index)
+            pair1.distance = outer_milestone.variables['avg_value'] * 10.0
+            rxn_outer.state_before = rxnroot.first_state
+            rxn_outer.molecule0_group = molecule1_name
+            rxn_outer.molecule0_core = molecule1_name
+            rxn_outer.molecule1_group = molecule2_name
+            rxn_outer.molecule1_core = molecule2_name
+            rxn_outer.n_needed = 1
+            pair1.atom1_index = ghost_index_1
+            pair1.atom2_index = ghost_index_2
+            rxn_outer.pair_list.append(pair1)
+            rxnroot.reaction_list.append(rxn_outer)
+
+            cross_site_information[outer_milestone.index] \
+                = {"distance": pair1.distance,
+                   "state": rxn_outer.state_after,
+                   "molecule0_group": rxn_outer.molecule0_group,
+                   "molecule0_core": rxn_outer.molecule0_core,
+                   "molecule1_group": rxn_outer.molecule1_group,
+                   "molecule1_core": rxn_outer.molecule1_core,
+                   "n_needed": rxn_outer.n_needed,
+                   "ghost_index_1": ghost_index_1,
+                   "ghost_index_2": ghost_index_2,}
+            
+            rxn_inner = xml_structures.Reaction()
+            pair2 = xml_structures.Pair()
+            from_state = str(outer_milestone.index)
+            inner_milestone = spherical_milestones_in_neighbor_anchor[1]
+            to_state = str(inner_milestone.index)
+            rxn_inner.name = "{}_{}".format(from_state, to_state)
+            rxn_inner.state_after = str(inner_milestone.index)
+            pair2.distance = inner_milestone.variables['avg_value'] * 10.0
+            rxn_inner.state_before = str(outer_milestone.index)
+            rxn_inner.molecule0_group = molecule1_name
+            rxn_inner.molecule0_core = molecule1_name
+            rxn_inner.molecule1_group = molecule2_name
+            rxn_inner.molecule1_core = molecule2_name
+            rxn_inner.n_needed = 1
+            pair2.atom1_index = ghost_index_1
+            pair2.atom2_index = ghost_index_2
+            rxn_inner.pair_list.append(pair2)
+            rxnroot.reaction_list.append(rxn_inner)
+
+            # TODO: remove this block?
+            for other_neighbor_anchor_index in bulk_anchor.neighbor_anchor_indices:
+                if other_neighbor_anchor_index == neighbor_anchor_index:
+                    continue
+                other_neighbor_anchor = model.anchors[other_neighbor_anchor_index]
+                other_spherical_milestones_in_this_anchor = []
+                other_anchors_bd_cv_index = None
+                for other_milestone in other_neighbor_anchor.milestones:
+                    found_variable_in_this_other_milestone = False
+                    for other_variable in other_milestone.variables:
+                        if other_variable.startswith("me"):
+                            other_cv_index = other_milestone.get_cv_index_from_variable(other_variable)
+                            if cvs[other_cv_index].type == "distance":
+                                other_spherical_milestones_in_this_anchor.append(
+                                    milestone)
+                                if other_anchors_bd_cv_index is None:
+                                    other_anchors_bd_cv_index = other_cv_index
+                                else:
+                                    assert other_anchors_bd_cv_index == other_cv_index, \
+                                        "BD anchor is attempting to use multiple cvs to "\
+                                        "define reaction criteria - not implemented."
+                                if not found_variable_in_this_other_milestone:
+                                    found_variable_in_this_other_milestone = True
+                                else:
+                                    raise AssertionError("Milestone has multiple distance CVs"\
+                                                        " - not implemented")
+                                
+                # Sort by the average between the positions of the neighboring anchors
+                #other_spherical_milestones_in_this_anchor.sort(
+                #    key=lambda x: x.variables["avg_value"], reverse=True)
+
+        for milestone1_index, info1 in cross_site_information.items():
+            for milestone2_index, info2 in cross_site_information.items():
+                if milestone1_index == milestone2_index:
+                    continue
+                rxn = xml_structures.Reaction()
+                pair = xml_structures.Pair()
+                from_state: str = info1["state"]
+                to_state: str = info2["state"]
+                rxn.name = f"{from_state}_{to_state}"
+                rxn.state_after = to_state
+                pair.distance = info2["distance"]
+                rxn.state_before = from_state
+                rxn.molecule0_group = info2["molecule0_group"]
+                rxn.molecule0_core = info2["molecule0_core"]
+                rxn.molecule1_group = info2["molecule1_group"]
+                rxn.molecule1_core = info2["molecule1_core"]
+                rxn.n_needed = info2["n_needed"]
+                pair.atom1_index = info2["ghost_index_1"]
+                pair.atom2_index = info2["ghost_index_2"]
+                rxn.pair_list.append(pair)
+                rxnroot.reaction_list.append(rxn)
+
     rxnroot.write(abs_reaction_path)
     return
 
@@ -496,16 +573,17 @@ def generate_bd_files(
         model: structures.Seekr_model,
         root_directory: str
         ) -> None:
-    assert model.bd_engine is not None
+    bd_engine = model.get_engine_by_scale_type("brownian_dynamics")
+    assert bd_engine is not None
     b_surface_full_path = os.path.join(
-        root_directory, model.bd_engine.b_surface_directory)
-    assert model.bd_engine.systemwide_settings is not None, \
+        root_directory, bd_engine.b_surface_directory)
+    assert bd_engine.systemwide_settings is not None, \
         "Systemwide settings must be set to generate BD files."
-    for molecule in model.bd_engine.systemwide_settings.molecules:
-        molecule.generate_pqrxml_file(b_surface_full_path, model.bd_engine.binary_directory)
-    debye_length, reaction_filename = make_browndye_input_xml(model.bd_engine,
+    for molecule in bd_engine.systemwide_settings.molecules:
+        molecule.generate_pqrxml_file(b_surface_full_path, bd_engine.binary_directory)
+    debye_length, reaction_filename = make_browndye_input_xml(bd_engine,
         temperature=model.temperature, root_directory=root_directory)
-    model.bd_engine.debye_length = float(debye_length)
+    bd_engine.debye_length = float(debye_length)
     abs_reaction_path = os.path.join(b_surface_full_path, reaction_filename)
     make_browndye_reaction_xml(model, abs_reaction_path)
     return

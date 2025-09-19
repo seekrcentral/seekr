@@ -12,6 +12,7 @@ import openmm.unit as unit
 import openmm
 import openmm.app as openmm_app
 
+import seekr.modules.base as base
 import seekr.modules.engines.structures as engines_structures
 import seekr.modules.engines.openmm.base as openmm_base
 import seekr.modules.structures as structures
@@ -169,8 +170,9 @@ def make_toy_system_object(
     """
     system = openmm.System()
     topology = openmm_app.Topology()
-    assert model.md_engine is not None
-    toy_settings = model.md_engine.toy_settings
+    md_engine = model.get_engine_by_scale_type("molecular_dynamics")
+    assert md_engine is not None
+    toy_settings = md_engine.toy_settings
     assert toy_settings is not None
     num_particles = toy_settings.num_particles
     assert num_particles == len(toy_settings.masses)
@@ -209,9 +211,9 @@ def create_openmm_system(
     # TODO: This isn't right - how do we get the correct stage parameters
     # Given a stage index? The list here will not be indexed correctly...
     # Solution: add Nones to stage_parameters
-    assert model.md_engine is not None
-    assert model.md_engine.type == "openmm"
-    nonbonded_method = model.md_engine.nonbonded_method
+    md_engine = model.get_engine_by_scale_type("molecular_dynamics")
+    assert md_engine.type == "openmm"
+    nonbonded_method = md_engine.nonbonded_method
     if nonbonded_method is not None:
         nonbonded_method = nonbonded_method.lower()
 
@@ -236,12 +238,12 @@ def create_openmm_system(
     else:
         raise Exception("nonbonded method not found: "\
                         f"{nonbonded_method}")
-    
-    if model.md_engine.constraints is None:
+
+    if md_engine.constraints is None:
         constraints_str = None
     else:
-        constraints_str = model.md_engine.constraints
-        
+        constraints_str = md_engine.constraints
+
     if constraints_str is None:
         constraints = None
     
@@ -260,9 +262,9 @@ def create_openmm_system(
     else:
         raise Exception("constraints not found: "\
                         f"{constraints_str}")
-    
-    if model.md_engine.hydrogen_mass is not None:
-        hydrogenMass = model.md_engine.hydrogen_mass*openmm.unit.amu
+
+    if md_engine.hydrogen_mass is not None:
+        hydrogenMass = md_engine.hydrogen_mass*openmm.unit.amu
     else:
         hydrogenMass = None
 
@@ -289,23 +291,23 @@ def create_openmm_system(
         if md_parameters_topology.type == "Amber":
             system, topology = make_topology_system_from_amber(
                 md_parameters_topology, md_parameters_directory,
-                nonbondedMethod, model.md_engine.nonbonded_cutoff,
+                nonbondedMethod, md_engine.nonbonded_cutoff,
                 constraints, hydrogenMass)
         elif md_parameters_topology.type == "Gromacs":
             system, topology = make_topology_system_from_gromacs(
                 md_parameters_topology, md_parameters_directory,
-                nonbondedMethod, model.md_engine.nonbonded_cutoff,
+                nonbondedMethod, md_engine.nonbonded_cutoff,
                 constraints, hydrogenMass)
         elif md_parameters_topology.type == "Charmm":
             system, topology = make_topology_system_from_charmm(
                 md_parameters_topology, md_parameters_directory,
-                nonbondedMethod, model.md_engine.nonbonded_cutoff,
+                nonbondedMethod, md_engine.nonbonded_cutoff,
                 constraints, hydrogenMass)
         elif md_parameters_topology.type == "Forcefield":
             system = make_topology_system_from_forcefield(
                 md_parameters_topology, pdb_obj,
-                md_parameters_directory, nonbondedMethod, 
-                model.md_engine.nonbonded_cutoff, constraints, hydrogenMass)
+                md_parameters_directory, nonbondedMethod,
+                md_engine.nonbonded_cutoff, constraints, hydrogenMass)
             topology = pdb_obj.topology
 
         if pdb_obj is None:
@@ -395,26 +397,26 @@ class Sim_openmm:
             self, 
             model: structures.Seekr_model,
             anchor_index: int | None,
-            ensemble: structures.Ensemble,
+            ensemble: base.Ensemble,
             sampling_engine_interface: sampling_openmm_interface.Sampling_md_openmm_interface,
             completion_criteria_interface: completion_openmm_interface.Completion_criteria_openmm_interface
             ) -> None:
         """
         Assign the proper integrator to this OpenMM simulation.
         """
-        assert model.md_engine is not None
-        assert model.md_engine.type == "openmm"
-        assert model.md_engine.integrator_settings is not None
+        md_engine = model.get_engine_by_scale_type("molecular_dynamics")
+        assert md_engine.type == "openmm"
+        assert md_engine.integrator_settings is not None
         anchor: structures.Anchor | engines_structures.MD_systemwide_settings
         if anchor_index is None:
             assert not sampling_engine_interface.sampling_method.needs_to_be_in_anchor(), \
                 "This sampling method must be run within an anchor, not systemwide."
-            assert model.md_engine.systemwide_settings is not None
-            anchor = model.md_engine.systemwide_settings
+            assert md_engine.systemwide_settings is not None
+            anchor = md_engine.systemwide_settings
         else:
             anchor = model.anchors[anchor_index]
-        integrator_settings = model.md_engine.integrator_settings
-        timestep = model.get_md_timestep()
+        integrator_settings = md_engine.integrator_settings
+        timestep = model.get_timestep_by_type("molecular_dynamics")
         rigid_constraint_tolerance = integrator_settings.rigid_tolerance
         self.timestep = timestep
         integrator = openmm.CustomIntegrator(timestep * unit.picoseconds)
@@ -578,7 +580,7 @@ class Sim_openmm:
     def add_barostat(
             self, 
             model: structures.Seekr_model,
-            ensemble: structures.Ensemble,
+            ensemble: base.Ensemble,
             ) -> typing.Any:
         """
         Add a barostat to the simulation.
@@ -587,10 +589,10 @@ class Sim_openmm:
         if ensemble.type in ["NVE", "NVT"]:
             return
         else:
-            assert model.md_engine is not None
-            assert model.md_engine.type == "openmm"
-            assert model.md_engine.integrator_settings is not None
-            integrator_settings = model.md_engine.integrator_settings
+            md_engine = model.get_engine_by_scale_type("molecular_dynamics")
+            assert md_engine.type == "openmm"
+            assert md_engine.integrator_settings is not None
+            integrator_settings = md_engine.integrator_settings
             target_temperature = integrator_settings.target_temperature
             if ensemble.type == "NPT":
                 barostat = openmm.MonteCarloBarostat(
@@ -618,9 +620,9 @@ class Sim_openmm:
         """
         Add the platform to the simulation.
         """
-        assert model.md_engine is not None
-        assert model.md_engine.type == "openmm"
-        platform_settings = model.md_engine.platform_settings
+        md_engine = model.get_engine_by_scale_type("molecular_dynamics")
+        assert md_engine.type == "openmm"
+        platform_settings = md_engine.platform_settings
         if platform_settings is None:
             self.platform = openmm.Platform.getPlatformByName("Reference")
             self.properties = {}
@@ -646,14 +648,15 @@ class Sim_openmm:
         assert self.integrator is not None
         assert self.platform is not None
         assert self.properties is not None
+        md_engine = model.get_engine_by_scale_type("molecular_dynamics")
         self.simulation = openmm_app.Simulation(
             self.topology, self.system, self.integrator, self.platform, 
             self.properties)
         if positions is not None:
             self.simulation.context.setPositions(positions)
-            assert model.md_engine is not None
+            assert md_engine is not None
             self.simulation.context.setVelocitiesToTemperature(
-                model.md_engine.initial_temperature * unit.kelvin)
+                md_engine.initial_temperature * unit.kelvin)
         if self.box_vectors is not None:
             self.simulation.context.setPeriodicBoxVectors(
                 *self.box_vectors)
@@ -707,7 +710,7 @@ def create_sim_openmm(
         md_parameters_topology: engines_structures.Parameters_topology,
         running_directory: str,
         frame: int,
-        ensemble: structures.Ensemble,
+        ensemble: base.Ensemble,
         sampling_engine_interface: sampling_openmm_interface.Sampling_md_openmm_interface,
         completion_criteria_interface: completion_openmm_interface.Completion_criteria_openmm_interface,
         restraints_interfaces: list[restraints_openmm_interface.Base_restraint_openmm_interface]

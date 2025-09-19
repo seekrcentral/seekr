@@ -46,8 +46,8 @@ def compute_transition_counts(results_filename_list):
     return transition_counts
 
 def run_compute_rate_constant(compute_rate_constant_program,
-                                       results_filename_list, 
-                                       sample_error_from_normal=False):
+                              results_filename_list, 
+                              sample_error_from_normal=False):
     """
     run the BrownDye program compute_rate_constant to find k_ons
     and the value k(b).

@@ -16,6 +16,7 @@ import typing
 import logging
 import importlib
 
+from attrs import define, field, validators
 import numpy.typing as nptyping
 import mdtraj
 
@@ -362,3 +363,44 @@ def get_plugin_str(
     module_str = plugin_name+f".modules{dot_submodule_name}"
     return module_str
 
+# NOTE: Even though these properly belong in modules/structures.py, because
+#  they are structurable, they are imported by modules that depend on structures.py
+#  so we want to avoid circular imports. They are leaves on the structure tree, so
+#  they will not need to import anything.
+@define
+class NVT_ensemble:
+    """
+    Use the constant volume/temperature ensemble.
+    """
+    type: typing.Literal["NVT"] = "NVT"
+
+@define
+class NPT_ensemble:
+    """
+    Use the constant pressure/temperature ensemble.
+    """
+    type: typing.Literal["NPT"] = "NPT"
+    pressure: float = field(default=1.0,
+                            validator=[validators.instance_of(float),
+                                       validators.gt(0)])
+
+@define
+class NPT_membrane_ensemble:
+    """
+    Use the constant pressure/temperature ensemble with box 
+    adjustments useful for membrane sims.
+    """
+    type: typing.Literal["NPT_membrane"] = "NPT_membrane"
+    pressure: float = field(default=1.0,
+                            validator=[validators.instance_of(float),
+                                       validators.gt(0)])
+
+@define
+class NVE_ensemble:
+    """
+    Use the constant volume/energy ensemble.
+    """
+    type: typing.Literal["NVE"] = "NVE"
+
+Ensemble = typing.Union[NVT_ensemble, NPT_ensemble, NPT_membrane_ensemble, 
+                        NVE_ensemble]

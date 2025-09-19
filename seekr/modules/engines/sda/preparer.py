@@ -20,6 +20,8 @@ import seekr.modules.engines.structures as engines_structures
 import seekr.modules.engines.sda.base as sda_base
 import seekr.modules.engines.sda.structures as sda_structures
 import seekr.modules.engines.sda.sda_structures as sda_sda_structures
+import seekr.modules.scales.brownian_dynamics.structures as bd_scale
+import seekr.modules.engines.preparer as engines_preparer
 
 @define
 class SDA_molecule_input:
@@ -129,6 +131,7 @@ class SDA_molecule_input:
 @define
 class SDA_settings_input:
     type: typing.Literal["sda"] = "sda"
+    scale_type: typing.Literal["brownian_dynamics"] = "brownian_dynamics"
     geometry: str = field(default="sphere",
                             validator=in_(
                                 ["sphere", "box", "nambox"]))
@@ -155,8 +158,18 @@ class SDA_settings_input:
                                 iterable_validator=instance_of(list),
                          ))
     # atoms list?
+
+    def make_model_scale(
+            self
+            ) -> bd_scale.Scale_bd:
+        scale = bd_scale.Scale_bd()
+        scale.engine = "sda"
+        return scale
     
-    def make_model_engine(self):
+    def make_model_engine(
+            self,
+            dummy_temperature: float
+            ) -> sda_structures.SDA_bd_engine:
         """
         Make the model engine object for this input.
         """
@@ -192,21 +205,33 @@ class SDA_settings_input:
                 type="O*", resname="CTR", vdw=None, test_charge=-0.5))
         return bd_engine
     
-    def copy_bd_files(
+    def start_from_systemwide(
+            self,
+            using_toy: bool
+        ) -> bool:
+        """
+        Whether this engine uses systemwide settings to start from.
+        It does - because BD simulations don't really have anchor-by-anchor
+        parameters. Simulations start from the bulk anchor.
+        """
+        return True
+    
+    def copy_initial_files(
             self,
             model: structures.Seekr_model, 
-            root_directory: str
-            ) -> None:
+            root_directory: str,
+            using_toy: bool = False  # dummy parameter
+    ) -> None:
         """
         Copy the BD files into the anchor directory.
         """
-        assert model.bd_engine is not None, \
-            "BD engine must be defined to copy BD files."
-        assert model.bd_engine.systemwide_settings is not None, \
+        bd_engine: sda_structures.SDA_bd_engine \
+            = model.get_engine_by_scale_type("brownian_dynamics")
+        assert bd_engine.systemwide_settings is not None, \
             "BD systemwide settings must be defined - anchor-by-anchor " \
             "not yet implemented."
         for anchor in model.anchors:
-            if anchor.bd and not anchor.md:
+            if anchor.bulk_anchor:
                 # If anchor.bd is True, while anchor.md is False, then this
                 # must be the b-surface directory - "bulk anchor"
                 b_surface_directory = os.path.join(
@@ -218,16 +243,16 @@ class SDA_settings_input:
                     new_bd_molecule.type = molecule.type
                     new_bd_molecule.pqr_filename = pqr_filename
                     pqr_new_filename = os.path.join(b_surface_directory, pqr_filename)
-                    ghost_site_indices, original_indices, ghost_lines = molecule.add_ghost_atoms_to_pqr(
-                        pqr_new_filename)
+                    ghost_site_indices, original_indices, ghost_atom_lines \
+                          = molecule.add_ghost_atoms_to_pqr(
+                                pqr_new_filename)
                     new_bd_molecule.original_indices = original_indices
                     new_bd_molecule.ghost_site_indices = ghost_site_indices
-                    new_bd_molecule.ghost_lines = ghost_lines
-                    model.bd_engine.systemwide_settings.molecules.append(new_bd_molecule)
-                    # TODO: fill out more here
+                    new_bd_molecule.ghost_lines = ghost_atom_lines
+                    bd_engine.systemwide_settings.molecules.append(new_bd_molecule)
                     
         return
-    
+
     def get_atom_indices_by_selection_name(
             self,
             name: str
@@ -257,14 +282,12 @@ def make_sda_reaction_file(
     rootdir : str
         The model's root directory.
     """
-    assert model.bd_engine is not None, \
-        "BD engine must be defined to make PDB file."
+    bd_engine = model.get_engine_by_scale_type("brownian_dynamics")
     wrote_reaction_file = False
     for anchor in model.anchors:
-        if anchor.bd and not anchor.md:
+        if anchor.bulk_anchor:
             b_surface_directory = os.path.join(
                 root_directory, anchor.directory)
-            bd_engine = model.bd_engine
             cvs = model.collective_variables
             bulk_anchor = anchor
 
@@ -324,10 +347,14 @@ def make_sda_reaction_file(
                         "Ghost site indices must be set for all molecules"
                     if this_cv_group1_name in molecule.ghost_site_indices:
                         ghost_index_1 = molecule.ghost_site_indices[this_cv_group1_name]
+                        assert molecule.ghost_lines is not None, \
+                            f"Ghost lines not set for molecule {molecule.name}"
                         ghost_line_1 = molecule.ghost_lines[this_cv_group1_name]
                         molecule1_name = molecule.name
                     if this_cv_group2_name in molecule.ghost_site_indices:
                         ghost_index_2 = molecule.ghost_site_indices[this_cv_group2_name]
+                        assert molecule.ghost_lines is not None, \
+                            f"Ghost lines not set for molecule {molecule.name}"
                         ghost_line_2 = molecule.ghost_lines[this_cv_group2_name]
                         molecule2_name = molecule.name
                 assert ghost_index_1 is not None, f"Ghost index named {this_cv_group1_name} not found"
@@ -350,14 +377,13 @@ def make_sda_pdb_noh(
     """
     Make a PDB file without hydrogens for the anchor.
     """
-    assert model.bd_engine is not None, \
-        "BD engine must be defined to make PDB file."
+    bd_engine = model.get_engine_by_scale_type("brownian_dynamics")
     anchor = bd_anchor
     b_surface_directory = os.path.join(
         root_directory, anchor.directory)
     curdir = os.getcwd()
     os.chdir(b_surface_directory)
-    for molecule in model.bd_engine.systemwide_settings.molecules:
+    for molecule in bd_engine.systemwide_settings.molecules:
         pqr_filename = os.path.join(b_surface_directory, molecule.pqr_filename)
         pdb_noh_filename = os.path.splitext(pqr_filename)[0] + "_noh.pdb"
         full_structure = parmed.load_file(pqr_filename, skip_bonds=True)
@@ -390,14 +416,13 @@ def run_hydropro(
     hydropro_dir : str
         Directory where hydropro program is stored.
     """
-    assert model.bd_engine is not None, \
-        "BD engine must be defined to run HydroPro."
+    bd_engine = model.get_engine_by_scale_type("brownian_dynamics")
     b_surface_directory = os.path.join(
         root_directory, bd_anchor.directory)
     curdir = os.getcwd()
     os.chdir(b_surface_directory)
     hydropro_command = f"{hydropro_directory}/hydropro10-lnx.exe"
-    for molecule in model.bd_engine.systemwide_settings.molecules:
+    for molecule in bd_engine.systemwide_settings.molecules:
         molecule.run_hydropro(
             temperature=model.temperature,
             hydropro_command=hydropro_command
@@ -431,8 +456,6 @@ def make_sda_grids(
     sda_auxi_dir : str
         Path to the SDA binary files.
     """
-    assert bd_engine is not None, \
-        "BD engine must be defined to make grids."
     b_surface_directory = os.path.join(
         root_directory, anchor.directory)
     curdir = os.getcwd()
@@ -525,7 +548,7 @@ def make_sda_input(
     rootdir : str
         The model's root directory.
     """
-    bd_engine = model.bd_engine
+    bd_engine = model.get_engine_by_scale_type("brownian_dynamics")
     bd_directory = os.path.join(
         root_directory, bd_anchor.directory)
     curdir = os.getcwd()
@@ -574,18 +597,18 @@ def generate_bd_files(
         model: structures.Seekr_model,
         root_directory: str
         ) -> None:
-    assert model.bd_engine is not None
-    assert isinstance(model.bd_engine, sda_structures.SDA_bd_engine), \
+    bd_engine = model.get_engine_by_scale_type("brownian_dynamics")
+    assert isinstance(bd_engine, sda_structures.SDA_bd_engine), \
         "BD engine must be of type 'sda' to use this function."
-    hydropro_directory = os.path.expanduser(model.bd_engine.hydropro_directory)
-    assert model.bd_engine.systemwide_settings is not None, \
+    hydropro_directory = os.path.expanduser(bd_engine.hydropro_directory)
+    assert bd_engine.systemwide_settings is not None, \
         "Systemwide settings must be set to generate BD files."
     bd_anchor = make_sda_reaction_file(model, root_directory)
-    add_atoms_sda(model.bd_engine, bd_anchor, root_directory)
+    add_atoms_sda(bd_engine, bd_anchor, root_directory)
     make_sda_pdb_noh(model, bd_anchor, root_directory)
     run_hydropro(model, bd_anchor, root_directory, hydropro_directory)
-    make_sda_grids(model.bd_engine, bd_anchor, root_directory,
-                   model.temperature, 
-                   model.bd_engine.systemwide_settings.solvent_dielectric)
+    make_sda_grids(bd_engine, bd_anchor, root_directory,
+                   model.temperature,
+                   bd_engine.systemwide_settings.solvent_dielectric)
     make_sda_input(model, bd_anchor, root_directory)
     return

@@ -11,7 +11,6 @@ import logging
 
 import seekr.modules.engines.browndye.base as browndye_base
 import seekr.modules.structures as structures
-import seekr.modules.engines.browndye.structures as browndye_structures
 
 def cleanse_bd_outputs(directory, results_glob, check_mode=True):
     """
@@ -48,10 +47,10 @@ def run_bd_top(
     """
     Prepare Browndye input files for simulation.
     """
-    assert model.bd_engine is not None
-    assert model.bd_engine.type == "browndye"
-    bd_directory = os.path.join(model.directory, model.bd_engine.b_surface_directory)
-    browndye_bin_dir = model.bd_engine.binary_directory
+    bd_engine = model.get_engine_by_scale_type("brownian_dynamics")
+    assert bd_engine.type == "browndye"
+    bd_directory = os.path.join(model.directory, bd_engine.b_surface_directory)
+    browndye_bin_dir = bd_engine.binary_directory
     curdir = os.getcwd()
     logging.info("moving to directory: " + bd_directory)
     os.chdir(bd_directory)
@@ -102,9 +101,9 @@ def modify_variables(model: structures.Seekr_model,
     Modify several variables within the *_simulation.xml file at 
     runtime based on user inputs.
     """
-    assert model.bd_engine is not None
-    bd_directory = os.path.join(model.directory, model.bd_engine.b_surface_directory)
-    bd_output_glob = model.bd_engine.results_glob
+    bd_engine = model.get_engine_by_scale_type("brownian_dynamics")
+    bd_directory = os.path.join(model.directory, bd_engine.b_surface_directory)
+    bd_output_glob = bd_engine.results_glob
     simulation_filename_glob_base = "*_simulation.xml"
     simulation_filename_base = os.path.join(bd_directory, simulation_filename_glob_base)
     simulation_files = glob.glob(simulation_filename_base)
@@ -187,10 +186,10 @@ def run_nam_simulation(
     """
     Run the Browndye2 simulation.
     """
-    assert model.bd_engine is not None
-    bd_directory = os.path.join(model.directory, model.bd_engine.b_surface_directory)
-    browndye_bin_dir = model.bd_engine.binary_directory
-    bd_output_glob = model.bd_engine.results_glob
+    bd_engine = model.get_engine_by_scale_type("brownian_dynamics")
+    bd_directory = os.path.join(model.directory, bd_engine.b_surface_directory)
+    browndye_bin_dir = bd_engine.binary_directory
+    bd_output_glob = bd_engine.results_glob
     curdir = os.getcwd()
     logging.info("moving to directory: " + bd_directory)
     os.chdir(bd_directory)
@@ -221,8 +220,8 @@ def run_simulation(
     """
     Determine which bd engine to run and run it
     """
-    assert model.bd_engine is not None
-    assert model.bd_engine.type == "browndye"
+    bd_engine = model.get_engine_by_scale_type("brownian_dynamics")
+    assert bd_engine.type == "browndye"
     run_bd_top(
         model, restart, force_overwrite)
     n_trajectories_per_output = browndye_base.DEFAULT_N_TRAJ_PER_OUT

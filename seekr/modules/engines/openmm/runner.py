@@ -5,12 +5,8 @@ Runner object for OpenMM simulation stage.
 """
 
 import os
-import sys
-import glob
 import time
 import logging
-
-import openmm.app as openmm_app
 
 import seekr.modules.base as base
 import seekr.modules.structures as structures
@@ -36,9 +32,9 @@ class Runner_openmm():
         self._model = model
         self._stage_output_index = stage_output_index
         self._anchor_index = anchor_index
-        self._ensemble: structures.Ensemble | None = None
+        self._ensemble: base.Ensemble | None = None
 
-    def get_ensemble(self) -> structures.Ensemble:
+    def get_ensemble(self) -> base.Ensemble:
         assert self._ensemble is not None, "The ensemble is not set."
         return self._ensemble
 
@@ -56,42 +52,43 @@ class Runner_openmm():
         if swarm_index is None:
             swarm_index = 0
         md_parameters_half_directory = None
-        assert self._model.md_engine is not None
-        assert self._model.md_engine.type == "openmm", \
+        md_engine = self._model.get_engine_by_scale_type("molecular_dynamics")
+        assert md_engine is not None
+        assert md_engine.type == "openmm", \
             "This model was not prepared for OpenMM."
-        assert self._model.md_engine.systemwide_settings is not None, \
+        assert md_engine.systemwide_settings is not None, \
             "No systemwide settings are set in the model."
         anchor_systemwide: structures.Anchor | engines_structures.MD_systemwide_settings
         if self._anchor_index is None:
             anchor = None
-            anchor_systemwide = self._model.md_engine.systemwide_settings
+            anchor_systemwide = md_engine.systemwide_settings
             self.md_parameters_topology \
-                = self._model.md_engine.systemwide_settings.md_parameters_topology
+                = md_engine.systemwide_settings.md_parameters_topology
             # TODO: handle the situation where the md_parameters_topology changes across stages
-            assert self._model.md_engine.systemwide_settings.stage_parameters[0] is not None, \
+            assert md_engine.systemwide_settings.stage_parameters[0] is not None, \
                 "Systemwide lacks an initial stage set of parameters."
             md_parameters_half_directory = os.path.join(
-                    self._model.md_engine.systemwide_settings.directory, 
-                    self._model.md_engine.systemwide_settings.stage_parameters[0]["directory"])
+                    md_engine.systemwide_settings.directory, 
+                    md_engine.systemwide_settings.stage_parameters[0]["directory"])
         else:
             anchor = self._model.anchors[self._anchor_index]
             anchor_systemwide = anchor
-            
-            if anchor.md_parameters_topology is None:
-                assert self._model.md_engine.systemwide_settings.stage_parameters[0] is not None, \
+            anchor_md_parameters_topology \
+                = anchor.scale_parameters_topology.get("molecular_dynamics")
+            if anchor_md_parameters_topology is None:
+                assert md_engine.systemwide_settings.stage_parameters[0] is not None, \
                     "Systemwide lacks an initial stage set of parameters."
                 md_parameters_half_directory = os.path.join(
-                    self._model.md_engine.systemwide_settings.directory, 
-                    self._model.md_engine.systemwide_settings\
-                    .stage_parameters[0]["directory"])
-                self.md_parameters_topology = self._model.md_engine.systemwide_settings\
+                    md_engine.systemwide_settings.directory, 
+                    md_engine.systemwide_settings.stage_parameters[0]["directory"])
+                self.md_parameters_topology = md_engine.systemwide_settings\
                     .md_parameters_topology
             else:
                 assert anchor.stage_parameters[0] is not None, \
                     "Anchor lacks an initial stage set of parameters."
                 md_parameters_half_directory = os.path.join(
                     anchor.directory, anchor.stage_parameters[0]["directory"])
-                self.md_parameters_topology = anchor.md_parameters_topology
+                self.md_parameters_topology = anchor_md_parameters_topology
             
         assert md_parameters_half_directory is not None, \
             "No initial directory from which to take MD parameters/topology."
@@ -112,7 +109,7 @@ class Runner_openmm():
             frame_number=swarm_index)
         self.sampling_engine_interface = sampling_openmm_interface\
             .assign_sampling_method_interface(
-                self._stage_output_index, sampling_method, self._model.md_engine,
+                self._stage_output_index, sampling_method, md_engine,
                 self._model.plugins)
         # Completion criteria interfaces.
         completion_criteria = stage_output.completion_criteria
@@ -124,14 +121,14 @@ class Runner_openmm():
         for restraint in stage_output.restraints:
             self.restraints_interfaces.append(
                 restraints_openmm_interface.assign_restraints_interface(
-                    restraint, self._model.md_engine, self._model.plugins)
+                    restraint, md_engine, self._model.plugins)
             )
         # Reporters interfaces.
         self.reporters_interfaces = []
         for reporter in stage_output.reporters:
             self.reporters_interfaces.append(
                 reporters_openmm_interface.assign_reporter_interface(
-                    reporter, self._model.md_engine, self._model.plugins)
+                    reporter, md_engine, self._model.plugins)
             )
         # TODO: check in loaded modules from model JSON to see if any of these
         #  modules contain a "assign_interface" function, and run them.
@@ -139,19 +136,19 @@ class Runner_openmm():
             "The sampling method type is not recognized by the "\
             "openmm_interface module or any loaded module: "\
             f"type: {sampling_method.type}, "\
-            f"engine: {self._model.md_engine.type}."
+            f"engine: {md_engine.type}."
         assert self.completion_criteria_interface is not None, \
             "The completion criteria type is not recognized by the "\
             "openmm_interface module or any loaded module: "\
             f"type: {completion_criteria.type}, "\
-            f"engine: {self._model.md_engine.type}."
+            f"engine: {md_engine.type}."
         
         input_stage_index = stage_output.input_stage_index
         if stage_output.input_from == "systemwide":
             input_stage_parameter \
-                = self._model.md_engine.systemwide_settings\
+                = md_engine.systemwide_settings\
                     .stage_parameters[input_stage_index]
-            input_positions_filenames = self._model.md_engine.systemwide_settings\
+            input_positions_filenames = md_engine.systemwide_settings\
                 .get_positions_full_paths(self._model.directory, input_stage_index, swarm_index)
         elif stage_output.input_from == "anchors":
             assert anchor is not None
@@ -169,7 +166,6 @@ class Runner_openmm():
         self.running_directory = os.path.join(
             self._model.directory, anchor_systemwide_dir, stage_output_directory)
         self._basename = stage_output.sampling_method.get_output_positions_basename_noext()
-        
         assert len(input_positions_filenames) == 1, \
             "Ambiguity detected in input positions files: "\
             f"{input_positions_filenames}. "
@@ -210,7 +206,7 @@ class Runner_openmm():
         self._max_steps: int = 0
         self._swarm_index = swarm_index
         self._swarm_string = ""
-        assert self._model.md_engine.type == "openmm", \
+        assert md_engine.type == "openmm", \
             "This model was not prepared for OpenMM."
         restart_index = 1
         if swarm_index is None:
@@ -254,7 +250,7 @@ class Runner_openmm():
             if force_overwrite:
                 if anchor is None:
                     preparer.cleanse_outputs_stage(
-                        self._model, self._model.md_engine.systemwide_settings, 
+                        self._model, md_engine.systemwide_settings, 
                         self._stage_output_index)
                 else:
                     preparer.cleanse_outputs_stage(
@@ -361,7 +357,7 @@ def run_simulation(
     """
     Run an OpenMM simulation.
     """
-    md_engine = model.md_engine
+    md_engine = model.get_engine_by_scale_type("molecular_dynamics")
     assert md_engine is not None, "No MD engine is set in the model."
     assert md_engine.type == "openmm", "The MD engine is not OpenMM."
     if anchor_index is not None:

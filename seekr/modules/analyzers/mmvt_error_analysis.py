@@ -14,6 +14,7 @@ import seekr.modules.structures as structures
 import seekr.modules.analyzers.mmvt_anchor_statistics as mmvt_anchor_statistics
 import seekr.modules.analyzers.mmvt_data_sample as mmvt_data_sample
 import seekr.modules.analyzers.mmvt_data_window as mmvt_data_window
+import seekr.modules.analyzers.bulk_anchor_statistics as bulk_anchor_statistics
 
 def resample_anchor_statistics(
         anchor_stats_alpha_list: list[list[mmvt_anchor_statistics.Mmvt_anchor_statistics]],
@@ -249,7 +250,8 @@ def monte_carlo_milestoning_error(
         num: int = 100, 
         stride: int | None = None, 
         skip: int | None = None,
-        verbose: bool = False
+        verbose: bool = False,
+        bulk_stats: bulk_anchor_statistics.Bulk_anchor_statistics | None = None
         ) -> None:
     """
     Calculates an error estimate by sampling a distribution of rate 
@@ -323,6 +325,12 @@ def monte_carlo_milestoning_error(
             mmvt_Qnew_list.append(mmvt_Qnew_alpha)
             
         if counter > skip and counter % stride == 0:
+            resampled_bulk_stats = bulk_anchor_statistics\
+                .resample_bulk_anchor_statistics(bulk_stats)
+            new_data_sample.k_ons_src = resampled_bulk_stats.k_ons_src
+            new_data_sample.k_on_errors_src = resampled_bulk_stats.k_on_errors_src
+            new_data_sample.transition_counts = resampled_bulk_stats.transition_counts
+            new_data_sample.transition_probabilities = resampled_bulk_stats.transition_probabilities
             mmvt_Nij_list = []
             for alpha, anchor in enumerate(model.anchors):
                 if anchor.bd and not anchor.md:
