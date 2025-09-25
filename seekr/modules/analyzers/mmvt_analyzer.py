@@ -12,7 +12,6 @@ from attrs import define, field, validators
 import numpy as np
 import matplotlib.pyplot as plt
 
-import seekr.modules.base as base
 import seekr.modules.analyzers.base as analyzers_base
 import seekr.modules.structures as structures
 import seekr.modules.analyzers.bulk_anchor_statistics as bulk_anchor_statistics
@@ -108,10 +107,9 @@ class Mmvt_analyzer:
             #data_window.time = window_time
             self.data_window_list.append(data_window)
             self.window_index_list.append(window_index)
-
+        
         mmvt_anchor_statistics.pare_down_anchor_statistics(
             self.anchor_stats_alpha_list, self.window_index_list)
-
         mmvt_data_window.assign_data_windows_sample(
             self.model, self.anchor_stats_alpha_list, self.bulk_stats,
             self.window_index_list, self.data_window_list, assign_to_main=True)
@@ -151,8 +149,11 @@ class Mmvt_analyzer:
                 bootstrap_anchors_statistics_cumulative \
                     = mmvt_anchor_statistics.make_cumulative_anchor_statistics(
                         bootstrap_anchors_statistics_piecewise)
-                resampled_bulk_stats = bulk_anchor_statistics\
-                    .resample_bulk_anchor_statistics(self.bulk_stats)
+                if self.bulk_stats is not None:
+                    resampled_bulk_stats = bulk_anchor_statistics\
+                        .resample_bulk_anchor_statistics(self.bulk_stats)
+                else:
+                    resampled_bulk_stats = None
                 mmvt_data_window.assign_data_windows_sample(
                     self.model, bootstrap_anchors_statistics_cumulative, 
                     resampled_bulk_stats, self.window_index_list, 
@@ -165,18 +166,26 @@ class Mmvt_analyzer:
                 resampled_anchors_statistics_cumulative \
                     =   mmvt_anchor_statistics.make_cumulative_anchor_statistics(
                         resampled_anchors_statistics_piecewise)
-                resampled_bulk_stats = bulk_anchor_statistics\
-                    .resample_bulk_anchor_statistics(self.bulk_stats)
+                if self.bulk_stats is not None:
+                    resampled_bulk_stats = bulk_anchor_statistics\
+                        .resample_bulk_anchor_statistics(self.bulk_stats)
+                else:
+                    resampled_bulk_stats = None
                 mmvt_data_window.assign_data_windows_sample(
                     self.model, resampled_anchors_statistics_cumulative, 
                     resampled_bulk_stats, self.window_index_list, 
                     self.data_window_list, assign_to_main=False)
         elif method == "montecarlo":
-            resampled_bulk_stats = bulk_anchor_statistics\
-                    .resample_bulk_anchor_statistics(self.bulk_stats)
+            if self.bulk_stats is not None:
+                resampled_bulk_stats = bulk_anchor_statistics\
+                        .resample_bulk_anchor_statistics(self.bulk_stats)
+            else:
+                resampled_bulk_stats = None
             mmvt_error_analysis.monte_carlo_data_windows(
                 self.model, self.window_index_list, self.data_window_list,
                 analyzers_base.NUM_MONTE_CARLO_SAMPLES)
+        elif method is None:
+            pass
         else:
             raise Exception(f"Unsupported error analysis method: {method}")
 
@@ -231,12 +240,15 @@ class Mmvt_analyzer:
             if key in self.main_data_window.anchor_to_anchor_MFPTs_err:
                 print("  MFPT from", state1, "to", state2, ":",
                       analyzers_base.pretty_string_value_error(
-                          float(self.main_data_window.anchor_to_anchor_MFPTs[key]*1.0e-12), 
-                          float(self.main_data_window.anchor_to_anchor_MFPTs_err[key]*1.0e-12)))
+                          float(self.main_data_window.\
+                                anchor_to_anchor_MFPTs[key]*1.0e-12), 
+                          float(self.main_data_window.\
+                                anchor_to_anchor_MFPTs_err[key]*1.0e-12)))
             else:
                 print("  MFPT from", state1, "to", state2, ":",
                       analyzers_base.pretty_string_value_error(
-                          float(self.main_data_window.anchor_to_anchor_MFPTs[key]*1.0e-12), None))
+                          float(self.main_data_window.\
+                                anchor_to_anchor_MFPTs[key]*1.0e-12), None))
 
         if len(self.main_data_window.anchor_to_anchor_energies) > 0:
             print("Free energy differences (kcal/mol):")
@@ -246,14 +258,57 @@ class Mmvt_analyzer:
                 if key in self.main_data_window.anchor_to_anchor_energies_err:
                     print("  Energy from", state1, "to", state2, ":",
                           analyzers_base.pretty_string_value_error(
-                              float(self.main_data_window.anchor_to_anchor_energies[key]), 
-                              float(self.main_data_window.anchor_to_anchor_energies_err[key])))
+                              float(self.main_data_window\
+                                    .anchor_to_anchor_energies[key]), 
+                              float(self.main_data_window\
+                                    .anchor_to_anchor_energies_err[key])))
                 else:
                     print("  Energy from", state1, "to", state2, ":",
                           analyzers_base.pretty_string_value_error(
-                              float(self.main_data_window.anchor_to_anchor_energies[key]), None))
+                              float(self.main_data_window\
+                                    .anchor_to_anchor_energies[key]), None))
         return
     
+    def get_statistics_message(
+            self,
+            model: structures.Seekr_model,
+            anchor_index_instruction: str | None = None,
+            use_json: bool = False
+            ) -> str | dict:
+        """
+
+        """
+        assert anchor_index_instruction is not None, \
+            "MMVT may not use 'systemwide' statistics."
+        final_message = "" if not use_json else {}
+        for alpha, anchor in enumerate(model.anchors):
+            if anchor_index_instruction != "any" \
+                    and alpha != anchor_index_instruction:
+                continue
+            anchor_stats_anchor = self.anchor_stats_alpha_list[alpha]
+            if anchor_stats_anchor is None:
+                continue
+            if len(anchor_stats_anchor) == 0:
+                anchor_stats = mmvt_anchor_statistics.Mmvt_anchor_statistics(
+                    alpha)
+            else:
+                anchor_stats = anchor_stats_anchor[-1]
+            message = anchor_stats.get_statistics_message(
+                model, alpha=alpha, use_json=use_json)
+            if use_json:
+                final_message[alpha] = message
+            else:
+                final_message += f"  Anchor {alpha}:\n{message}"
+
+        if self.bulk_stats is not None:
+            message = self.bulk_stats.get_statistics_message(use_json=use_json)
+            if use_json:
+                final_message["bulk"] = message
+            else:
+                final_message += "  Bulk anchor statistics:\n" + message
+
+        return final_message
+
     def make_image_directory(
             self, 
             image_directory: str
@@ -294,48 +349,99 @@ class Mmvt_analyzer:
         
         return
 
-    def save_plots(
-            self, 
-            image_directory: str
-            ) -> None:
+    def plot_pi_alpha_1d(
+            self,
+            image_directory: str | None = None,
+            return_plot=True
+            ) -> tuple | None:
         """
-        Save a potentially useful series of plots of some quantities
-        obtained during the analysis.
-        
-        TODO: interact with model, because the way these plots are saved
-        depends on the structure of the CVs.
+        Plot the pi_alpha values for each anchor.
         """
         anchor_indices = np.zeros(len(self.model.anchors), dtype=np.int8)
         anchor_values = np.zeros(len(self.model.anchors), dtype=np.float64)
-        if len(self.model.anchors[0].variables) > 1:
-            # cannot make plots for multidimensional CVs
-            return
         for i, anchor in enumerate(self.model.anchors):
             anchor_indices[i] = anchor.index
             anchor_values[i] = list(anchor.variables.values())[0]
-        
-        if self.main_data_window.pi_alpha is not None:
-            # save pi_alpha
-            pi_fig, ax = plt.subplots()
-            plt.errorbar(
-                anchor_values, 
-                self.main_data_window.pi_alpha.flatten()[0:len(anchor_indices)],
-                yerr=self.main_data_window.pi_alpha_err.flatten()[0:len(anchor_indices)], 
-                ecolor="k", capsize=2)
-            plt.title("$\\pi_{\\alpha}$")
-            plt.xticks(anchor_values, anchor_values, rotation=90)
-            plt.ylabel("$\u03C0_{\u03B1}$")
-            plt.xlabel("anchor value")
-            plt.yscale("log", nonpositive="mask")
-            plt.tight_layout()
+
+        if self.main_data_window.pi_alpha is None:
+            return
+        pi_fig, ax = plt.subplots()
+        plt.errorbar(
+            anchor_values, 
+            self.main_data_window.pi_alpha.flatten()[0:len(anchor_indices)],
+            yerr=self.main_data_window.pi_alpha_err.flatten()[0:len(anchor_indices)], 
+            ecolor="k", capsize=2)
+        plt.title("$\\pi_{\\alpha}$")
+        plt.xticks(anchor_values, anchor_values, rotation=90)
+        plt.ylabel("$\u03C0_{\u03B1}$")
+        plt.xlabel("anchor value")
+        plt.yscale("log", nonpositive="mask")
+        plt.tight_layout()
+        if return_plot:
+            return pi_fig, ax
+        else:
             pi_fig.savefig(os.path.join(image_directory, "pi_alpha.png"))
             plt.close(pi_fig)
+            return
         
+    def plot_pi_alpha_2d(
+            self,
+            cv_indices: tuple[int, int] = (0, 1),
+            image_directory: str | None = None,
+            return_plot=True
+            ) -> tuple | None:
+        """
+        Plot the pi_alpha values for each anchor in 2D.
+        """
+        anchor_values = analyzers_base.find_anchor_points_2d(self.model)
+        boundaries = analyzers_base.make_boundaries(anchor_values)
+        cv_0_name = self.model.collective_variables[cv_indices[0]].name
+        cv_0_unit = self.model.collective_variables[cv_indices[0]].unit
+        x_coordinate_title = f"{cv_0_name} ({cv_0_unit})"
+        cv_1_name = self.model.collective_variables[cv_indices[1]].name
+        cv_1_unit = self.model.collective_variables[cv_indices[1]].unit
+        y_coordinate_title = f"{cv_1_name} ({cv_1_unit})"
+        if self.main_data_window.pi_alpha is None:
+            return
+        anchor_pi_alpha = {}
+        for alpha, fill_value in enumerate(self.main_data_window.pi_alpha):
+            if not np.isfinite(fill_value):
+                anchor_pi_alpha[alpha] = np.max(
+                    self.main_data_window.pi_alpha[np.isfinite(
+                        self.main_data_window.pi_alpha)])
+            else:
+                anchor_pi_alpha[alpha] = fill_value
+        ret = analyzers_base.plot_anchors_2d(
+            model=self.model, 
+            anchor_values=anchor_values,
+            boundaries=boundaries, 
+            title="$\\pi_{\\alpha}$",
+            x_coordinate_title=x_coordinate_title,
+            y_coordinate_title=y_coordinate_title,
+            colorbar_label="unitless",
+            fill_values=anchor_pi_alpha,
+            plot_basename="pi_alpha",
+            plot_dir=image_directory, 
+            return_plot=return_plot)
+        return ret
+
+    def plot_p_i_1d(
+            self, 
+            image_directory: str | None = None,
+            return_plot=True
+            ) -> tuple | None:
+        """
+        Plot the p_i values for each milestone.
+        """
         if self.main_data_window.p_i is None:
             return
-        milestone_indices = np.zeros(self.main_data_window.p_i.shape[0], dtype=np.int8)
-        milestone_values = np.zeros(self.main_data_window.p_i.shape[0], dtype=np.float64)
-        milestone_value_dict = analyzers_base.make_milestone_value_dict(self.model)
+        
+        milestone_indices = np.zeros(self.main_data_window.p_i.shape[0], 
+                                     dtype=np.int8)
+        milestone_values = np.zeros(self.main_data_window.p_i.shape[0], 
+                                    dtype=np.float64)
+        milestone_value_dict = analyzers_base.make_milestone_value_dict(
+            self.model)
         for i in range(self.main_data_window.p_i.shape[0]):
             milestone_indices[i] = i
             milestone_values[i] = milestone_value_dict[i]
@@ -354,8 +460,72 @@ class Mmvt_analyzer:
         plt.xlabel("milestone value")
         plt.yscale("log", nonpositive="mask")
         plt.tight_layout()
-        p_i_fig.savefig(os.path.join(image_directory, "p_i.png"))
-        plt.close(p_i_fig)
+        if return_plot:
+            return p_i_fig, ax
+        else:
+            p_i_fig.savefig(os.path.join(image_directory, "p_i.png"))
+            plt.close(p_i_fig)
+            return
+        
+    def plot_p_i_2d(
+            self,
+            cv_indices: tuple[int, int] = (0, 1),
+            image_directory: str | None = None,
+            return_plot=True
+            ) -> tuple | None:
+        """
+        Plot the p_i values for each milestone in 2D.
+        """
+        anchor_values = analyzers_base.find_anchor_points_2d(self.model)
+        boundaries = analyzers_base.make_boundaries(anchor_values)
+        cv_0_name = self.model.collective_variables[cv_indices[0]].name
+        cv_0_unit = self.model.collective_variables[cv_indices[0]].unit
+        x_coordinate_title = f"{cv_0_name} ({cv_0_unit})"
+        cv_1_name = self.model.collective_variables[cv_indices[1]].name
+        cv_1_unit = self.model.collective_variables[cv_indices[1]].unit
+        y_coordinate_title = f"{cv_1_name} ({cv_1_unit})"
+        if self.main_data_window.p_i is None:
+            return
+        milestone_p_i = {}
+        for i, fill_value in enumerate(self.main_data_window.p_i):
+            if not np.isfinite(fill_value):
+                milestone_p_i[i] = np.max(self.main_data_window.p_i[np.isfinite(
+                    self.main_data_window.p_i)])
+            else:
+                milestone_p_i[i] = fill_value
+        ret = analyzers_base.plot_milestones_2d(
+            model=self.model, 
+            boundaries=boundaries, 
+            title="$p_i$",
+            x_coordinate_title=x_coordinate_title,
+            y_coordinate_title=y_coordinate_title,
+            colorbar_label="unitless",
+            fill_values=milestone_p_i,
+            plot_basename="p_i",
+            plot_dir=image_directory, 
+            return_plot=return_plot)
+        return ret
+        
+    def plot_free_energy_milestones_1d(
+            self, 
+            image_directory: str | None = None,
+            return_plot=True
+            ) -> tuple | None:
+        """
+        Plot the free energy profile by milestone.
+        """
+        if self.main_data_window.p_i is None:
+            return
+        
+        milestone_indices = np.zeros(
+            self.main_data_window.p_i.shape[0], dtype=np.int8)
+        milestone_values = np.zeros(
+            self.main_data_window.p_i.shape[0], dtype=np.float64)
+        milestone_value_dict = analyzers_base.make_milestone_value_dict(self.model)
+        for i in range(self.main_data_window.p_i.shape[0]):
+            milestone_indices[i] = i
+            milestone_values[i] = milestone_value_dict[i]
+        
         # save free energy milestone profile
         free_energy_milestones_fig, ax = plt.subplots()
         plt.errorbar(
@@ -369,10 +539,71 @@ class Mmvt_analyzer:
         plt.ylabel("\u0394G(milestone) (kcal/mol)")
         plt.xlabel("milestone value")
         plt.tight_layout()
-        free_energy_milestones_fig.savefig(os.path.join(
-            image_directory, "free_energy_profile_milestones.png"))
-        plt.close(free_energy_milestones_fig)
+        if return_plot:
+            return free_energy_milestones_fig, ax
+        else:
+            free_energy_milestones_fig.savefig(os.path.join(
+                image_directory, "free_energy_profile_milestones.png"))
+            plt.close(free_energy_milestones_fig)
+            return
         
+    def plot_free_energy_milestones_2d(
+            self,
+            cv_indices: tuple[int, int] = (0, 1),
+            image_directory: str | None = None,
+            return_plot=True
+            ) -> tuple | None:
+        """
+        Plot the free energy profile by milestone in 2D.
+        """
+        anchor_values = analyzers_base.find_anchor_points_2d(self.model)
+        boundaries = analyzers_base.make_boundaries(anchor_values)
+        cv_0_name = self.model.collective_variables[cv_indices[0]].name
+        cv_0_unit = self.model.collective_variables[cv_indices[0]].unit
+        x_coordinate_title = f"{cv_0_name} ({cv_0_unit})"
+        cv_1_name = self.model.collective_variables[cv_indices[1]].name
+        cv_1_unit = self.model.collective_variables[cv_indices[1]].unit
+        y_coordinate_title = f"{cv_1_name} ({cv_1_unit})"
+        if self.main_data_window.p_i is None:
+            return
+        milestone_free_energies = {}
+        for i, fill_value in enumerate(
+                self.main_data_window.free_energy_milestones):
+            if not np.isfinite(fill_value):
+                milestone_free_energies[i] = np.max(
+                    self.main_data_window.free_energy_milestones[np.isfinite(
+                        self.main_data_window.free_energy_milestones)])
+            else:
+                milestone_free_energies[i] = fill_value
+        ret = analyzers_base.plot_milestones_2d(
+            model=self.model, 
+            boundaries=boundaries, 
+            title="\u0394G by milestone",
+            x_coordinate_title=x_coordinate_title,
+            y_coordinate_title=y_coordinate_title,
+            colorbar_label="kcal/mol",
+            fill_values=milestone_free_energies,
+            plot_basename="free_energy_profile_milestones",
+            plot_dir=image_directory, 
+            return_plot=return_plot)
+        return ret
+        
+    def plot_free_energy_anchors_1d(
+            self, 
+            image_directory: str | None = None,
+            return_plot=True
+            ) -> tuple | None:
+        """
+        Plot the free energy profile by anchor.
+        """
+        anchor_indices = np.zeros(len(self.model.anchors), dtype=np.int8)
+        anchor_values = np.zeros(len(self.model.anchors), dtype=np.float64)
+        for i, anchor in enumerate(self.model.anchors):
+            anchor_indices[i] = anchor.index
+            anchor_values[i] = list(anchor.variables.values())[0]
+
+        if self.main_data_window.free_energy_anchors is None:
+            return
         # save free energy anchor profile
         free_energy_anchors_fig, ax = plt.subplots()
         plt.errorbar(
@@ -385,13 +616,93 @@ class Mmvt_analyzer:
         plt.ylabel("\u0394G(anchor) (kcal/mol)")
         plt.xlabel("anchor value")
         plt.tight_layout()
-        free_energy_anchors_fig.savefig(os.path.join(
-            image_directory, "free_energy_profile_anchor.png"))
-        plt.close(free_energy_anchors_fig)
+        if return_plot:
+            return free_energy_anchors_fig, ax
+        else:
+            free_energy_anchors_fig.savefig(os.path.join(
+                image_directory, "free_energy_profile_anchor.png"))
+            plt.close(free_energy_anchors_fig)
+            return
+        
+    def plot_free_energy_anchors_2d(
+            self,
+            cv_indices: tuple[int, int] = (0, 1),
+            image_directory: str | None = None,
+            return_plot=True
+            ) -> tuple | None:
+        """
+        Plot the free energy values for each anchor in 2D.
+        """
+        anchor_values = analyzers_base.find_anchor_points_2d(self.model)
+        boundaries = analyzers_base.make_boundaries(anchor_values)
+        cv_0_name = self.model.collective_variables[cv_indices[0]].name
+        cv_0_unit = self.model.collective_variables[cv_indices[0]].unit
+        x_coordinate_title = f"{cv_0_name} ({cv_0_unit})"
+        cv_1_name = self.model.collective_variables[cv_indices[1]].name
+        cv_1_unit = self.model.collective_variables[cv_indices[1]].unit
+        y_coordinate_title = f"{cv_1_name} ({cv_1_unit})"
+        if self.main_data_window.free_energy_anchors is None:
+            return
+        anchor_free_energies = {}
+        for alpha, fill_value in enumerate(
+                self.main_data_window.free_energy_anchors):
+            if not np.isfinite(fill_value):
+                anchor_free_energies[alpha] = np.max(
+                    self.main_data_window.free_energy_anchors[np.isfinite(
+                        self.main_data_window.free_energy_anchors)])
+            else:
+                anchor_free_energies[alpha] = fill_value
+        ret = analyzers_base.plot_anchors_2d(
+            model=self.model, 
+            anchor_values=anchor_values,
+            boundaries=boundaries, 
+            title="\u0394G by anchor",
+            x_coordinate_title=x_coordinate_title,
+            y_coordinate_title=y_coordinate_title,
+            colorbar_label="kcal/mol",
+            fill_values=anchor_free_energies,
+            plot_basename="free_energy_profile_anchors",
+            plot_dir=image_directory, 
+            return_plot=return_plot)
+        return ret
+    
+    def save_plots(
+            self, 
+            image_directory: str
+            ) -> None:
+        """
+        Save a potentially useful series of plots of some quantities
+        obtained during the analysis.
+        
+        TODO: interact with model, because the way these plots are saved
+        depends on the structure of the CVs.
+        """
+        # TODO: modify these plot functions to be individual for calling
+        # from a jupyter notebook. But also pass an arg to save to file
+        # and then close to save memory.
+        
+        if len(self.model.anchors[0].variables) == 1:
+            self.plot_pi_alpha_1d(
+                image_directory, return_plot=False)
+            self.plot_p_i_1d(
+                image_directory, return_plot=False)
+            self.plot_free_energy_milestones_1d(
+                image_directory, return_plot=False)
+            self.plot_free_energy_anchors_1d(
+                image_directory, return_plot=False)
 
-        # Convergence plots
-        mmvt_convergence.write_convergence_plots(image_directory, self.data_window_list)
+        elif len(self.model.anchors[0].variables) > 1:
+            self.plot_pi_alpha_2d(
+                image_directory=image_directory, return_plot=False)
+            self.plot_p_i_2d(
+                image_directory=image_directory, return_plot=False)
+            self.plot_free_energy_milestones_2d(
+                image_directory=image_directory, return_plot=False)
+            self.plot_free_energy_anchors_2d(
+                image_directory=image_directory, return_plot=False)
 
+        mmvt_convergence.write_convergence_plots(
+            image_directory, self.data_window_list)
         return
             
 def analyze_mmvt(
@@ -400,7 +711,8 @@ def analyze_mmvt(
         skip_checks: bool = False,
         min_time_ps: float = 0.0,
         max_time_ps: float = np.finfo(np.float32).max,
-        error_analysis_method: str = "bootstrap"
+        error_analysis_method: str = "bootstrap",
+        only_extract_data: bool = False
         ) -> Mmvt_analyzer:
     """
     Analyze the results of a SEEKR MMVT calculation.
@@ -423,7 +735,8 @@ def analyze_mmvt(
             analysis.model, analysis.anchor_stats_alpha_list)
         if analysis.bulk_stats is not None:
             analysis.bulk_stats.check()
-    
+    if only_extract_data:
+        return analysis
     analysis.fill_out_and_process_data_samples(time_between_statistics)
     analysis.error_analysis(error_analysis_method, random_seed=model.get_random_seed())
     return analysis

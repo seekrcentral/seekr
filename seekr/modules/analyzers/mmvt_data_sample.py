@@ -41,7 +41,6 @@ def flux_matrix_to_K(
             
 def make_end_states_dict_and_anchor_indices_by_name(
         model: structures.Seekr_model,
-        skip_bulk: bool = False
     ) -> typing.DefaultDict[str, list[int]]:
     """
     Make the end_states dictionary used in analysis for kinetics portion.
@@ -49,12 +48,10 @@ def make_end_states_dict_and_anchor_indices_by_name(
     end_states = defaultdict(list)
     anchor_indices_by_name = {}
     for anchor in model.anchors:
-        anchor_indices_by_name[anchor.name] = anchor.index
-        if anchor.bulk_anchor and skip_bulk:
-            continue
         if anchor.end_anchor:
             for milestone in anchor.milestones:
                 end_states[anchor.name].append(milestone.index)
+        anchor_indices_by_name[anchor.name] = anchor.index
 
     return end_states, anchor_indices_by_name
 
@@ -79,14 +76,6 @@ class Mmvt_data_sample:
     T_alpha: list = field(
         factory=list,
         validator=validators.instance_of(list),)
-    
-    # These parameters are assigned if there's statistics for
-    # a bulk anchor
-    k_ons_src: dict | None = field(default=None)
-    k_on_errors_src: dict | None = field(default=None)
-    transition_counts: dict | None = field(default=None)
-    transition_probabilities: dict | None = field(default=None)
-    outer_milestone_indices: list | None = field(default=None)
 
     # These parameters are computed by subsequent methods
     N_alpha: list = field(
@@ -380,11 +369,7 @@ class Mmvt_data_sample:
         highest_pi_alpha = max(self.pi_alpha)
         for alpha in range(model.num_anchors):
             if model.anchors[alpha].bulk_anchor:
-                pi_alpha_sum = 0.0
-                for milestone in model.anchors[alpha].milestones:
-                    neighbor_anchor_index = milestone.neighbor_anchor_index
-                    pi_alpha_sum += self.pi_alpha[neighbor_anchor_index, 0]
-                pi_alpha_val = pi_alpha_sum / len(model.anchors[alpha].milestones)
+                pi_alpha_val = self.pi_alpha[-1, 0]
             else:
                 pi_alpha_val = self.pi_alpha[alpha, 0]
             free_energy = -analyzers_base.GAS_CONSTANT*model.temperature*np.log(
@@ -392,7 +377,7 @@ class Mmvt_data_sample:
             self.free_energy_anchors[alpha] = free_energy
 
         for i, anchor in enumerate(model.anchors):
-            if anchor.end_anchor and not (anchor.bulk_anchor):
+            if anchor.end_anchor and not anchor.bulk_anchor:
                 end_anchor_indices.append(i)
         
         for src_anchor_index in end_anchor_indices:
@@ -471,13 +456,12 @@ class Mmvt_data_sample:
         self.anchor_to_anchor_MFPTs = anchor_src_to_anchor_dest_MFPTs
         return
     
-    def fill_out_k_off_and_k_on(
+    def fill_out_k_off(
             self,
             anchor_indices_by_name: typing.DefaultDict[str, int]):
         """
         Fill out the k_off and k_on rate constants for the model.
         """
-        # First, k-off
         MFPT_to_bulk_non_normalized = 0.0
         marginal_prob = 0.0
         for key, MFPT in self.anchor_to_anchor_MFPTs.items():
@@ -490,7 +474,7 @@ class Mmvt_data_sample:
         if marginal_prob > 0.0:
             MFPT_to_bulk = MFPT_to_bulk_non_normalized / marginal_prob
             self.k_off = 1.0e12 / float(MFPT_to_bulk)
-        # else k_off will stay at None
+            
         return
 
     def fill_out_milestoning_quantities(
@@ -520,18 +504,8 @@ class Mmvt_data_sample:
                 analyzers_base.calculate_kinetics(
                     model.num_milestones, self.Q, self.K, end_states
         )
-        if self.transition_counts is not None:
-            end_states_without_bulk, _ \
-                = make_end_states_dict_and_anchor_indices_by_name(
-                    model, skip_bulk=True)
-            self.k_ons = analyzers_base.calculate_k_on_kinetics(
-                model.num_milestones, self.K, end_states_without_bulk, self.transition_counts,
-                self.transition_probabilities, self.k_ons_src, 
-                self.outer_milestone_indices
-            )
-            
         self.calculate_extra_kinetics(model, end_states)
-        self.fill_out_k_off_and_k_on(anchor_indices_by_name)
+        self.fill_out_k_off(anchor_indices_by_name)
 
     def make_mcmc_quantities(
             self,
@@ -554,7 +528,7 @@ class Mmvt_data_sample:
         N_alpha_beta_matrix = np.zeros((n_anchors, n_anchors))
         T_alpha_matrix = np.zeros((n_anchors, 1))
         for alpha in range(n_anchors):
-            if "molecular_dynamics" not in model.anchors[alpha].scale_types:
+            if not model.anchors[alpha].md:
                 continue
             for beta in range(n_anchors):
                 if alpha == beta: continue
@@ -573,7 +547,7 @@ class Mmvt_data_sample:
         mmvt_Ri_alpha = []
         mmvt_Qij_alpha = []
         for alpha in range(n_anchors):
-            if "molecular_dynamics" not in model.anchors[alpha].scale_types:
+            if not model.anchors[alpha].md:
                 continue
             if self.T_alpha[alpha] > 0.0:
                 invT += self.pi_alpha[alpha] / self.T_alpha[alpha]
@@ -621,7 +595,7 @@ class Mmvt_data_sample:
         self.k_alpha_beta = defaultdict(float)
         self.k_alpha = []
         for alpha in range(n_anchors):
-            if "molecular_dynamics" not in model.anchors[alpha].scale_types:
+            if not model.anchors[alpha].md:
                 continue
             
             k_alpha = 0.0
@@ -650,7 +624,7 @@ class Mmvt_data_sample:
         for alpha, anchor in enumerate(model.anchors):
             if self.N_i_j_alpha is None or self.R_i_alpha is None:
                 continue
-            if "molecular_dynamics" not in anchor.scale_types:
+            if not anchor.md:
                 break
             new_T_alpha = 0.0
             N_i_j_alpha_keys = list(self.N_i_j_alpha[alpha].keys())

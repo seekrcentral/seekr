@@ -48,7 +48,7 @@ reporters: typing.Dict[str, typing.Type[reporters_structures.Base_reporter]] \
 
 completion_criteria: typing.Dict[str, typing.Type[compl_crit_struct.Base_completion_criteria]] \
         = {"number_of_steps": compl_crit_struct.Number_of_steps_completion_criteria,
-           "all_anchors_filled": compl_crit_struct.All_anchors_filled_completion_criteria,
+           "anchors_filled": compl_crit_struct.Anchors_filled_completion_criteria,
            "number_of_trajectories": compl_crit_struct.Number_of_trajectories_completion_criteria,}
 
 from seekr.modules.collective_variables.structures import cvs
@@ -454,6 +454,19 @@ class Seekr_model:
             if engine.scale_type == scale.type:
                 return engine
         raise ValueError(f"Engine for scale type {scale_type} not found.")
+    
+    def get_toy_settings(
+            self
+            ) -> engines_structures.Toy_settings | None:
+        """
+        Return the toy settings if they exist.
+        """
+        assert self.using_toy(), "This model is not a toy system."
+        for scale in self.scales:
+            engine = self.get_engine_by_scale_type(scale.type)
+            if engine.can_handle_toy():
+                return engine.toy_settings
+        raise ValueError("Toy settings not found.")
 
     def get_timestep_by_type(
             self,

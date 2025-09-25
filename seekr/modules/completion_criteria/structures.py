@@ -62,13 +62,17 @@ class Number_of_steps_completion_criteria(Base_completion_criteria):
     def get_evaluation_interval(self) -> int:
         return 0
 
-# TODO: generalize this to a predefined subset of anchors filled
 @define
-class All_anchors_filled_completion_criteria(Base_completion_criteria):
+class Anchors_filled_completion_criteria(Base_completion_criteria):
     """
     A completion criteria based on all anchors being filled.
     """
-    type: typing.Literal["all_anchors_filled"] = "all_anchors_filled"
+    type: typing.Literal["anchors_filled"] = "anchors_filled"
+    exclude: list[int] = field(factory=list,
+                               validator=validators.deep_iterable(
+                                   member_validator=validators.instance_of(int),
+                                   iterable_validator=validators.instance_of(list),
+                               ))
     eval_interval: int = field(default=250,
                                 validator=[validators.instance_of(int),
                                            validators.gt(0)])
@@ -126,8 +130,3 @@ class Number_of_trajectories_completion_criteria(Base_completion_criteria):
     
     def get_evaluation_interval(self) -> int:
         return 0
-
-#MD_completion_criteria = typing.Union[Number_of_steps_completion_criteria,
-#                                      All_anchors_filled_completion_criteria,]
-
-#BD_completion_criteria = typing.Union[Number_of_trajectories_completion_criteria,]

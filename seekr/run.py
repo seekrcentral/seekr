@@ -15,6 +15,42 @@ import seekr.modules.scales.runner as scales_runner
 
 MAX_ITER = 999
 
+def extract_stage_index(
+        model: structures.Seekr_model, 
+        stage_arg: str
+        ) -> int | None:
+    for i, stage_obj in enumerate(model.stages):
+        if stage_obj.name == stage_arg:
+            return i
+    try:
+        int_stage = int(stage_arg)
+    except ValueError:
+        return None
+    for i, stage_obj in enumerate(model.stages):
+        if stage_obj.index == int_stage:
+            return i
+    return None
+
+def extract_anchor_index(
+        model: structures.Seekr_model, 
+        anchor_arg: str
+        ) -> str | None:
+    """
+    Catch instructions that are not valid and throw an error.
+    """
+    if anchor_arg == "any":
+        return "any"
+    for alpha, anchor in enumerate(model.anchors):
+        if anchor.name == anchor_arg:
+            return str(alpha)
+    try:
+        int_anchor = int(anchor_arg)
+    except ValueError:
+        return None
+    if (int_anchor < model.num_anchors) and (int_anchor >= 0):
+        return str(int_anchor)
+    return None
+
 def run(
         model: structures.Seekr_model, 
         stage_arg: str, 
@@ -67,42 +103,6 @@ def run(
         synopsis_filename = model.get_synopsis_filename(model.directory)
         base.configure_file_and_stdout_logger(synopsis_filename, False)
         logging.warning(log_string)
-
-def extract_stage_index(
-        model: structures.Seekr_model, 
-        stage_arg: str
-        ) -> int | None:
-    for i, stage_obj in enumerate(model.stages):
-        if stage_obj.name == stage_arg:
-            return i
-    try:
-        int_stage = int(stage_arg)
-    except ValueError:
-        return None
-    for i, stage_obj in enumerate(model.stages):
-        if stage_obj.index == int_stage:
-            return i
-    return None
-
-def extract_anchor_index(
-        model: structures.Seekr_model, 
-        anchor_arg: str
-        ) -> str | None:
-    """
-    Catch instructions that are not valid and throw an error.
-    """
-    if anchor_arg == "any":
-        return "any"
-    for alpha, anchor in enumerate(model.anchors):
-        if anchor.name == anchor_arg:
-            return str(alpha)
-    try:
-        int_anchor = int(anchor_arg)
-    except ValueError:
-        return None
-    if (int_anchor < model.num_anchors) and (int_anchor >= 0):
-        return str(int_anchor)
-    return None
 
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser(description=__doc__)

@@ -21,13 +21,15 @@ def analyze(
         skip_checks: bool = False,
         min_time_ps: float = 0.0,
         max_time_ps: float | None = None,
-        error_analysis_method: str = "bootstrap"
+        error_analysis_method: str = "bootstrap",
+        only_extract_data: bool = False
     ) -> mmvt_analyzer.Mmvt_analyzer:
     curdir = os.getcwd()
     analysis = analyzer.analyze(
         model, stage_index=stage_index, skip_checks=skip_checks,
         min_time_ps=min_time_ps, max_time_ps=max_time_ps,
-        error_analysis_method=error_analysis_method
+        error_analysis_method=error_analysis_method,
+        only_extract_data=only_extract_data
     )
     os.chdir(curdir)
     return analysis
@@ -81,6 +83,7 @@ if __name__ == "__main__":
         model, stage_index=stage, skip_checks=skip_checks, 
         min_time_ps=min_time_ps, max_time_ps=max_time_ps,
         error_analysis_method=error_analysis_method)
+    assert analysis is not None, "No analysis could be performed for any stages."
     analysis.print_results()
     print("All plots being saved to:", analyzer_base.DEFAULT_IMAGE_DIR)
     analysis.make_image_directory(analyzer_base.DEFAULT_IMAGE_DIR)

@@ -20,8 +20,9 @@ def analyze(
         skip_checks: bool = False,
         min_time_ps: float = 0.0,
         max_time_ps: float | None = None,
-        error_analysis_method: str = "bootstrap"
-    ) -> mmvt_analyzer.Mmvt_analyzer:
+        error_analysis_method: str = "bootstrap",
+        only_extract_data: bool = False
+    ) -> mmvt_analyzer.Mmvt_analyzer | None:
     # TODO: create a more specific type for the return value above
     """
     Analyze the results of SEEKR simulations for calculation of rate constants,
@@ -45,6 +46,8 @@ def analyze(
                 break
     assert 1 <= stage_index < len(model.stages)+1, "Invalid stage index."
     stage = model.stages[stage_index-1]
+    if stage.sampling_method.type not in AVAILABLE_ANALYZERS:
+        return None
     if max_time_ps is None:
         max_time_ps = np.finfo(np.float32).max
     if stage.sampling_method.type == "mmvt":
@@ -52,7 +55,9 @@ def analyze(
         analysis = analyze_mmvt(
             model, stage_index=stage_index, skip_checks=skip_checks,
             min_time_ps=min_time_ps, max_time_ps=max_time_ps,
-            error_analysis_method=error_analysis_method)
+            error_analysis_method=error_analysis_method,
+            only_extract_data=only_extract_data
+        )
         return analysis
     # TODO: metaD and maybe SMD?
     # TODO: cycle through plugins?

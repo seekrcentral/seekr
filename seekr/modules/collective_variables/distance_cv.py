@@ -33,6 +33,8 @@ class Distance_CV(cv_base.Base_CV):
     group2_name: str = field(validator=validators.instance_of(str))
     name: str = field(default="",
                         validator=validators.instance_of(str))
+    unit: str = field(default="nm",
+                      validator=validators.instance_of(str))
     num_groups: typing.Literal[2] = 2
     variable_name = "r"
     periodic: bool = False
@@ -67,9 +69,10 @@ class Distance_CV(cv_base.Base_CV):
         """
         Determine the current CV value for an mdtraj object.
         """
-        group1_atom_indices = model.md_engine.get_atom_indices_by_selection_name(
+        md_engine = model.get_engine_by_scale_type("molecular_dynamics")
+        group1_atom_indices = md_engine.get_atom_indices_by_selection_name(
             self.group1_name)
-        group2_atom_indices = model.md_engine.get_atom_indices_by_selection_name(
+        group2_atom_indices = md_engine.get_atom_indices_by_selection_name(
             self.group2_name)
         traj1 = traj.atom_slice(group1_atom_indices)
         traj2 = traj.atom_slice(group2_atom_indices)

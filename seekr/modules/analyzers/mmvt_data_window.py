@@ -118,14 +118,22 @@ class Mmvt_data_window:
             self.data_sample_list = [self.main_data_sample]
             self.pi_alpha = self.main_data_sample.pi_alpha
             self.p_i = self.main_data_sample.p_i
-            self.free_energy_milestones = self.main_data_sample.free_energy_milestones
-            self.free_energy_anchors = self.main_data_sample.free_energy_anchors
-            self.milestone_to_milestone_probabilities = self.main_data_sample.milestone_to_milestone_probabilities
-            self.milestone_to_milestone_MFPTs = self.main_data_sample.milestone_to_milestone_MFPTs
-            self.milestone_committor_functions = self.main_data_sample.milestone_committor_functions
-            self.anchor_to_anchor_probabilities = self.main_data_sample.anchor_to_anchor_probabilities
-            self.anchor_to_anchor_energies = self.main_data_sample.anchor_to_anchor_energies
-            self.anchor_to_anchor_MFPTs = self.main_data_sample.anchor_to_anchor_MFPTs
+            self.free_energy_milestones \
+                = self.main_data_sample.free_energy_milestones
+            self.free_energy_anchors \
+                = self.main_data_sample.free_energy_anchors
+            self.milestone_to_milestone_probabilities \
+                = self.main_data_sample.milestone_to_milestone_probabilities
+            self.milestone_to_milestone_MFPTs \
+                = self.main_data_sample.milestone_to_milestone_MFPTs
+            self.milestone_committor_functions \
+                = self.main_data_sample.milestone_committor_functions
+            self.anchor_to_anchor_probabilities \
+                = self.main_data_sample.anchor_to_anchor_probabilities
+            self.anchor_to_anchor_energies \
+                = self.main_data_sample.anchor_to_anchor_energies
+            self.anchor_to_anchor_MFPTs \
+                = self.main_data_sample.anchor_to_anchor_MFPTs
             self.k_off = self.main_data_sample.k_off
             self.k_ons = self.main_data_sample.k_ons
 
@@ -181,7 +189,6 @@ class Mmvt_data_window:
             self.anchor_to_anchor_MFPTs_err = {}
             self.k_off_err = 0.0
             self.k_ons_err = {}
-
             for counter, data_sample in enumerate(self.data_sample_list):
                 # Error quantities
                 if data_sample.pi_alpha is None:
@@ -240,41 +247,37 @@ class Mmvt_data_window:
                     free_energy_anchors_val_list.append(free_energy_anchors_list[j][i])
                 self.free_energy_anchors_err[i] = np.std(free_energy_anchors_val_list)
 
-            for key in data_sample.milestone_to_milestone_probabilities:
+            for key in self.milestone_to_milestone_probabilities:
                 error = np.std(milestone_to_milestone_probabilities_dict_list[key])
                 self.milestone_to_milestone_probabilities_err[key] = error
 
-            for key in data_sample.milestone_committor_functions:
+            for key in self.milestone_committor_functions:
                 error = np.std(milestone_committor_functions_dict_list[key])
                 self.milestone_committor_functions_err[key] = error
 
-            for key in data_sample.milestone_to_milestone_MFPTs:
+            for key in self.milestone_to_milestone_MFPTs:
                 error = np.std(milestone_to_milestone_MFPTs_dict_list[key])
                 self.milestone_to_milestone_MFPTs_err[key] = error
 
-            for key in data_sample.anchor_to_anchor_probabilities:
+            for key in self.anchor_to_anchor_probabilities:
                 error = np.std(anchor_to_anchor_probabilities_dict_list[key])
                 self.anchor_to_anchor_probabilities_err[key] = error
 
-            for key in data_sample.anchor_to_anchor_energies:
+            for key in self.anchor_to_anchor_energies:
                 error = np.std(anchor_to_anchor_energies_dict_list[key])
                 self.anchor_to_anchor_energies_err[key] = error
-
-            for key in data_sample.anchor_to_anchor_MFPTs:
+            
+            for key in self.anchor_to_anchor_MFPTs:
                 error = np.std(anchor_to_anchor_MFPTs_dict_list[key])
                 self.anchor_to_anchor_MFPTs_err[key] = error
+
             if len(k_off_list) > 0:
                 self.k_off_err = np.std(k_off_list)
             
-            for key in data_sample.k_ons:
+            for key in self.k_ons:
                 if len(k_ons_list[key]) > 0:
                     error = np.std(k_ons_list[key])
                     self.k_ons_err[key] = error
-
-        if len(self.anchor_to_anchor_MFPTs_err.keys()) == 0:
-            print("Problem! Anchor to anchor MFPT errors are missing.")
-            print("len(self.data_sample_list): {}".format(len(self.data_sample_list)))
-            # NOTE: if this isn't printed, it might be because pi_alpha is None!
 
         return
 
@@ -299,13 +302,14 @@ def check_extraction(
         "to create a path between end {0} \"{1}\" and \"{2}\".\n"
     error_warning_string = ""
     end_anchor_set = set()
-    end_milestone_set = set()
+    end_milestone_sets = []
     anchors_missing_alpha_beta_stats = set()
     anchors_missing_i_j_statistics = set()
     connections_anchor_to_anchor = defaultdict(list)
     connections_milestone_to_milestone = defaultdict(list)
     # A dictionary whose keys are milestone pairs and values are anchor indices
     for alpha, anchor in enumerate(model.anchors):
+        end_milestone_set = set()
         if anchor.bulk_anchor:
             for milestone in anchor.milestones:
                 connections_anchor_to_anchor[anchor.index].append(
@@ -329,6 +333,9 @@ def check_extraction(
             for milestone in anchor.milestones:
                 end_milestone_set.add(milestone.index)
 
+        if len(end_milestone_set) > 0:
+            end_milestone_sets.append(end_milestone_set)
+
         if anchor_stats_alpha_list[alpha] is not None:
             existing_alias_alpha_beta = []
             existing_alias_i_j = []
@@ -336,9 +343,11 @@ def check_extraction(
                 anchors_missing_alpha_beta_stats.add(anchor.index)
                 continue
             if window_index >= len(anchor_stats_alpha_list[alpha]):
-                window_index = len(anchor_stats_alpha_list[alpha]) - 1
+                window_index_new = len(anchor_stats_alpha_list[alpha]) - 1
+            else:
+                window_index_new = window_index
             anchor_stats_window: mmvt_anchor_statistics.Mmvt_anchor_statistics \
-                = anchor_stats_alpha_list[alpha][window_index]
+                = anchor_stats_alpha_list[alpha][window_index_new]
             for key in anchor_stats_window.k_alpha_beta:
                 if anchor_stats_window.k_alpha_beta[key] > 0.0:
                     existing_alias_alpha_beta.append(key)
@@ -365,7 +374,7 @@ def check_extraction(
                     else:
                         anchors_missing_i_j_statistics.add(anchor.index)
                         break
-
+    
     missing_anchor_path = False
     for end_anchor_index in end_anchor_set:
         for end_anchor_index2 in end_anchor_set:
@@ -380,18 +389,22 @@ def check_extraction(
                     model.anchors[end_anchor_index2].name)
                 error_warning_string += error_str
                 missing_anchor_path = True
-
     missing_milestone_path = False
-    for end_milestone_index in end_milestone_set:
-        for end_milestone_index2 in end_milestone_set:
-            if end_milestone_index == end_milestone_index2:
+    for i, end_milestone_set in enumerate(end_milestone_sets):
+        for j, end_milestone_set2 in enumerate(end_milestone_sets):
+            if i == j:
                 continue
-            states_connected = analyzers_base.check_graph_connected(
-                connections_milestone_to_milestone, end_milestone_index, 
-                end_milestone_index2)
-            if not states_connected:
+            some_states_connected = False
+            for end_milestone_index in end_milestone_set:
+                for end_milestone_index2 in end_milestone_set2:
+                    states_connected = analyzers_base.check_graph_connected(
+                        connections_milestone_to_milestone, end_milestone_index, 
+                        end_milestone_index2)
+                    if states_connected:
+                        some_states_connected = True
+            if not some_states_connected:
                 error_str = path_not_connected_string.format(
-                    "milestones", end_milestone_index, end_milestone_index2)
+                    "milestones", end_milestone_set, end_milestone_set2)
                 error_warning_string += error_str
                 missing_milestone_path = True
 
@@ -422,12 +435,14 @@ def assign_data_windows_sample(
     For each of the statistics windows, create the corresponding data
     sample.
     """
+    end_states_not_bulk = analyzers_base.get_end_states_not_bulk(model)
     for i, window_index in enumerate(window_index_list):
         N_alpha_beta = defaultdict(int)
         k_alpha_beta = defaultdict(float)
         N_i_j_alpha = []
         R_i_alpha_total = []
         T_alpha_total = []
+        window_time = 0.0
         for alpha, anchor1 in enumerate(model.anchors):
             if anchor1.bulk_anchor:
                 continue
@@ -439,7 +454,8 @@ def assign_data_windows_sample(
                 i_modified = i
             anchor_stats_window: mmvt_anchor_statistics.Mmvt_anchor_statistics \
                 = anchor_stats_alpha_list[alpha][i_modified]
-            window_time = anchor_stats_window.time_count
+            if anchor_stats_window.time_count > window_time:
+                window_time = anchor_stats_window.time_count
             anchor_N_alpha_beta = anchor_stats_window.N_alpha_beta
             anchor_k_alpha_beta = anchor_stats_window.k_alpha_beta
             for beta, anchor2 in enumerate(model.anchors):
@@ -506,23 +522,31 @@ def assign_data_windows_sample(
             model, anchor_stats_alpha_list, window_index=i,
             abort_on_error=abort_on_check_error)
             
-        
         data_sample = mmvt_data_sample.Mmvt_data_sample(
             N_alpha_beta, k_alpha_beta, N_i_j_alpha, 
             R_i_alpha_total, T_alpha_total)
         
+        """
         if bulk_stats is not None:
             data_sample.k_ons_src = bulk_stats.k_ons_src
             data_sample.k_on_errors_src = bulk_stats.k_on_errors_src
             data_sample.transition_counts = bulk_stats.transition_counts
             data_sample.transition_probabilities = bulk_stats.transition_probabilities
             data_sample.outer_milestone_indices = bulk_stats.outer_milestone_indices
+        """
 
         if check_passed:
             data_sample.preprocess_statistics(model)
             data_sample.calculate_pi_alpha(model)
             data_sample.fill_out_data_quantities(model)
             data_sample.fill_out_milestoning_quantities(model)
+            if bulk_stats is not None:
+                data_sample.k_ons = analyzers_base.calculate_k_on_kinetics(
+                    model.num_milestones, data_sample.K, end_states_not_bulk,
+                    bulk_stats.transition_counts, 
+                    bulk_stats.transition_probabilities,
+                    bulk_stats.k_ons_src,
+                    bulk_stats.outer_milestone_indices)
         
         data_window = data_window_list[i]
         if assign_to_main:

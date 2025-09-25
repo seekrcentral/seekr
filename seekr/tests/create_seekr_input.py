@@ -194,7 +194,7 @@ def create_host_guest_example_input(
     stage2.ensemble = structures.NVT_ensemble()
     stage2.sampling_method = sampling_preparer.Metadynamics_md_input()
     stage2.sampling_method.gaussian_height = 1.0
-    stage2.completion_criteria = compl_crit_struct.All_anchors_filled_completion_criteria()
+    stage2.completion_criteria = compl_crit_struct.Anchors_filled_completion_criteria()
 
     stage3 = preparer.Input_stage_md()
     stage3.name = "MMVT"

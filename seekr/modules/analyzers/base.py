@@ -4,6 +4,7 @@ modules/analyzers/base.py
 Base function and constants that might be common for analyzers.
 """
 
+import re
 import os
 import copy
 import typing
@@ -29,6 +30,7 @@ NUM_BOOTSTRAP_SAMPLES = 100
 NUM_RESAMPLES = 10 #100 #TODO: set back to 100? Very slow.
 NUM_MONTE_CARLO_SAMPLES = 100
 DEFAULT_IMAGE_DIR = "images_and_plots/"
+VT_BACKGROUND_COLOR = "white"
 
 # MMVT Constants
 NS_PER_PS = 1e-3
@@ -51,10 +53,18 @@ class MissingStatisticsError(Exception):
     """
     pass
 
+def refine_function_str(old_function_str):
+        """
+        Convert the energy landscape from a form used by OpenMM
+        to a form used by Python.
+        """
+        new_function_str = re.sub("\^", "**", old_function_str)
+        return new_function_str
+
 def check_graph_connected(
         graph: dict[int, list[int]], 
         state_index1: int, 
-        state_index2: int
+        state_index2: int,
         ) -> bool:
     """
     A graph is made of anchor indices that have recorded bounces against
@@ -92,7 +102,7 @@ def check_graph_connected(
             if possible_edge_node not in edge_nodes \
                     and possible_edge_node not in explored_nodes:
                 edge_nodes.append(possible_edge_node)
-        
+                
         counter += 1
         assert counter < max_iter, "Maximum iterations exceeded."
         
@@ -278,6 +288,21 @@ def calculate_kinetics(
     return milestone_src_to_milestone_dest_MFPTs, committor_function_by_milestone,\
         end_state_to_end_state_probabilities_by_milestone
 
+def get_end_states_not_bulk(
+        model: structures.Seekr_model
+    ) -> typing.Dict[str, list[int]]:
+    """
+    Get a dictionary of end states that are not bulk states.
+    """
+    end_states_not_bulk = defaultdict(list)
+    for anchor1 in model.anchors:
+        if anchor1.bulk_anchor:
+            continue
+        if anchor1.end_anchor:
+            for milestone in anchor1.milestones:
+                end_states_not_bulk[anchor1.name].append(milestone.index)
+    return end_states_not_bulk
+
 def calculate_k_on_kinetics(
         num_milestones: int,
         K: np.ndarray,
@@ -286,7 +311,7 @@ def calculate_k_on_kinetics(
         transition_probabilities: dict,
         k_ons_src: dict,
         outer_milestone_indices: list[int],
-    ) -> tuple[dict[tuple[int, int], float], dict[int, float]]:
+    ) -> dict:
     """
     Calculate k_on kinetics if bulk anchor stats present.
     """
@@ -433,8 +458,9 @@ def plot_scalar_conv(
         label: str, 
         title: str, 
         conv_errors: dict | None = None,
-        y_axis_logarithmic: bool = True
-        ) -> None:
+        y_axis_logarithmic: bool = True,
+        return_plot: bool = True
+        ) -> None | tuple:
     """
     Plot convergence of off/on rate or other scalar values as a 
     function of simulation time.
@@ -494,9 +520,12 @@ def plot_scalar_conv(
     if y_axis_logarithmic:
         plt.yscale("log", nonpositive="mask")
     plt.tight_layout()
-    plt.savefig(filename)
-    plt.close()
-    return
+    if return_plot:
+        return fig, ax
+    else:
+        plt.savefig(filename)
+        plt.close()
+        return
 
 def plot_2d_conv(
         conv_dict: dict, 
@@ -507,8 +536,9 @@ def plot_2d_conv(
         zlabel: str,
         conv_errors: dict | None = None,
         y_axis_logarithmic: bool = True,
-        num_convergence_steps: int | None = 8
-        ) -> None:
+        num_convergence_steps: int | None = 8,
+        return_plot: bool = True
+        ) -> None | tuple:
     """
     
     """
@@ -586,9 +616,12 @@ def plot_2d_conv(
     ax.set_ylabel("time (ns)", labelpad=12)
     ax.set_zlabel(zlabel + (" (log₁₀ scale)" if y_axis_logarithmic else ""), labelpad=14)
     plt.title(title)
-    plt.savefig(filename)
-    plt.close(fig)
-    return
+    if return_plot:
+        return fig, ax
+    else:
+        plt.savefig(filename)
+        plt.close(fig)
+        return
 
 def plot_dict_conv(
         conv_dict: dict, 
@@ -601,8 +634,9 @@ def plot_dict_conv(
         y_axis_logarithmic: bool = True,
         title_suffix: str = "", 
         name_base: str | None = None,
-        draw_double: bool = True
-        ) -> None:
+        draw_double: bool = True,
+        return_plot: bool = True
+        ) -> None | tuple:
     """
     Plot convergence of N_ij or R_i or other dictionary-based value 
     as a function of simulation time.
@@ -651,6 +685,9 @@ def plot_dict_conv(
     ax_list = []
     title_list = []
     name_list = []
+    if return_plot:
+        plot_list = []
+
     if name_base is None:
         name_base = label_base
         
@@ -734,7 +771,349 @@ def plot_dict_conv(
         title_list.append(title)
         name_list.append(name)
         plt.tight_layout()
-        plt.savefig(os.path.join(directory, name + ".png"))
-        plt.close(fig)
+        if return_plot:
+            plot_list.append((fig, ax1))
+        else:
+            plt.savefig(os.path.join(directory, name + ".png"))
+            plt.close(fig)
+    if return_plot:
+        return plot_list
+    else:
+        return
 
+def find_anchor_points_2d(
+        model: structures.Seekr_model, 
+        cv_indices: tuple[int, int] = (0,1)):
+    anchor_values = {}
+    num_variables = len(model.collective_variables)
+    for alpha, anchor in enumerate(model.anchors):
+        values = []
+        for i in range(num_variables):
+            cv_index = cv_indices[i]
+            var_name = "value_{}".format(cv_index)
+            values.append(anchor.variables[var_name])
+        anchor_values[alpha] = values
+        
+    return anchor_values
+
+def find_milestone_points_2d(
+        model: structures.Seekr_model, 
+        vor: any, 
+        boundaries: list[float]):
+    milestone_points = {}
+    min_x = boundaries[0]
+    max_x = boundaries[1]
+    min_y = boundaries[2]
+    max_y = boundaries[3]
+    for i, ridge_point_pair in enumerate(vor.ridge_points):
+        anchor1_index = ridge_point_pair[0]
+        anchor2_index = ridge_point_pair[1]
+        if (anchor1_index >= len(model.anchors)) \
+                or (anchor2_index >= len(model.anchors)):
+            continue
+        
+        anchor1 = model.anchors[anchor1_index]
+        milestone_index = None
+        for milestone in anchor1.milestones:
+            if milestone.neighbor_anchor_index == anchor2_index:
+                milestone_index = milestone.index
+                break
+            
+        if milestone_index is None:
+            continue
+        
+        ridge_vertex_pair = vor.ridge_vertices[i]
+        for ridge_vertex_index in ridge_vertex_pair:
+            vertex_inside_boundaries = True
+            vertex = vor.vertices[ridge_vertex_index]
+            if (vertex[0] < min_x) or (vertex[0] > max_x) \
+                    or (vertex[1] < min_y) or (vertex[1] > max_y):
+                vertex_inside_boundaries = False
+                
+            if (ridge_vertex_index == -1) or (not vertex_inside_boundaries):
+                ridge_vertex_pair.remove(ridge_vertex_index)
+        
+        if len(ridge_vertex_pair) == 0:
+            continue
+        elif len(ridge_vertex_pair) == 2:
+            vertex1_index = ridge_vertex_pair[0]
+            vertex2_index = ridge_vertex_pair[1]
+            vertex1 = vor.vertices[vertex1_index]
+            vertex2 = vor.vertices[vertex2_index]
+            avg_point_x = 0.5 * (vertex1[0] + vertex2[0])
+            avg_point_y = 0.5 * (vertex1[1] + vertex2[1])
+            avg_point = [avg_point_x, avg_point_y]
+            milestone_points[milestone_index] = avg_point
+        else:
+            adj_point1 = vor.points[anchor1_index]
+            adj_point2 = vor.points[anchor2_index]
+            avg_point_x = 0.5 * (adj_point1[0] + adj_point2[0])
+            avg_point_y = 0.5 * (adj_point1[1] + adj_point2[1])
+            avg_point = [avg_point_x, avg_point_y]
+            milestone_points[milestone_index] = avg_point
+    
+    return milestone_points
+
+def make_boundaries(
+        anchor_values_dict: dict
+        ) -> list[float]:
+    """
+    Create boundaries for the anchor values in 2D space.
+    """
+    anchor_values_list = list(anchor_values_dict.values())
+    margin = 0.2
+    min_x = 1e9
+    max_x = -1e9
+    min_y = 1e9
+    max_y = -1e9
+    for anchor_value_pair in anchor_values_list:
+        val_x = anchor_value_pair[0]
+        val_y = anchor_value_pair[1]
+        if val_x < min_x:
+            min_x = val_x
+        if val_x > max_x:
+            max_x = val_x
+        if val_y < min_y:
+            min_y = val_y
+        if val_y > max_y:
+            max_y = val_y
+    
+    boundaries = [min_x - margin, max_x + margin, min_y - margin, 
+                  max_y + margin]
+    return boundaries
+
+def plot_anchors_2d(
+        anchor_values_dict: dict,
+        boundaries: list[float],
+        filename: str,
+        title: str = "Anchor positions",
+        cv_labels: tuple[str, str] = ("CV 0", "CV 1"),
+        return_plot: bool = True
+        ) -> None | tuple:
+    """
+    Plot the anchor positions in 2D space.
+    """
+    import matplotlib.pyplot as plt
+    fig, ax = plt.subplots()
+    x_vals = []
+    y_vals = []
+    for anchor_index, anchor_values in anchor_values_dict.items():
+        x_vals.append(anchor_values[0])
+        y_vals.append(anchor_values[1])
+        ax.text(anchor_values[0], anchor_values[1], str(anchor_index))
+    
+    ax.scatter(x_vals, y_vals, marker="o", s=20, color="r")
+    ax.set_xlim((boundaries[0], boundaries[1]))
+    ax.set_ylim((boundaries[2], boundaries[3]))
+    plt.xlabel(cv_labels[0])
+    plt.ylabel(cv_labels[1])
+    plt.title(title)
+    plt.tight_layout()
+    if return_plot:
+        return fig, ax
+    else:
+        plt.savefig(filename)
+        plt.close()
+        return
+
+def plot_voronoi_tesselation(
+        model: structures.Seekr_model, 
+        boundaries: list[float], 
+        fill_values: np.ndarray | None = None, 
+        colorbar_label: str = "Energy (kcal/mol)", 
+        anchor_values: dict | None = None):
+    """
+    Would work for either anchors or milestones
+    """
+    import matplotlib
+    import matplotlib.pyplot as plt
+    from scipy.spatial import Voronoi, voronoi_plot_2d
+    if anchor_values is None:
+        anchor_values = find_anchor_points_2d(model)
+        
+    points = []
+    for alpha, anchor in enumerate(model.anchors):
+        assert alpha in anchor_values
+        points.append(anchor_values[alpha])
+        
+    points.append([-100.0, -100.0])
+    points.append([-100.0, 100.0])
+    points.append([100.0, -100.0])
+    points.append([100.0, 100.0])
+    
+    vor = Voronoi(points)
+    fig = voronoi_plot_2d(vor, line_width=2, show_vertices=False)
+    
+    ax = plt.gca()
+    ax.axis(boundaries)
+    ax.set_aspect('equal', adjustable='box')
+    
+    if fill_values is not None:
+        fill_values_normalized = {}
+        min_fill_values = min(list(fill_values.values()))
+        max_fill_values = max(list(fill_values.values()))
+        for key, value in fill_values.items():
+            fill_values_normalized[key] = (value - min_fill_values)\
+                /(max_fill_values - min_fill_values)
+        
+    for i in range(len(points)):
+        my_point_region = vor.point_region[i]
+        region = vor.regions[my_point_region]
+        if not -1 in region:
+            polygon = [vor.vertices[j] for j in region]
+            #if len(polygon) == 0: continue
+            if fill_values is not None:
+                jet = plt.cm.jet
+                colormap = jet(fill_values_normalized[i])
+            else:
+                colormap = VT_BACKGROUND_COLOR
+            plt.fill(*zip(*polygon), color=colormap)
+                
+    if fill_values is not None:
+        norm = matplotlib.colors.Normalize(min_fill_values, max_fill_values)
+        mappable = matplotlib.cm.ScalarMappable(norm=norm, cmap=jet)
+        cbar = plt.colorbar(mappable, ax=ax)
+        cbar.set_label(colorbar_label)
+    
+    return fig, ax, vor, points[:-4]
+
+def plot_anchor_voronoi_tesselation(
+        model: structures.Seekr_model, 
+        boundaries: list[float], 
+        anchor_fill_values: dict | None = None,
+        colorbar_label: str = "Energy (kcal/mol)", 
+        anchor_values: dict | None = None):
+    
+    fig, ax, vor, points = plot_voronoi_tesselation(
+        model, boundaries, fill_values=anchor_fill_values, 
+        colorbar_label=colorbar_label, anchor_values=anchor_values)
+    
+    return fig, ax, points
+
+def plot_anchors_2d(
+        model: structures.Seekr_model, 
+        anchor_values: dict,
+        boundaries: list, 
+        title: str,
+        x_coordinate_title: str,
+        y_coordinate_title: str,
+        colorbar_label: str = "Energy (kcal/mol)",
+        fill_values: dict | None = None,
+        dpi: int = 200,
+        plot_basename: str = "vt.png",
+        plot_dir: str | None = None, 
+        return_plot: bool = True,
+        ) -> None | tuple:
+    """
+    
+    """
+    import matplotlib.pyplot as plt
+    fig, ax, points = plot_anchor_voronoi_tesselation(
+        model, boundaries, fill_values, colorbar_label=colorbar_label, 
+        anchor_values=anchor_values)
+    min_x = boundaries[0]
+    max_x = boundaries[1]
+    min_y = boundaries[2]
+    max_y = boundaries[3]
+    if model.using_toy() and fill_values is None:
+        toy_settings = model.get_toy_settings()
+        potential_energy_expression \
+            = refine_function_str(
+                toy_settings.potential_energy_expression)
+        
+        landscape_resolution=100
+        max_Z=20
+        bounds_x = np.linspace(min_x, max_x, landscape_resolution)
+        bounds_y = np.linspace(min_y, max_y, landscape_resolution)
+        X,Y = np.meshgrid(bounds_x, bounds_y)
+        Z = np.zeros((landscape_resolution, landscape_resolution))
+        min_Z = np.min(Z) # 0.0
+        for i, x1 in enumerate(bounds_x):
+            for j, y1 in enumerate(bounds_y):
+                Z[j,i] = eval(potential_energy_expression) - min_Z
+                if Z[j,i] > max_Z:
+                    Z[j,i] = max_Z
+        
+        p = ax.pcolor(X, Y, Z, cmap=plt.cm.jet, vmin=Z.min(), vmax=Z.max())
+        cbar = plt.colorbar(p)
+        cbar.set_label("Energy (kcal/mol)")
+    
+    ax.set_title(title)
+    ax.set_xlabel(x_coordinate_title)
+    ax.set_ylabel(y_coordinate_title)
+    
+    if return_plot:
+        return fig, ax
+    else:
+        plot_filename = os.path.join(plot_dir, plot_basename)
+        plt.savefig(plot_filename, dpi=dpi)
+        plt.close()
+        
+    return
+
+def plot_milestones_2d(
+        model: structures.Seekr_model, 
+        boundaries: list, 
+        title: str,
+        x_coordinate_title: str,
+        y_coordinate_title: str,
+        colorbar_label: str = "Energy (kcal/mol)",
+        fill_values: dict | None = None,
+        dpi: int = 200,
+        plot_basename: str = "vt.png",
+        plot_dir: str | None = None, 
+        return_plot: bool = True,
+        ) -> None | tuple:
+        #model, plot_dir, iteration, boundaries, 
+        #         title, x_coordinate_title, y_coordinate_title, 
+        #         omit_iter_label=True, dpi=200, file_base="vt", 
+        #         draw_string=False, fill_values=None, edge_dictionary=None,
+        #         edge_labels=True):
+    NODE_SIZE = 80
+    import networkx as nx
+    import matplotlib
+    import matplotlib.pyplot as plt
+    fig, ax, vor, anchor_points = plot_voronoi_tesselation(
+        model, boundaries, fill_values=None)
+    milestone_points = find_milestone_points_2d(model, vor, boundaries)
+    ax.set_title(title)
+    ax.set_xlabel(x_coordinate_title)
+    ax.set_ylabel(y_coordinate_title)
+    
+    pos = milestone_points
+    G = nx.DiGraph(directed=True)
+    milestone_labels = sorted(milestone_points.keys())
+    G.add_nodes_from(milestone_labels)
+    if fill_values is None:
+        node_color = "black"
+    else:
+        #fill_values_normalized = (fill_values-np.min(fill_values))\
+        #    /(np.max(fill_values)-np.min(fill_values))
+        if fill_values is not None:
+            fill_values_normalized = {}
+            min_fill_values = min(list(fill_values.values()))
+            max_fill_values = max(list(fill_values.values()))
+            for key, value in fill_values.items():
+                fill_values_normalized[key] = (value - min_fill_values)\
+                    /(max_fill_values - min_fill_values)
+        rainbow = plt.cm.rainbow
+        node_color = []
+        for i in range(model.num_milestones):
+            node_color.append(rainbow(fill_values_normalized[i]))
+
+        norm = matplotlib.colors.Normalize(min_fill_values, max_fill_values)
+        mappable = matplotlib.cm.ScalarMappable(norm=norm, cmap=rainbow)
+        cbar = plt.colorbar(mappable, ax=ax)
+        cbar.set_label(colorbar_label)
+    
+    nx.draw_networkx_nodes(G, pos, ax=ax, node_size=NODE_SIZE, node_color=node_color)
+    nx.draw_networkx_labels(G, pos, ax=ax, font_size=4, font_color="black")
+    
+    if return_plot:
+        return fig, ax
+    else:
+        plot_filename = os.path.join(plot_dir, plot_basename)
+        plt.savefig(plot_filename, dpi=dpi)
+        plt.close()
+        
     return

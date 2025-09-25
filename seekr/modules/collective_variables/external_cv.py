@@ -34,6 +34,8 @@ class External_CV(cv_base.Base_CV):
     group_names: list[str] = field()
     name: str = field(default="",
                         validator=validators.instance_of(str))
+    unit: str = field(default="nm",
+                      validator=validators.instance_of(str))
     expression: str = field(default="",
                             validator=validators.instance_of(str))
     num_groups: int = field(default=0, validator=validators.instance_of(int))

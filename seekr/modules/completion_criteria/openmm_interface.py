@@ -15,7 +15,7 @@ import seekr.modules.structures as structures
 import seekr.modules.completion_criteria.structures as completion_criteria_structures
 import seekr.modules.engines.structures as engines_structures
 import seekr.modules.scales.molecular_dynamics.structures as md_structures
-import seekr.modules.completion_criteria.runner as completion_criteria_runner
+import seekr.modules.scales.molecular_dynamics.runner as md_runner
 
 # TODO: fill out an object for the anchors-filled completion criteria
 # TODO:  Anchors-filled criteria will not be implemented within the integrator,
@@ -60,13 +60,13 @@ class Number_of_steps_completion_criteria_openmm_interface(
     _stage: md_structures.Stage_md
 
 @define
-class All_anchors_filled_completion_criteria_openmm_interface(
+class Anchors_filled_completion_criteria_openmm_interface(
         Base_completion_criteria_openmm_interface):
     """
-    Interface for the All-anchors-filled completion criteria using
+    Interface for the Anchors-filled completion criteria using
     the OpenMM engine. Identical to the base class.
     """
-    _completion_criteria: completion_criteria_structures.All_anchors_filled_completion_criteria
+    _completion_criteria: completion_criteria_structures.Anchors_filled_completion_criteria
     _model: structures.Seekr_model
     _stage: md_structures.Stage_md
     _anchor_or_systemwide: engines_structures.MD_systemwide_settings | structures.Anchor
@@ -75,28 +75,24 @@ class All_anchors_filled_completion_criteria_openmm_interface(
             self,
             **kwargs: typing.Any
             ) -> bool:
-        # simulation, self._cv_force
         """
         Evaluate the current simulation state to see if all anchors are filled.
         """
-        #model: structures.Seekr_model = kwargs["model"]
-        #stage: structures.Stage_md = kwargs["stage"]
         print_update: bool = kwargs["print_update"]
         current_step: int = kwargs["current_step"]
-        #return_message: bool
         if print_update:
-            ending, message = completion_criteria_runner.is_finished_md_with_message(
+            ending, message = md_runner.is_finished_md_with_message(
                 self._model, self._stage, self._anchor_or_systemwide, current_step)
             logging.info(message)
         else:
-            ending = completion_criteria_runner.is_finished_md(
+            ending = md_runner.is_finished_md(
                 self._model, self._stage, self._anchor_or_systemwide, current_step)
 
         return ending
 
 Completion_criteria_openmm_interface = typing.Union[
     Number_of_steps_completion_criteria_openmm_interface,
-    All_anchors_filled_completion_criteria_openmm_interface]
+    Anchors_filled_completion_criteria_openmm_interface]
 
 def assign_completion_interface(
         completion_criteria: completion_criteria_structures.Base_completion_criteria, 
@@ -115,8 +111,8 @@ def assign_completion_interface(
     if completion_criteria.type == "number_of_steps":
         return Number_of_steps_completion_criteria_openmm_interface(
             completion_criteria, model, stage, anchor_or_systemwide)
-    elif completion_criteria.type == "all_anchors_filled":
-        return All_anchors_filled_completion_criteria_openmm_interface(
+    elif completion_criteria.type == "anchors_filled":
+        return Anchors_filled_completion_criteria_openmm_interface(
             completion_criteria, model, stage, anchor_or_systemwide)
     else:
         # Run through plugins

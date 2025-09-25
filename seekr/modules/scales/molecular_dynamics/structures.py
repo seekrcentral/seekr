@@ -15,6 +15,7 @@ from attrs import define, field, validators, Factory
 import cattrs
 
 import seekr.modules.base as base
+import seekr.modules.structures as structures
 import seekr.modules.sampling_methods.structures as sampling_methods_structures
 import seekr.modules.completion_criteria.structures as compl_crit_struct
 import seekr.modules.restraints.structures as restraints_structures
@@ -37,7 +38,7 @@ class Scale_md:
     
     def has_files_anchor(
             self, 
-            anchor: "seekr.modules.structures.Anchor",
+            anchor: "Anchor",
             root_directory: str,
             ) -> bool:
         """
@@ -63,7 +64,7 @@ class Scale_md:
 
     def generate_filetree_anchor(
             self, 
-            anchor: "seekr.modules.structures.Anchor",
+            anchor: "Anchor",
             root_directory: str
             ) -> None:
         anchor_dict: dict[str, dict] = {anchor.directory: {}}
@@ -91,12 +92,6 @@ class Stage_md:
                       validator=validators.instance_of(str))
     run_minimization: bool = field(default=False,
                                    validator=validators.instance_of(bool))
-    #md_state_output_interval: int = field(default=0,
-    #                                      validator=[validators.instance_of(int),
-    #                                                 validators.ge(0)])
-    #md_trajectory_output_interval: int = field(default=0,
-    #                                           validator=[validators.instance_of(int),
-    #                                                      validators.ge(0)])
     md_restart_checkpoint_interval: int = field(default=0,
                                                 validator=[validators.instance_of(int),
                                                            validators.ge(0)])
@@ -141,8 +136,6 @@ class Stage_md:
             stage_parameter["index"] = self.index
             stage_parameter["directory"] = directory_name
             stage_parameter["positions"] = self.sampling_method.get_output_positions_basename_noext()
-            #stage_parameter["md_parameters_topology"] \
-            #    = self.sampling_method.get_output_md_parameters_topology()
             anchor.stage_parameters.append(stage_parameter)
         return
     
@@ -167,8 +160,6 @@ class Stage_md:
         stage_parameter["index"] = self.index
         stage_parameter["directory"] = directory_name
         stage_parameter["positions"] = self.sampling_method.get_output_positions_basename_noext()
-        #stage_parameter["md_parameters_topology"] \
-        #    = self.sampling_method.get_output_md_parameters_topology()
         md_engine.systemwide_settings.stage_parameters.append(stage_parameter)
         return
     
@@ -194,9 +185,9 @@ class Stage_md:
                             stage_output_glob)
                         if len(glob.glob(output_files_glob)) > 0:
                             return True
-        assert model.md_engine is not None
-        assert model.md_engine.systemwide_settings is not None
-        for stage_parameter in model.md_engine.systemwide_settings.stage_parameters:
+        md_engine = model.get_engine_by_scale_type("molecular_dynamics")
+        assert md_engine.systemwide_settings is not None
+        for stage_parameter in md_engine.systemwide_settings.stage_parameters:
             if stage_parameter is None:
                 continue
             stage_directory = stage_parameter["directory"]
@@ -220,10 +211,10 @@ class Stage_md:
             full_directory = os.path.join(model.directory, anchor.directory, my_directory)
             if os.path.exists(full_directory):
                 rmtree(full_directory)
-        assert model.md_engine is not None
-        assert model.md_engine.systemwide_settings is not None
+        md_engine = model.get_engine_by_scale_type("molecular_dynamics")
+        assert md_engine.systemwide_settings is not None
         full_directory = os.path.join(
-            model.directory, model.md_engine.systemwide_settings.directory, my_directory)
+            model.directory, md_engine.systemwide_settings.directory, my_directory)
         if os.path.exists(full_directory):
             rmtree(full_directory)
         return

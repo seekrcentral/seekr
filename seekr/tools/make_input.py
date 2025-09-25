@@ -33,15 +33,21 @@ HOSTGUEST_DIRECTORY = os.path.join(DATA_DIRECTORY, "hostguest_files")
 
 def create_toy_model_input(
         root_dir: str,
-        use_smd: bool = False
+        use_smd: bool = False,
+        use_2cvs: bool = False
     ) -> preparer.Seekr_input:
     """
     Create a toy model input.
     
     This is the Entropy barrier system.
     """
-    values_list = [-0.7, -0.5, -0.3, -0.1, 0.1, 0.3, 0.5, 0.7]
-    positions_list = [[[0.0, value, 0.0]] for value in values_list]
+    if use_2cvs:
+        values_list = [[0.1, -0.7], [-0.1, -0.5], [0.1, -0.3], [-0.1, -0.1], [0.1, 0.1], [-0.1, 0.3], [0.1, 0.5], [-0.1, 0.7]]
+        positions_list = [[[0.0, value[1], 0.0]] for value in values_list]
+
+    else:
+        values_list = [[-0.7], [-0.5], [-0.3], [-0.1], [0.1], [0.3], [0.5], [0.7]]
+        positions_list = [[[0.0, value[0], 0.0]] for value in values_list]
 
     seekr_input = preparer.Seekr_input()
     seekr_input.directory = root_dir
@@ -80,19 +86,26 @@ def create_toy_model_input(
     if use_smd:
         stage2.name = "steered"
         stage2.sampling_method = sampling_preparer.Steered_md_input()
-        stage2.sampling_method.cv_names = ["progress_coordinate"]
+        if use_2cvs:
+            stage2.sampling_method.cv_names = ["progress_coordinate"]
+        else:
+            stage2.sampling_method.cv_names = ["progress_coordinate"]
         stage2.sampling_method.force_constant = 100000.0
         stage2.sampling_method.velocity = 1.0
     else:
         stage2.name = "metadynamics"
         stage2.sampling_method = sampling_preparer.Metadynamics_md_input()
         stage2.sampling_method.gaussian_height = 1.0
-        stage2.sampling_method.cv_names = ["progress_coordinate"]
+        if use_2cvs:
+            stage2.sampling_method.cv_names = ["progress_coordinate"]
+        else:
+            stage2.sampling_method.cv_names = ["progress_coordinate"]
     
     stage2.run_minimization = False
     stage2.checkpoint_interval = 10
     stage2.ensemble = base.NVT_ensemble()
-    stage2.completion_criteria = compl_crit_struct.All_anchors_filled_completion_criteria()
+    stage2.completion_criteria = compl_crit_struct.Anchors_filled_completion_criteria()
+    stage2.completion_criteria.exclude = [2]
     stage2.completion_criteria.eval_interval = 10
     stage2_state_reporter = reporters_preparer.State_reporter_input()
     stage2_state_reporter.to_stdout = True
@@ -126,22 +139,40 @@ def create_toy_model_input(
     external_cv_input.group_names = ["particle0"]
     external_cv_input.min_value = -1.0
     external_cv_input.max_value = 1.0
-    seekr_input.partitions[0].cvs = [external_cv_input]
+    
+    
+    if use_2cvs:
+        external_cv_input2 = external_cv.External_cv_input()
+        external_cv_input2.name = "additional_coordinate"
+        external_cv_input2.expression = "x1"
+        external_cv_input2.group_names = ["particle0"]
+        external_cv_input2.min_value = -1.0
+        external_cv_input2.max_value = 1.0
+        seekr_input.partitions[0].cvs = [external_cv_input2, external_cv_input]
+        
+    else:
+        seekr_input.partitions[0].cvs = [external_cv_input]
     
     state_point1 = preparer.State_point()
     state_point1.name = "stateA"
-    state_point1.value = [-0.7]
+    if use_2cvs:
+        state_point1.value = [0.0, -0.7]
+    else:
+        state_point1.value = [-0.7]
     state_point1.end_state = True
     state_point2 = preparer.State_point()
     state_point2.name = "stateB"
-    state_point2.value = [0.7]
+    if use_2cvs:
+        state_point2.value = [0.0, 0.7]
+    else:
+        state_point2.value = [0.7]
     state_point2.end_state = True
     seekr_input.partitions[0].state_points = [state_point1, state_point2]
     
     seekr_input.partitions[0].anchors = []
     for i, (value, position) in enumerate(zip(values_list, positions_list)):
         input_anchor = preparer.Anchor_input()
-        input_anchor.value = [value]
+        input_anchor.value = value
         #input_anchor.positions = [position]
         input_anchor.positions = ""
 
@@ -300,7 +331,7 @@ def create_host_guest_example_input(
     stage1.ensemble = base.NVT_ensemble()
     stage1.sampling_method = sampling_preparer.Conventional_md_input()
     stage1.completion_criteria = compl_crit_struct.Number_of_steps_completion_criteria()
-    stage1.completion_criteria.number_of_steps = 10000
+    stage1.completion_criteria.number_of_steps = 100000
     pairwise_restraint_input = restraints_preparer.Pairwise_restraint_input()
     pairwise_restraint_input.selection_name = "o5_group"
     stage1.restraints = [pairwise_restraint_input]
@@ -334,7 +365,7 @@ def create_host_guest_example_input(
     stage2.run_minimization = False
     stage2.checkpoint_interval = 1000
     stage2.ensemble = base.NVT_ensemble()
-    stage2.completion_criteria = compl_crit_struct.All_anchors_filled_completion_criteria()
+    stage2.completion_criteria = compl_crit_struct.Anchors_filled_completion_criteria()
     proximity_restraint_input = restraints_preparer.Proximity_restraint_input()
     proximity_restraint_input.selection1_name = "host"
     proximity_restraint_input.selection2_name = "guest"
@@ -355,7 +386,7 @@ def create_host_guest_example_input(
     stage3.ensemble = base.NVT_ensemble()
     stage3.sampling_method = sampling_preparer.MMVT_md_input()
     stage3.completion_criteria = compl_crit_struct.Number_of_steps_completion_criteria()
-    stage3.completion_criteria.number_of_steps = 10000
+    stage3.completion_criteria.number_of_steps = 100000
     positional_restraint = restraints_preparer.Positional_restraint_input()
     positional_restraint.selection_name = "host"
     stage3.restraints = [positional_restraint]
@@ -442,6 +473,10 @@ if __name__ == "__main__":
         "-S", "--sda", dest="sda", default=False, 
         help="Use SDA for BD instead of Browndye.", 
         action="store_true")
+    argparser.add_argument(
+        "-2", "--two_cvs", dest="two_cvs", default=False, 
+        help="Toggle 2-CVs mode: whether to use two CVs.", 
+        action="store_true")
     argspace = argparser.parse_args()
     args = vars(argspace)
     #json_filename = args["input_file"]
@@ -449,6 +484,7 @@ if __name__ == "__main__":
     use_rmsd_cv = args["rmsd_cv"]
     use_sda = args["sda"]
     use_smd = args["smd"]
+    use_2cvs = args["two_cvs"]
 
     if use_rmsd_cv:
         bd = False
@@ -460,10 +496,15 @@ if __name__ == "__main__":
             sampling_suffix = "smd"
         else:
             sampling_suffix = "metad"
-        root_dir = "~/tmp/seekr3_test_toy_" + sampling_suffix
-        json_filename = "toy_input_" + sampling_suffix + ".json"
-        seekr_input = create_toy_model_input(root_dir, use_smd)
+        if use_2cvs:
+            cvs_suffix = "2cvs_"
+        else:
+            cvs_suffix = ""
+        root_dir = "~/tmp/seekr3_test_toy_" + cvs_suffix + sampling_suffix
+        json_filename = "toy_input_" + cvs_suffix + sampling_suffix + ".json"
+        seekr_input = create_toy_model_input(root_dir, use_smd, use_2cvs=use_2cvs)
     else:
+        assert not use_2cvs, "2-CV mode not implemented for real molecular system."
         if bd:
             if use_sda:
                 bd_suffix = "sda"

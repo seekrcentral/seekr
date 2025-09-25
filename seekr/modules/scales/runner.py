@@ -5,13 +5,80 @@ Differentiate between different scales and call the appropriate
 runner functions for each scale.
 """
 
-import os
-import typing
-
 import seekr.modules.structures as structures
+import seekr.modules.engines.structures as engines_structures
 import seekr.modules.scales.structures as scales_structures
 import seekr.modules.scales.molecular_dynamics.runner as md_runner
 import seekr.modules.scales.brownian_dynamics.runner as bd_runner
+
+def is_finished_with_message(
+        model: structures.Seekr_model,
+        stage: scales_structures.Stage,
+        anchor_index: str | None = None,
+        use_json: bool = True
+    ) -> tuple[bool, list[str]]:
+    """
+    Check if the given stage is finished, and return a tuple of (is_finished,
+    message).
+    """
+    if use_json:
+        final_message = {}
+    else:
+        final_message = ""
+    if stage.scale_type == "molecular_dynamics":
+        md_engine = model.get_engine_by_scale_type("molecular_dynamics")
+        anchor_or_systemwide_index_list = md_runner\
+            .construct_anchor_or_systemwide_index_list(model, stage, anchor_index)
+        anchor_or_systemwide: engines_structures.MD_systemwide_settings \
+            | structures.Anchor
+        for anchor_or_systemwide_index in anchor_or_systemwide_index_list:
+            if anchor_or_systemwide_index is None:
+                assert md_engine.systemwide_settings is not None
+                anchor_or_systemwide = md_engine.systemwide_settings
+            else:
+                anchor_or_systemwide = model.anchors[anchor_or_systemwide_index]
+            current_step = md_runner.get_current_md_step(
+                anchor_or_systemwide, stage.index, 0, model.directory
+            )
+            finished, message = md_runner.is_finished_md_with_message(
+                model, stage, anchor_or_systemwide, current_step, use_json=use_json)
+            if use_json:
+                final_message[anchor_or_systemwide_index] = message
+            else:
+                if anchor_or_systemwide_index is None:
+                    final_message += f"    Systemwide: {message}\n"
+                else:
+                    final_message += f"    Anchor {anchor_or_systemwide_index}: {message}\n"
+
+    elif stage.scale_type == "brownian_dynamics":
+        finished, message = bd_runner.is_finished_bd_with_message(
+            model, stage, use_json=use_json)
+        if use_json:
+            final_message[None] = message
+        else:
+            final_message += f"    Systemwide: {message}\n"
+
+    else:
+        raise Exception(f"Stage type not recognized: {stage.type}.")
+    return finished, final_message
+
+def construct_anchor_or_systemwide_index_list(
+        model: structures.Seekr_model,
+        stage: scales_structures.Stage,
+        anchor_index: str
+        ) -> list[int | None]:
+    """
+    Construct a list of anchor or systemwide indices based on the stage and
+    anchor index.
+    """
+    if stage.scale_type == "molecular_dynamics":
+        return md_runner.construct_anchor_or_systemwide_index_list(
+            model, stage, anchor_index)
+    elif stage.scale_type == "brownian_dynamics":
+        raise NotImplementedError("BD stages do not support anchor-specific "\
+                                  "operations.")
+    else:
+        raise Exception(f"Stage type not recognized: {stage.type}.")
 
 def choose_next_simulation(
         model: structures.Seekr_model,

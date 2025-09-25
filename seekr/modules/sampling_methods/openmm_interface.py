@@ -27,7 +27,7 @@ import seekr.modules.engines.base as engines_base
 import seekr.modules.engines.structures as engines_structures
 import seekr.modules.sampling_methods.structures as sampling_methods_structures
 import seekr.modules.collective_variables.structures as collective_variables_structures
-import seekr.modules.completion_criteria.runner as completion_criteria_runner
+import seekr.modules.scales.molecular_dynamics.runner as md_runner
 import seekr.modules.sampling_methods.runner as sampling_methods_runner
 import seekr.modules.completion_criteria.openmm_interface \
     as completion_criteria_openmm_interface
@@ -646,17 +646,29 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
             metadyn_bias_dir = None
             save_frequency = None
         metaD_force_biases = []
-        for i, cv in enumerate(boosted_cvs):
-            #cv_interface = collective_variables_openmm_interface.assign_cv_interface(
-            #    cv, md_engine, self._model.directory)
-            #cv_interface = self._cv_interface_list[cv.index]
-            #metaD_force = cv_interface.make_cv_force()
+        #for i, cv in enumerate(boosted_cvs):
+        for i, cv in enumerate(model.collective_variables):
+            boosted_cv_index = -1
+            for j, boosted_cv in enumerate(boosted_cvs):
+                if cv.index == boosted_cv.index:
+                    boosted_cv_index = j
+                    break
             metaD_force = self._openmm_cv_list[cv.index]
-            #metaD_force.setForceGroup(0)
-            #cv_interface.add_cv_groups_and_variables(metaD_force)
+            if boosted_cv_index < 0:
+                gridWidth = 3
+                biasWidth = 9e9
+            else:
+                gridWidth = grid_widths[boosted_cv_index]
+                biasWidth = bias_widths[boosted_cv_index]
             force_bias = openmm_app.BiasVariable(
-                metaD_force, minValue=cv.get_min_value(), maxValue=cv.get_max_value(),
-                biasWidth=bias_widths[i], periodic=cv.is_periodic(), gridWidth=grid_widths[i])
+                metaD_force, 
+                minValue=cv.get_min_value(), 
+                maxValue=cv.get_max_value(),
+                #biasWidth=bias_widths[i], 
+                biasWidth=biasWidth,
+                periodic=cv.is_periodic(), 
+                gridWidth=gridWidth)
+                #gridWidth=grid_widths[i])
             metaD_force_biases.append(force_bias)
         
         assert self._simulation_obj is not None
@@ -817,7 +829,7 @@ class Steered_md_openmm_interface(Base_md_openmm_interface):
                 if param_name == f"value_{cv_index}":
                     self._simulation_obj.context.setParameter(param_name, cv_value)
 
-        filled_anchors, unfilled_anchors = completion_criteria_runner.filled_and_unfilled_anchors(
+        filled_anchors, unfilled_anchors = md_runner.filled_and_unfilled_anchors(
             model, stage)
         self._procedure = sampling_methods_runner.get_smd_procedure(
             self._model, filled_anchors, unfilled_anchors)

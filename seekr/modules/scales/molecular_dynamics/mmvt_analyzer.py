@@ -44,7 +44,8 @@ def make_anchor_stats_alpha_md(
             output_file_list, anchor, min_step, max_step)
     if time_between_statistics is None:
         time_between_statistics = time_between_statistics_this_anchor
-    assert np.isclose(time_between_statistics_this_anchor, 
-                        time_between_statistics), \
-                        "Time between statistics does not match"
+    if time_between_statistics is not None:
+        assert np.isclose(time_between_statistics_this_anchor, 
+                            time_between_statistics), \
+                            "Time between statistics does not match"
     return anchor_stats_alpha, time_between_statistics

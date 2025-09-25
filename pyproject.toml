@@ -29,6 +29,7 @@ dependencies = [
     "mdtraj",
     "parmed",
     "pytest",
+    "networkx",
     "PyGT"
 ]
 

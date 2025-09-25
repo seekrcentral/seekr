@@ -41,6 +41,8 @@ class RMSD_CV(cv_base.Base_CV):
     ref_structure: str = field(validator=validators.instance_of(str))
     name: str = field(default="",
                         validator=validators.instance_of(str))
+    unit: str = field(default="nm",
+                      validator=validators.instance_of(str))
     num_groups: typing.Literal[2] = 2
     variable_name = "v"
     periodic: bool = False

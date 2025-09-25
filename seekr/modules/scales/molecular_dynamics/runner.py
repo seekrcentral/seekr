@@ -5,16 +5,18 @@ Perform runner functions specific to molecular dynamics stages.
 """
 
 import os
+import glob
 import typing
 import logging
+import importlib
 from collections import namedtuple
 
 import seekr.modules.base as base
 import seekr.modules.structures as structures
 import seekr.modules.engines.structures as engines_structures
+import seekr.modules.completion_criteria.structures as completion_criteria_structures
 import seekr.modules.scales.molecular_dynamics.structures as md_structures
 import seekr.modules.engines.runner as engines_runner
-import seekr.modules.completion_criteria.runner as completion_criteria_runner
 
 Run_instruction_md = namedtuple(
     "Run_instruction_md",
@@ -25,6 +27,154 @@ Run_instruction_md = namedtuple(
         "swarm_index"
     ])
 
+def filled_and_unfilled_anchors(
+        model: structures.Seekr_model,
+        stage: md_structures.Stage_md
+    ) -> tuple[list[int], list[int]]:
+    """
+    Return two lists: one of the indices of anchors that have been filled
+    and one of the indices of anchors that have not been filled.
+    """
+    filled_anchors = []
+    unfilled_anchors = []
+    stage_index = stage.index
+    stage_output_globs: list[str] = stage.sampling_method.get_output_positions_glob_list()
+    for anchor in model.anchors:
+        if "molecular_dynamics" not in anchor.scale_types:
+            continue
+        found_outputs_for_anchor = False
+        stage_parameter = anchor.stage_parameters[stage_index]
+        assert stage_parameter is not None, \
+            f"Stage parameter for stage {stage_index} is None."
+        assert "directory" in stage_parameter, \
+            f"Stage parameter for stage {stage_index} does not contain "\
+            +"a directory."
+        stage_directory = stage_parameter["directory"]
+        for stage_output_glob in stage_output_globs:
+            output_files_glob = os.path.join(
+                model.directory, anchor.directory, stage_directory, 
+                stage_output_glob)
+            if len(glob.glob(output_files_glob)) > 0:
+                found_outputs_for_anchor = True
+        
+        if found_outputs_for_anchor:
+            filled_anchors.append(anchor.index)
+        else:
+            unfilled_anchors.append(anchor.index)
+    
+    return filled_anchors, unfilled_anchors
+
+
+def is_finished_md(
+        model: structures.Seekr_model,
+        stage: md_structures.Stage_md,
+        anchor_or_systemwide: engines_structures.MD_systemwide_settings | structures.Anchor,
+        current_step: int,
+        swarm_id: int = 0,
+    ) -> bool:
+    """
+    Check if the simulation is finished.
+    """
+    ending, _ = is_finished_md_with_message(model, stage, anchor_or_systemwide, current_step)
+    return ending
+
+def is_finished_md_with_message(
+        model: structures.Seekr_model,
+        stage: md_structures.Stage_md,
+        anchor_or_systemwide: engines_structures.MD_systemwide_settings | structures.Anchor,
+        current_step: int,
+        swarm_id: int = 0,
+        use_json: bool = True
+    ) -> tuple[bool, typing.Union[None, str, dict]]:
+    """
+    Check if the simulation is finished and return with message.
+    """
+    completion_criteria: completion_criteria_structures.MD_completion_criteria = \
+        stage.completion_criteria
+    message = None
+    if completion_criteria.type == "number_of_steps":
+        if use_json:
+            # Use JSON-style message
+            message = {
+                "completion_criteria": completion_criteria.type,
+                "attained": current_step >= completion_criteria.number_of_steps,
+                "current_step": current_step,
+                "total_steps": completion_criteria.number_of_steps
+            }
+        else:
+            message = f"steps {current_step} of {completion_criteria.number_of_steps} completed."
+        return current_step >= completion_criteria.number_of_steps, message
+
+    elif completion_criteria.type == "anchors_filled":
+        filled_anchor_indices, unfilled_anchor_indices = filled_and_unfilled_anchors(
+            model, stage)
+        total_number_of_anchors = len(filled_anchor_indices) + \
+                len(unfilled_anchor_indices)
+        unfilled_only_contains_excluded = True
+        for anchor_index in unfilled_anchor_indices:
+            if anchor_index not in completion_criteria.exclude:
+                unfilled_only_contains_excluded = False
+                break
+        if unfilled_only_contains_excluded:
+            if use_json:
+                message = {
+                    "completion_criteria": completion_criteria.type,
+                    "attained": True,
+                    "num_filled_anchors": len(filled_anchor_indices),
+                    "total_number_of_anchors": total_number_of_anchors,
+                    "current_step": current_step,
+                    "maximum_steps": completion_criteria.get_max_sim_len()
+                }
+            else:
+                message = "anchors filled."
+            return True, message
+            
+        elif current_step >= completion_criteria.get_max_sim_len():
+            if use_json:
+                message = {
+                    "completion_criteria": completion_criteria.type,
+                    "attained": False,
+                    "num_filled_anchors": len(filled_anchor_indices),
+                    "total_number_of_anchors": total_number_of_anchors,
+                    "current_step": current_step,
+                    "maximum_steps": completion_criteria.get_max_sim_len()
+                }
+            else:
+                message = f"Maximum steps exceeded: {current_step} >= "\
+                    f"{completion_criteria.get_max_sim_len()}."
+            return True, message
+        else:
+            if use_json:
+                message = {
+                    "completion_criteria": completion_criteria.type,
+                    "attained": False,
+                    "num_filled_anchors": len(filled_anchor_indices),
+                    "total_number_of_anchors": total_number_of_anchors,
+                    "current_step": current_step,
+                    "maximum_steps": completion_criteria.get_max_sim_len()
+                }
+            else:
+                message = f"{len(filled_anchor_indices)} of "\
+                    f"{total_number_of_anchors} anchors filled."
+            return False, message
+    
+    else:
+        # Run through plugins
+        for plugin_name in model.plugins:
+            spec = importlib.util.find_spec(plugin_name)
+            if spec is None:
+                raise ImportError(f"Plugin '{plugin_name}' not found. Please install it or check the spelling.")
+            # TODO: see if plugin.modules exists, and if not, raise an error
+            #  Then if plugin.modules.completion_criteria doesn't exist, skip quietly
+            #  Then if plugin.modules.scales.molecular_dynamics.runner doesn't exist, raise an error
+            plugin_module_scales_md_runner = importlib.import_module(plugin_name+".modules.scales.molecular_dynamics.runner")
+            found, completed, message = plugin_module_scales_md_runner.is_finished_md_with_message(
+                model, stage, anchor_or_systemwide, current_step, swarm_id)
+            if found:
+                return completed, message
+
+    assert message is not None, \
+        "Completion criteria not found: " + completion_criteria.type
 
 def get_calculation_directory_md(
         anchor_or_systemwide: engines_structures.MD_systemwide_settings \
@@ -50,7 +200,7 @@ def get_current_md_step(
             | structures.Anchor, 
         stage_index: int, 
         swarm_index: int | None,
-        root_directory: str):
+        root_directory: str) -> int:
     """
     Return the current step for a given stage index.
     """
@@ -93,20 +243,14 @@ def get_restart_checkpoint_filename(
         full_directory, restart_checkpoint_basename)
     return restart_checkpoint_filename
 
-def choose_next_simulation_md(
-        model: structures.Seekr_model, 
+def construct_anchor_or_systemwide_index_list(
+        model: structures.Seekr_model,
         stage_md: md_structures.Stage_md,
-        anchor_index: str, 
-        force_overwrite: bool,
-        device_index: str | None = None
-        ) -> list:
-    md_engine = model.get_engine_by_scale_type("molecular_dynamics")
-    if device_index is not None:
-        assert md_engine.platform_settings is not None
-        md_engine.platform_settings.device_index = \
-            device_index
+        anchor_index: str
+        ) -> list[int | None]:
+    """
     
-    #run_instructions_unsorted: list = []
+    """
     anchor_or_systemwide_index_list: list[int | None] = []
     if stage_md.input_from == "systemwide":
         anchor_or_systemwide_index_list.append(None)
@@ -122,7 +266,23 @@ def choose_next_simulation_md(
                 if alpha != anchor_index_int:
                     continue
             anchor_or_systemwide_index_list.append(alpha)
+    return anchor_or_systemwide_index_list
 
+def choose_next_simulation_md(
+        model: structures.Seekr_model, 
+        stage_md: md_structures.Stage_md,
+        anchor_index: str, 
+        force_overwrite: bool,
+        device_index: str | None = None,
+        ) -> list:
+    md_engine = model.get_engine_by_scale_type("molecular_dynamics")
+    if device_index is not None:
+        assert md_engine.platform_settings is not None
+        md_engine.platform_settings.device_index = \
+            device_index
+    
+    anchor_or_systemwide_index_list = construct_anchor_or_systemwide_index_list(
+        model, stage_md, anchor_index)
     run_instructions_unsorted: list[typing.NamedTuple] = []
     anchor_or_systemwide: engines_structures.MD_systemwide_settings \
         | structures.Anchor
@@ -162,8 +322,9 @@ def choose_next_simulation_md(
                 restart = True
             
             if not force_overwrite:
-                run_finished, message = completion_criteria_runner.is_finished_md_with_message(
-                    model, stage_md, anchor_or_systemwide, current_step, swarm_frame)
+                run_finished, message = is_finished_md_with_message(
+                    model, stage_md, anchor_or_systemwide, current_step, swarm_frame,
+                    use_json=False)
             else:
                 run_finished = False
                 message = "Force overwrite."

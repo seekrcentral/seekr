@@ -327,13 +327,9 @@ def monte_carlo_milestoning_error(
         if counter > skip and counter % stride == 0:
             resampled_bulk_stats = bulk_anchor_statistics\
                 .resample_bulk_anchor_statistics(bulk_stats)
-            new_data_sample.k_ons_src = resampled_bulk_stats.k_ons_src
-            new_data_sample.k_on_errors_src = resampled_bulk_stats.k_on_errors_src
-            new_data_sample.transition_counts = resampled_bulk_stats.transition_counts
-            new_data_sample.transition_probabilities = resampled_bulk_stats.transition_probabilities
             mmvt_Nij_list = []
             for alpha, anchor in enumerate(model.anchors):
-                if anchor.bd and not anchor.md:
+                if anchor.bulk_anchor:
                     continue
                 new_mmvt_Nij_alpha = make_new_Nij_alpha(
                     mmvt_Qnew_list[alpha], mmvt_Ri_alpha[alpha])

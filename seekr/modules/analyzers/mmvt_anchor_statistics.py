@@ -7,6 +7,7 @@ an MMVT calculation.
 
 import os
 from collections import defaultdict
+from xml.parsers.expat import model
 
 from attrs import define, field, validators
 import numpy as np
@@ -81,6 +82,84 @@ class Mmvt_anchor_statistics:
             self.R_i_alpha_total[key] += other.R_i_alpha_total[key]
         self.T_alpha_total += other.T_alpha_total
 
+    def get_statistics_message(
+            self,
+            model: structures.Seekr_model,
+            alpha: int,
+            use_json: bool = True
+            ) -> str | dict:
+        """
+        
+        """
+        message = None
+        counts_anchor_to_anchor = {}
+        counts_milestone_to_milestone = {}
+        times_milestone_to_milestone = {}
+        total_times = {}
+        anchor = model.anchors[alpha]
+        existing_alias_alpha_beta = []
+        existing_alias_i_j = []
+        if self.k_alpha_beta is None or self.N_i_j_alpha is None:
+            if use_json:
+                return {}
+            else:
+                return ""
+        
+        for key in self.k_alpha_beta:
+            if self.k_alpha_beta[key] > 0.0:
+                existing_alias_alpha_beta.append(key)
+
+        for key in self.N_i_j_alpha:
+            if self.N_i_j_alpha[key] > 0:
+                existing_alias_i_j.append(key)
+
+        for milestone in anchor.milestones:
+            key = (anchor.index, milestone.neighbor_anchor_index)
+            key_str = str(key)
+            if milestone.alias_index in existing_alias_alpha_beta:
+                counts_anchor_to_anchor[key_str] = self.N_alpha_beta[milestone.alias_index]
+            else:
+                counts_anchor_to_anchor[key_str] = 0
+            times_milestone_to_milestone[milestone.index] = self.R_i_alpha_total.get(milestone.alias_index, 0.0)
+            for milestone2 in anchor.milestones:
+                if milestone.alias_index == milestone2.alias_index:
+                    continue
+                key2 = (milestone.index, milestone2.index)
+                key2_str = str(key2)
+                if (milestone.alias_index, milestone2.alias_index) \
+                        in existing_alias_i_j:
+                    counts_milestone_to_milestone[key2_str] = \
+                        self.N_i_j_alpha[(milestone.alias_index, milestone2.alias_index)]
+                else:
+                    counts_milestone_to_milestone[key2_str] = 0
+
+        if use_json:
+            # Use JSON-style message
+            message = {
+                "anchor_transition_counts": counts_anchor_to_anchor,
+                "milestone_transition_counts": counts_milestone_to_milestone,
+            }
+        else:
+            message = ""
+            message += "    Anchor transition counts:\n"
+            for key in counts_anchor_to_anchor:
+                message += f"        {key}: {counts_anchor_to_anchor[key]}\n"
+            if len(counts_anchor_to_anchor) == 0:
+                message += "        None\n"
+            message += "    Milestone transition counts:\n"
+            for key in counts_milestone_to_milestone:
+                message += f"        {key}: {counts_milestone_to_milestone[key]}\n"
+            if len(counts_milestone_to_milestone) == 0:
+                message += "        None\n"
+            message += "    Milestone transition times (ps):\n"
+            for key in times_milestone_to_milestone:
+                message += f"        {key}: {times_milestone_to_milestone[key]:<.3f}\n"
+            if len(times_milestone_to_milestone) == 0:
+                message += "        None\n"
+            message += f"    Total time (ps): {self.T_alpha_total:<.3f}\n"
+
+        return message
+
 # TODO: this is just read_MD_output_file - there needs to be one for
 # multiple BD states! (Need multiple BD states to identify committor
 # function.)
@@ -119,6 +198,8 @@ def read_output_file(
                 if anchor_statistics.step_count > 0:
                     anchor_statistics.compute_k_alpha_beta()
                     anchor_statistics_windows_list.append(anchor_statistics)
+                #if step_count > 3998000:
+                #    print("anchor_statistics:", anchor_statistics)
                 anchor_statistics = Mmvt_anchor_statistics(alpha=alpha)
                 anchor_statistics.N_i_j_alpha = defaultdict(int)
                 anchor_statistics.R_i_alpha_total = defaultdict(float)
@@ -172,7 +253,6 @@ def read_output_file(
                 else:
                     raise ValueError(
                         f"Unexpected key in output file: {key_string}")
-                
     return anchor_statistics_windows_list, time_between_statistics
 
 def read_output_file_list(
@@ -197,7 +277,10 @@ def read_output_file_list(
     on_restart = 0
     mmvt_statistics_list_this_restart = None
     time_between_statistics = None
-    assert len(output_file_list) > 0, f"No output files found for anchor: {anchor.index}."
+    #assert len(output_file_list) > 0, f"No output files found for anchor: {anchor.index}."
+    if len(output_file_list) == 0:
+        return anchor_stats_alpha_list, time_between_statistics
+    
     for output_filename in output_file_list:
         this_swarm_id = int(output_filename.split("_")[-1].split(".")[0])
         if this_swarm_id == 0:
@@ -222,6 +305,8 @@ def read_output_file_list(
                 mmvt_statistics.add_mmvt_anchor_statistics(new_swarm_mmvt_statistics)
 
     anchor_stats_alpha_list.extend(mmvt_statistics_list_this_restart)
+    #if anchor.index == 2:
+    #    exit()
     return anchor_stats_alpha_list, time_between_statistics
 
 def subtract_two_anchor_statistics(
@@ -409,12 +494,21 @@ def pare_down_anchor_statistics(
 ) -> None:
     """
     Pare down the anchor statistics to only include the specified windows.
+    Ensure that at least one member is kept for each non-None, non-empty alpha:
+    - If the selected indices yield no members (because the list is short),
+      keep the last member of the original list.
     """
     for alpha in range(len(anchor_stats_alpha_list)):
         if anchor_stats_alpha_list[alpha] is not None:
-            anchor_stats_alpha_list[alpha] = [
-                anchor_stats_alpha_list[alpha][i]
-                for i in window_index_list
-                if i < len(anchor_stats_alpha_list[alpha])
-            ]
+            orig = anchor_stats_alpha_list[alpha]
+            if len(orig) == 0:
+                # leave as empty list
+                anchor_stats_alpha_list[alpha] = []
+                continue
+            selected = [orig[i] for i in window_index_list if 0 <= i < len(orig)]
+            if not selected:
+                # If nothing was selected (lists too short), keep the last member
+                anchor_stats_alpha_list[alpha] = [orig[-1]]
+            else:
+                anchor_stats_alpha_list[alpha] = selected
     return

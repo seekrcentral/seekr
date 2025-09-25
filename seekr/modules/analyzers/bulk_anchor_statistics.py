@@ -35,6 +35,36 @@ class Bulk_anchor_statistics:
             return False
         return True
     
+    def get_statistics_message(
+            self,
+            use_json: bool = True
+            ) -> str | dict:
+        """
+        
+        """
+        message = None
+        if use_json:
+            # Use JSON-style message
+            message = {
+                "transition_counts": self.transition_counts,
+            }
+        else:
+            message = ""
+            message += "    Transition counts:\n"
+            for key in self.transition_counts:
+                for key2 in self.transition_counts[key]:
+                    if key2 == "total":
+                        str1 = f"      {key} {key2}: {self.transition_counts[key][key2]}\n"
+                    else:
+                        str1 = f"      {key} to {key2}: {self.transition_counts[key][key2]}\n"
+                    message += str1
+                if len(self.transition_counts[key]) == 0:
+                    message += "        None\n"
+            if len(self.transition_counts) == 0:
+                message += "        None\n"
+
+        return message
+    
 def resample_bulk_anchor_statistics(
         bulk_stats: Bulk_anchor_statistics,
     ) -> Bulk_anchor_statistics:
