@@ -39,8 +39,7 @@ class Input_stage_bd:
                                                validators.gt(0)])
     sampling_method: sampling_methods_preparer.Base_bd_sampling_method_input = field(
         default=Factory(sampling_methods_preparer.NAM_bd_input))
-    completion_criteria: compl_crit_struct.Base_completion_criteria = field(
-        default=Factory(compl_crit_struct.Number_of_trajectories_completion_criteria))
+    completion_criteria: compl_crit_struct.Base_completion_criteria | None = None
     
     def get_scale_type(self) -> str:
         return "brownian_dynamics"
@@ -59,6 +58,7 @@ class Input_stage_bd:
         stage.name = self.name
         stage.n_trajectories_per_output = self.n_trajectories_per_output
         stage.n_steps_per_output = self.n_steps_per_output
+        assert self.completion_criteria is not None
         stage.completion_criteria = self.completion_criteria
         # At present, BD stages will always be systemwide
         #stage.input_from = None

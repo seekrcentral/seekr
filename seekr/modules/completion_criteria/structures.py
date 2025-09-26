@@ -130,3 +130,39 @@ class Number_of_trajectories_completion_criteria(Base_completion_criteria):
     
     def get_evaluation_interval(self) -> int:
         return 0
+    
+@define
+class Number_of_encounters_completion_criteria(Base_completion_criteria):
+    """
+    A completion criteria based on the number of encounters in a 
+    BD simulation.
+    """
+    type: typing.Literal["number_of_encounters"] = "number_of_encounters"
+    number_of_encounters: int = field(default=1000,
+                                        validator=[validators.instance_of(int),
+                                                   validators.gt(0)])
+    evaluation_interval: int = field(default=1000,
+                                      validator=[validators.instance_of(int),
+                                                 validators.gt(0)])
+    max_number_of_trajectories: int = field(default=10000000,
+                                    validator=[validators.instance_of(int),
+                                               validators.gt(0)])
+    max_number_of_steps: int = field(default=100000000,
+                                    validator=[validators.instance_of(int),
+                                               validators.gt(0)])
+    
+    # NOTE: these functions are needed for chunking in runner modules
+    def get_min_sim_len(self) -> int:
+        """
+        Return the minimum simulation length for this completion criteria.
+        """
+        return 0
+    
+    def get_max_sim_len(self) -> int:
+        """
+        Return the minimum simulation length for this completion criteria.
+        """
+        return MAX_BD_STEPS
+    
+    def get_evaluation_interval(self) -> int:
+        return self.evaluation_interval

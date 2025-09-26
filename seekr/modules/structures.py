@@ -49,7 +49,8 @@ reporters: typing.Dict[str, typing.Type[reporters_structures.Base_reporter]] \
 completion_criteria: typing.Dict[str, typing.Type[compl_crit_struct.Base_completion_criteria]] \
         = {"number_of_steps": compl_crit_struct.Number_of_steps_completion_criteria,
            "anchors_filled": compl_crit_struct.Anchors_filled_completion_criteria,
-           "number_of_trajectories": compl_crit_struct.Number_of_trajectories_completion_criteria,}
+           "number_of_trajectories": compl_crit_struct.Number_of_trajectories_completion_criteria,
+           "number_of_encounters": compl_crit_struct.Number_of_encounters_completion_criteria,}
 
 from seekr.modules.collective_variables.structures import cvs
 

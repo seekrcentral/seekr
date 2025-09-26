@@ -72,14 +72,14 @@ def cleanse_outputs_bd(
     """
     Remove BD simulation output files.
     """
-    assert model.bd_engine is not None
+    bd_engine = model.get_engine_by_scale_type("brownian_dynamics")
     found_engine = False
-    if model.bd_engine.type == "browndye":
+    if bd_engine.type == "browndye":
         directory = os.path.join(model.directory, bulk_anchor.directory)
-        runner_browndye.cleanse_bd_outputs(directory, model.bd_engine.results_glob, 
+        runner_browndye.cleanse_bd_outputs(directory, bd_engine.results_glob, 
                                            check_mode=False)
         found_engine = True
-    elif model.bd_engine.type == "sda":
+    elif bd_engine.type == "sda":
         directory = os.path.join(model.directory, bulk_anchor.directory)
         runner_sda.cleanse_bd_outputs(directory, sda_base.SDA_RESULTS_GLOB, 
                                       check_mode=False)
@@ -89,7 +89,7 @@ def cleanse_outputs_bd(
         pass
 
     if not found_engine:
-        raise Exception(f"BD engine not found: {model.bd_engine.type}.")
+        raise Exception(f"BD engine not found: {bd_engine.type}.")
     
 def get_checkpoint_information_basename(
         swarm_index: int | None

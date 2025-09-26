@@ -7,6 +7,7 @@ Perform runner functions specific to brownian dynamics stages.
 import os
 import typing
 import logging
+import importlib
 from collections import namedtuple
 
 import seekr.modules.base as base
@@ -77,28 +78,48 @@ def is_finished_bd_with_message(
             message = f"Trajectories {num_trajs_so_far} of {num_trajs_needed} completed."
         return attained, message
     
-    # TODO: implement surface_encounters completion criteria
+    elif stage_bd.completion_criteria.type == "number_of_encounters":
+        num_encounters_needed = stage_bd.completion_criteria.number_of_encounters
+        if num_trajs_so_far == 0:
+            min_b_surface_encounters = 0
+        else:
+            milestone_b_surface_counts = {}
+            for key in bd_transition_counts["b_surface"]:
+                if isinstance(key, int):
+                    milestone_b_surface_counts[key] \
+                        = bd_transition_counts["b_surface"][key]
+            min_b_surface_encounters = min(
+                milestone_b_surface_counts.values())
+        attained = min_b_surface_encounters >= num_encounters_needed
+        if use_json:
+            message = {
+                "completion_criteria": stage_bd.completion_criteria.type,
+                "attained": attained,
+                "encounters_needed": num_encounters_needed,
+                "encounters_completed": min_b_surface_encounters,
+                "trajectories_completed": num_trajs_so_far
+            }
+        else:
+            message = f"Encounters {min_b_surface_encounters} of {num_encounters_needed} completed."
+        return attained, message
+
+        # TODO: implement BD completion criteria in plugins
     else:
-        raise NotImplementedError("Completion criteria not yet implemented: "\
-                                    f"{stage_bd.completion_criteria.type}.")
-    
-    # TODO: implement BD completion criteria in plugins
-    #else:
-    #    # Run through plugins
-    #    for plugin_name in model.plugins:
-    #        spec = importlib.util.find_spec(plugin_name)
-    #        if spec is None:
-    #            raise ImportError(f"Plugin '{plugin_name}' not found. Please install it or check the spelling.")
-    #        # TODO: see if plugin.modules exists, and if not, raise an error
-    #        #  Then if plugin.modules.completion_criteria doesn't exist, skip quietly
-    #        #  Then if plugin.modules.scales.molecular_dynamics.runner doesn't exist, raise an error
-    #        plugin_module_scales_md_runner = importlib.import_module(plugin_name+".modules.scales.molecular_dynamics.runner")
-    #        found, completed, message = plugin_module_scales_md_runner.is_finished_md_with_message(
-    #            model, stage, anchor_or_systemwide, current_step, swarm_id)
-    #        if found:
-    #            return completed, message
+        # Run through plugins
+        for plugin_name in model.plugins:
+            spec = importlib.util.find_spec(plugin_name)
+            if spec is None:
+                raise ImportError(f"Plugin '{plugin_name}' not found. Please install it or check the spelling.")
+            # TODO: see if plugin.modules exists, and if not, raise an error
+            #  Then if plugin.modules.completion_criteria doesn't exist, skip quietly
+            #  Then if plugin.modules.scales.brownian_dynamics.runner doesn't exist, raise an error
+            plugin_module_scales_bd_runner = importlib.import_module(plugin_name+".modules.scales.brownian_dynamics.runner")
+            found, completed, message = plugin_module_scales_bd_runner.is_finished_bd_with_message(
+                model, stage_bd, use_json)
+            if found:
+                return completed, message
     assert message is not None, \
-        "Completion criteria not found: " + completion_criteria.type
+        "Completion criteria not found: " + stage_bd.completion_criteria.type
 
 def choose_next_simulation_bd(
         model: structures.Seekr_model,
@@ -117,7 +138,11 @@ def choose_next_simulation_bd(
     if stage_bd.completion_criteria.type == "number_of_trajectories":
         num_trajs_needed = stage_bd.completion_criteria.number_of_trajectories
         min_b_surface_encounters = None
-        bd_sim_chunk_size = 1
+        bd_sim_chunk_size = num_trajs_needed
+    elif stage_bd.completion_criteria.type == "number_of_encounters":
+        num_trajs_needed = stage_bd.completion_criteria.evaluation_interval
+        min_b_surface_encounters = stage_bd.completion_criteria.number_of_encounters
+        bd_sim_chunk_size = stage_bd.completion_criteria.evaluation_interval
     else:
         raise NotImplementedError("Completion criteria not yet implemented: "\
                                     f"{stage_bd.completion_criteria.type}.")
@@ -141,7 +166,7 @@ def choose_next_simulation_bd(
         upper_milestone_index = bulk_anchor_neighbor.milestones[1].index
         bd_transition_counts = bd_engine.modify_bd_transition_counts(
             bd_transition_counts, lower_milestone_index, upper_milestone_index)
-        
+    
     if "b_surface" not in bd_transition_counts:
         run_instruction = Run_instruction_bd(
             num_trajs_needed, 0, bulk_index, False, 0)
@@ -167,11 +192,10 @@ def choose_next_simulation_bd(
             
         elif min_b_surface_encounters is not None:
             if total_b_surface_encounters < min_b_surface_encounters:
-                total_bd_simulation_length \
-                    = (b_surface_sims_so_far // bd_sim_chunk_size + 1) \
-                    * bd_sim_chunk_size
+                #total_bd_simulation_length = b_surface_sims_so_far + bd_sim_chunk_size
+                total_bd_simulation_length = bd_sim_chunk_size
                 run_instruction = Run_instruction_bd(
-                    total_bd_simulation_length-b_surface_sims_so_far, b_surface_sims_so_far, 
+                    total_bd_simulation_length, b_surface_sims_so_far, 
                     bulk_index, True, total_b_surface_encounters)
                 run_instructions_unsorted.append(run_instruction)
                 

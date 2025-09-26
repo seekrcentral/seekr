@@ -128,9 +128,9 @@ def modify_variables(model: structures.Seekr_model,
             "No simulation has yet been run: cannot use restart mode."
         restart_index = len(results_file_list) + 1
         if seed is None:
-            seed = restart
+            seed = restart_index
         else:
-            seed += restart
+            seed += restart_index
     else:
         restart_index = 1
         cleanse_bd_outputs(bd_directory, bd_output_glob, check_mode=False)
@@ -228,6 +228,7 @@ def run_simulation(
     if n_trajectories is not None:
         if n_trajectories_per_output > n_trajectories:
             n_trajectories_per_output = n_trajectories
+    print("n_trajectories:", n_trajectories)
     modify_variables(
         model, n_trajectories, restart=restart, 
         n_trajectories_per_output=n_trajectories_per_output)
