@@ -18,23 +18,6 @@ import seekr.modules.engines.sda.base as sda_base
 import seekr.modules.engines.structures as engines_structures
 import seekr.modules.engines.sda.sda_structures as sda_structures
 
-"""# TODO: marked for removal - moved to engines/structures.py
-# TODO: import from a common module with Browndye?
-@define
-class Ion:
-    name: str | None = field(default=None,
-                             validator=validators.optional(
-                                 validators.instance_of(str)))
-    radius: float = field(default=0.9,
-                            validator=[validators.instance_of(float),
-                                         validators.gt(0)])
-    charge: float = field(default=1.0,
-                            validator=[validators.instance_of(float)])
-    concentration: float = field(default=0.0,
-                                    validator=[validators.instance_of(float),
-                                                validators.ge(0)])
-"""
-
 @define
 class SDA_molecule:
     """
@@ -100,7 +83,8 @@ class SDA_molecule:
     # NOTE: These concern conformational changes and ensembles
     # list_conformation
     # total_conf
-    # conformation_choice_method -> "method" in Solute_Grid() in sda_structures.py
+    # conformation_choice_method -> "method" in Solute_Grid() in 
+    #     sda_structures.py
     # initial_conf
     # frequency
     #std_frequency
@@ -143,14 +127,15 @@ class SDA_molecule:
         dime = 0
         MAX_ITER = 100
         while dime < exact_dime:
-            # According to APBS manual, the arguments of dime are dependent on the choice
-            #  of "nlev" by the formula n = c*2**(nlev+1) + 1, where the most common values
-            #  are compatible with an nlev of 4. Hence the equation below.
+            # According to APBS manual, the arguments of dime are dependent 
+            # on the choice of "nlev" by the formula n = c*2**(nlev+1) + 1, 
+            # where the most common values are compatible with an nlev of 4. 
+            # Hence the equation below.
             dime = c * 32 + 1
             c += 1
             if c > MAX_ITER:
-                raise ValueError("Could not compute grid dimensions for the molecule. "
-                                 "Maximum iterations reached.")
+                raise ValueError("Could not compute grid dimensions for the "
+                                 "molecule. Maximum iterations reached.")
         self.dime = dime
         return
 
@@ -193,9 +178,6 @@ class SDA_molecule:
         run_apbs_command = f"apbs {apbs_input_filename} > {apbs_output_filename}"
         logging.info("Running APBS with command: " + run_apbs_command)
         os.system(run_apbs_command)
-        #apbs_output_grid_glob = f"{self.name}_apbs*.grd"
-        #assert len(glob.glob(apbs_output_grid_glob)) > 0, "Problem running " \
-        #    "apbs - APBS UHBD file(s) not found: " + apbs_output_grid_glob
         assert os.path.exists(apbs_output_grid_filename), "Problem running " \
             "apbs - APBS UHBD file not found: " + apbs_output_grid_filename
         
@@ -203,13 +185,16 @@ class SDA_molecule:
         electric_potential_filename = f"{self.name}_ep.grd"
         self.epf = electric_potential_filename
         sda_convert_bin = os.path.join(binary_directory, "convert_grid")
-        run_sda_convert_command = f"{sda_convert_bin} {apbs_output_grid_filename} " \
-            f"{electric_potential_filename}  -scale 0.6 -convert > " \
-            f"apbs_grid_conversion_{self.name}.out"
-        logging.info("Running SDA convert grid with command: " + run_sda_convert_command)
+        run_sda_convert_command \
+            = f"{sda_convert_bin} {apbs_output_grid_filename} " \
+              f"{electric_potential_filename}  -scale 0.6 -convert > " \
+              f"apbs_grid_conversion_{self.name}.out"
+        logging.info("Running SDA convert grid with command: " \
+                     + run_sda_convert_command)
         os.system(run_sda_convert_command)
-        assert os.path.exists(electric_potential_filename), "Problem running " \
-            "convert_grid - electric potential file not found: " + electric_potential_filename
+        assert os.path.exists(electric_potential_filename), \
+            "Problem running convert_grid - electric potential file not found: " \
+            + electric_potential_filename
         # Make SDA grids and effective charges
         effective_charge_filename = f"{self.name}.echa"
         self.qef = effective_charge_filename
@@ -255,70 +240,87 @@ class SDA_molecule:
         test_charge_command = None
         if self.type == "non_protein":
             if self.surface:
-                surface_test_charge_bin = os.path.join(aux_directory, \
-                                  "Kon-rates-SmallMolecule/Generate-ECMSites-SmallMol/ECM_surface.py")
-                
+                surface_test_charge_bin = os.path.join(
+                    aux_directory,
+                    "Kon-rates-SmallMolecule/Generate-ECMSites-SmallMol"\
+                        "/ECM_surface.py")
+
                 if os.path.exists(surface_test_charge_bin):
                     protein_surface_test_charge_command \
-                        = f"python {protein_surface_test_charge_bin} {self.pqr_filename} -threshold 3 "\
-                         +f"> tcha_{self.name}.out"
+                        = f"python {protein_surface_test_charge_bin} "\
+                          f"{self.pqr_filename} -threshold 3 "\
+                          f"> tcha_{self.name}.out"
                 else:
-                    surface_test_charge_bin = os.path.join(aux_directory, \
-                                  "Kon-rates-SmallMolecule/Generate-ECMSites-SmallMol/ECM_ligand.py")
+                    surface_test_charge_bin = os.path.join(
+                        aux_directory, 
+                        "Kon-rates-SmallMolecule/Generate-ECMSites-SmallMol/"\
+                            "ECM_ligand.py")
                     surface_test_charge_command \
-                        = f"python {protein_surface_test_charge_bin} {self.pqr_filename} "\
-                         +f"> tcha_{self.name}.out"
+                        = f"python {protein_surface_test_charge_bin} "\
+                          f"{self.pqr_filename} > tcha_{self.name}.out"
             else:
-                test_charge_bin = os.path.join(aux_directory, \
-                                  "Kon-rates-SmallMolecule/Generate-ECMSites-SmallMol/ECM_ligand.py")
+                test_charge_bin = os.path.join(
+                    aux_directory, 
+                    "Kon-rates-SmallMolecule/Generate-ECMSites-SmallMol/"\
+                        "ECM_ligand.py")
 
                 test_charge_command \
-                    = f"python {test_charge_bin} {self.pqr_filename} > tcha_{self.name}.out"
+                    = f"python {test_charge_bin} {self.pqr_filename} "\
+                      f"> tcha_{self.name}.out"
         elif self.type == "protein":
             test_charge_bin = os.path.join(binary_directory, "ecm_mksites")
             test_charge_command = f"{test_charge_bin} {self.pdb_noh_filename} "\
                 +f"{test_charge_filename} > tcha_{self.name}.out"
             if self.surface:
-                protein_surface_test_charge_bin = os.path.join(aux_directory, \
-                              "Kon-rates-SmallMolecule/Generate-ECMSites-SmallMol/ECM_surface.py")
+                protein_surface_test_charge_bin = os.path.join(
+                    aux_directory, 
+                    "Kon-rates-SmallMolecule/Generate-ECMSites-SmallMol/"\
+                        "ECM_surface.py")
                 if os.path.exists(protein_surface_test_charge_bin):
                     protein_surface_test_charge_command \
-                        = f"python {protein_surface_test_charge_bin} {self.pqr_filename} -threshold 3"\
+                        = f"python {protein_surface_test_charge_bin} "\
+                          f"{self.pqr_filename} -threshold 3"\
                          +f" > tcha_{self.name}.out"
                 else:
-                    protein_surface_test_charge_bin = os.path.join(aux_directory, \
-                              "Kon-rates-SmallMolecule/Generate-ECMSites-SmallMol/ECM_surface.py")
+                    protein_surface_test_charge_bin = os.path.join(
+                        aux_directory, "Kon-rates-SmallMolecule/"\
+                            "Generate-ECMSites-SmallMol/ECM_surface.py")
                     protein_surface_test_charge_command \
-                        = f"python {protein_surface_test_charge_bin} {self.pqr_filename}"\
-                         +f" > tcha_{self.name}.out"
+                        = f"python {protein_surface_test_charge_bin} "\
+                          f"{self.pqr_filename} > tcha_{self.name}.out"
             
         if test_charge_command != None:
             logging.info("running command: " + test_charge_command)
             os.system(test_charge_command)
             # Check test charges
             if not os.path.exists(test_charge_filename):
-                raise ValueError("Problem running test charge command - " \
-                                 f"{test_charge_filename} not found. Check previous command output.")
+                raise ValueError(
+                    f"Problem running test charge command - "\
+                    f"{test_charge_filename} not found. Check previous "\
+                        "command output.")
             with open(test_charge_filename, 'r') as f:
                 total_noncomment_lines = 0
                 for line in f:
                     if not line.startswith("REMARK"):
                         total_noncomment_lines += 1
             if total_noncomment_lines == 0:
-                raise ValueError("Problem running test charge command - No test charges generated in " \
-                                 f"{test_charge_filename}. Check that the molecule named {self.name} " \
-                                 f"is the correct type. Should it be 'non_protein'?")
+                raise ValueError(
+                    "Problem running test charge command - No test charges "\
+                    f"generated in {test_charge_filename}. Check that the "\
+                    f"molecule named {self.name} is the correct type. Should "\
+                    "it be 'non_protein'?")
 
         if surface_test_charge_command != None:
             logging.info("running command: " + surface_test_charge_command)
             os.system(surface_test_charge_command)
         if protein_surface_test_charge_command != None:
-            logging.info("running command: " + protein_surface_test_charge_command)
+            logging.info("running command: " \
+                         + protein_surface_test_charge_command)
             os.system(f"mv {test_charge_filename} tmp.tcha")
             os.system(protein_surface_test_charge_command)
-            os.system(f"cat {self.pqr_filename.split('.')[0]}.tcha >> tmp.tcha")
+            os.system(f"cat {self.pqr_filename.split('.')[0]}.tcha "\
+                      ">> tmp.tcha")
             os.system(f"mv tmp.tcha {test_charge_filename}")
-        # TODO: implement checks for successful generation of above files
         effective_charge_bin = os.path.join(binary_directory, \
                                             "ecm_expand")
         effective_charge_command \
@@ -329,15 +331,16 @@ class SDA_molecule:
         
         edhdlj_bin = os.path.join(binary_directory, "make_edhdlj_grid")
         if self.lj_repf is not None:
-        #if hasattr(solute_name, 'lj_repf'):
             edhdlj_command \
                 = f"{edhdlj_bin} -ed {electric_desolvation_input_filename} "\
                  +f"-hd {hydrophobic_desolvation_input_filename} "\
-                 +f"-ljrep {lennard_jones_repulsion_input_filename} > edhdlj_{self.name}.out"
+                 +f"-ljrep {lennard_jones_repulsion_input_filename} "\
+                 +f"> edhdlj_{self.name}.out"
         else:
             edhdlj_command \
                 = f"{edhdlj_bin} -ed {electric_desolvation_input_filename} "\
-                 +f"-hd {hydrophobic_desolvation_input_filename} > edhdlj_{self.name}.out"
+                 +f"-hd {hydrophobic_desolvation_input_filename} "\
+                 +f"> edhdlj_{self.name}.out"
         logging.info("running command: " + edhdlj_command)
         os.system(edhdlj_command)
         
@@ -371,7 +374,7 @@ class SDA_molecule:
             os.system(full_hydropro_command)
 
             # Find and read hydropro output
-            for root, dirs, files in os.walk("."):
+            for _root, _dirs, files in os.walk("."):
                 for filename in files:
                     if self.name in filename and "res.txt" in filename:
                         output_file = filename

@@ -42,9 +42,9 @@ class Number_of_steps_completion_criteria(Base_completion_criteria):
     A completion criteria based on the number of steps.
     """
     type: typing.Literal["number_of_steps"] = "number_of_steps"
-    number_of_steps: int = field(default=100000,
-                                validator=[validators.instance_of(int),
-                                           validators.gt(0)])
+    number_of_steps: int = field(
+        default=100000, validator=[validators.instance_of(int), 
+                                   validators.gt(0)])
     
     # NOTE: these functions are needed for chunking in runner modules
     def get_min_sim_len(self) -> int:
@@ -68,14 +68,14 @@ class Anchors_filled_completion_criteria(Base_completion_criteria):
     A completion criteria based on all anchors being filled.
     """
     type: typing.Literal["anchors_filled"] = "anchors_filled"
-    exclude: list[int] = field(factory=list,
-                               validator=validators.deep_iterable(
-                                   member_validator=validators.instance_of(int),
-                                   iterable_validator=validators.instance_of(list),
-                               ))
-    eval_interval: int = field(default=250,
-                                validator=[validators.instance_of(int),
-                                           validators.gt(0)])
+    exclude: list[int] = field(
+        factory=list, validator=validators.deep_iterable(
+            member_validator=validators.instance_of(int),
+            iterable_validator=validators.instance_of(list),
+        ))
+    eval_interval: int = field(
+        default=250, validator=[validators.instance_of(int),
+                                validators.gt(0)])
 
     # NOTE: these functions are needed for chunking in runner modules
     def get_min_sim_len(self) -> int:
@@ -93,6 +93,9 @@ class Anchors_filled_completion_criteria(Base_completion_criteria):
     def get_evaluation_interval(self) -> int:
         return self.eval_interval
     
+#  Sep 26, 2025: I don't foresee needing this anytime soon, but
+#   I want to keep these ideas here for possible future implementation.
+#    - lvotapka
 # TODO: Maybe implement someday?
 #@define
 #class CV_value_attained_completion_criteria:
@@ -108,12 +111,12 @@ class Number_of_trajectories_completion_criteria(Base_completion_criteria):
     BD simulation.
     """
     type: typing.Literal["number_of_trajectories"] = "number_of_trajectories"
-    number_of_trajectories: int = field(default=10000,
-                                        validator=[validators.instance_of(int),
-                                                   validators.gt(0)])
-    max_number_of_steps: int = field(default=100000000,
-                                    validator=[validators.instance_of(int),
-                                               validators.gt(0)])
+    number_of_trajectories: int = field(
+        default=10000, validator=[validators.instance_of(int),
+                                  validators.gt(0)])
+    max_number_of_steps: int = field(
+        default=100000000, validator=[validators.instance_of(int),
+                                      validators.gt(0)])
     
     # NOTE: these functions are needed for chunking in runner modules
     def get_min_sim_len(self) -> int:
@@ -138,18 +141,18 @@ class Number_of_encounters_completion_criteria(Base_completion_criteria):
     BD simulation.
     """
     type: typing.Literal["number_of_encounters"] = "number_of_encounters"
-    number_of_encounters: int = field(default=1000,
-                                        validator=[validators.instance_of(int),
-                                                   validators.gt(0)])
-    evaluation_interval: int = field(default=1000,
-                                      validator=[validators.instance_of(int),
-                                                 validators.gt(0)])
-    max_number_of_trajectories: int = field(default=10000000,
-                                    validator=[validators.instance_of(int),
-                                               validators.gt(0)])
-    max_number_of_steps: int = field(default=100000000,
-                                    validator=[validators.instance_of(int),
-                                               validators.gt(0)])
+    number_of_encounters: int = field(
+        default=1000, validator=[validators.instance_of(int),
+                                 validators.gt(0)])
+    evaluation_interval: int = field(
+        default=1000, validator=[validators.instance_of(int),
+                                 validators.gt(0)])
+    max_number_of_trajectories: int = field(
+        default=10000000, validator=[validators.instance_of(int),
+                                      validators.gt(0)])
+    max_number_of_steps: int = field(
+        default=100000000, validator=[validators.instance_of(int),
+                                       validators.gt(0)])
     
     # NOTE: these functions are needed for chunking in runner modules
     def get_min_sim_len(self) -> int:

@@ -120,3 +120,42 @@ class Proximity_restraint_input(Base_restraint_input):
         restraint.force_constant = self.force_constant
         return restraint
     
+@define
+class Cylinder_restraint_input(Base_restraint_input):
+    """
+    Input for cylinder restraint.
+    """
+    type: typing.Literal["cylinder"] = "cylinder"
+    selection1_name: str = field(default="",
+                                 validator=validators.instance_of(str))
+    selection2_name: str = field(default="",
+                                 validator=validators.instance_of(str))
+    selection3_name: str = field(default="",
+                                 validator=validators.instance_of(str))
+    radius: float = field(default=2.0, validator=[
+        validators.instance_of(float), validators.gt(0)
+    ])
+    force_constant: float = field(default=1000.0, validator=[
+        validators.instance_of(float), validators.gt(0)
+    ])
+
+    def make_restraint(
+            self, 
+            systemwide_settings: engines_preparer.MD_systemwide_settings_input
+            ) -> restraints_structures.Cylinder_restraint:
+        """
+        Make the restraint object for the model.
+        """
+        atom_indices1 = systemwide_settings.get_atom_indices_by_selection_name(
+            self.selection1_name)
+        atom_indices2 = systemwide_settings.get_atom_indices_by_selection_name(
+            self.selection2_name)
+        atom_indices3 = systemwide_settings.get_atom_indices_by_selection_name(
+            self.selection3_name)
+        restraint = restraints_structures.Cylinder_restraint()
+        restraint.atom_indices1 = atom_indices1
+        restraint.atom_indices2 = atom_indices2
+        restraint.atom_indices3 = atom_indices3
+        restraint.radius = self.radius
+        restraint.force_constant = self.force_constant
+        return restraint

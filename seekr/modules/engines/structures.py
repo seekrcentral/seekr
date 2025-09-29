@@ -24,29 +24,29 @@ class Selection:
     """
     name: str = field(default="",
                         validator=validators.instance_of(str))
-    atom_indices: list[int] = field(default=Factory(list),
-                                    validator=validators.deep_iterable(
-                                        member_validator=[validators.instance_of(int),
-                                                    validators.ge(0)],
-                                        iterable_validator=validators.instance_of(list),
-                                    ))
+    atom_indices: list[int] = field(
+        default=Factory(list), validator=validators.deep_iterable(
+            member_validator=[
+                validators.instance_of(int),
+                validators.ge(0)],
+                iterable_validator=validators.instance_of(list),))
     
 @define
 class Ion:
     """
     Ion objects used for Browndye and SDA engines.
     """
-    name: str | None = field(default=None,
-                             validator=validators.optional(
-                                 validators.instance_of(str)))
-    radius: float = field(default=0.9,
-                            validator=[validators.instance_of(float),
-                                         validators.gt(0)])
-    charge: float = field(default=1.0,
-                            validator=[validators.instance_of(float)])
-    concentration: float = field(default=0.0,
-                                    validator=[validators.instance_of(float),
-                                                validators.ge(0)])
+    name: str | None = field(
+        default=None, validator=validators.optional(
+            validators.instance_of(str)))
+    radius: float = field(
+        default=0.9, validator=[validators.instance_of(float), 
+                                validators.gt(0)])
+    charge: float = field(
+        default=1.0, validator=[validators.instance_of(float)])
+    concentration: float = field(
+        default=0.0, validator=[validators.instance_of(float),
+                                validators.ge(0)])
 
 @define
 class Checkpoint_information:
@@ -54,15 +54,15 @@ class Checkpoint_information:
     A class to store information about the current state of a SEEKR
     calculation.
     """
-    current_step: int = field(default=0, 
-                              validator=[validators.instance_of(int),
-                                               validators.ge(0)])
-    restart_index: int = field(default=1,
-                                validator=[validators.instance_of(int),
-                                           validators.ge(1)])
-    timestep: float = field(default=0.002,
-                            validator=[validators.instance_of(float),
-                                       validators.gt(0)])
+    current_step: int = field(
+        default=0, validator=[validators.instance_of(int),
+                              validators.ge(0)])
+    restart_index: int = field(
+        default=1, validator=[validators.instance_of(int),
+                              validators.ge(1)])
+    timestep: float = field(
+        default=0.002, validator=[validators.instance_of(float),
+                                  validators.gt(0)])
     cv_values: tuple[float] | None = field(
         default=None,
         validator=validators.optional(
@@ -98,74 +98,74 @@ def write_checkpoint_information_file(
     """
     Write the checkpoint information to a file.
     """
-    checkpoint_information = Checkpoint_information(step, restart_index, timestep, 
-                                                    cv_values)
+    checkpoint_information = Checkpoint_information(
+        step, restart_index, timestep, cv_values)
     checkpoint_information.save(filename)
     return
 
 @define
 class Langevin_integrator_settings:
     type: typing.Literal["langevin"] = "langevin"
-    timestep: float = field(default=0.002,
-                            validator=[validators.instance_of(float),
-                                       validators.gt(0)])
-    friction: float = field(default=1.0,
-                            validator=[validators.instance_of(float),
-                                       validators.ge(0)])
-    target_temperature: float = field(default=298.15,
-                                      validator=[validators.instance_of(float),
-                                                 validators.gt(0)])
-    random_seed: int = field(default=0,
-                             validator=[validators.instance_of(int)])
-    rigid_tolerance: float = field(default=1e-6,
-                                   validator=[validators.instance_of(float),
-                                              validators.gt(0)])
-    
+    timestep: float = field(
+        default=0.002, validator=[validators.instance_of(float),
+                                   validators.gt(0)])
+    friction: float = field(
+        default=1.0, validator=[validators.instance_of(float),
+                                validators.ge(0)])
+    target_temperature: float = field(
+        default=298.15, validator=[validators.instance_of(float),
+                                   validators.gt(0)])
+    random_seed: int = field(
+        default=0, validator=[validators.instance_of(int)])
+    rigid_tolerance: float = field(
+        default=1e-6, validator=[validators.instance_of(float),
+                                 validators.gt(0)])
+
 @define
 class Langevin_middle_integrator_settings:
     type: typing.Literal["langevinMiddle"] = "langevinMiddle"
-    timestep: float = field(default=0.002,
-                            validator=[validators.instance_of(float),
-                                       validators.gt(0)])
-    friction: float = field(default=1.0,
-                            validator=[validators.instance_of(float),
-                                       validators.ge(0)])
-    target_temperature: float = field(default=298.15,
-                                      validator=[validators.instance_of(float),
-                                                 validators.gt(0)])
-    random_seed: int = field(default=0,
-                             validator=[validators.instance_of(int)])
-    rigid_tolerance: float = field(default=1e-6,
-                                   validator=[validators.instance_of(float),
-                                              validators.gt(0)])
-    
+    timestep: float = field(
+        default=0.002, validator=[validators.instance_of(float),
+                                   validators.gt(0)])
+    friction: float = field(
+        default=1.0, validator=[validators.instance_of(float),
+                                validators.ge(0)])
+    target_temperature: float = field(
+        default=298.15, validator=[validators.instance_of(float),
+                                   validators.gt(0)])
+    random_seed: int = field(
+        default=0, validator=[validators.instance_of(int)])
+    rigid_tolerance: float = field(
+        default=1e-6, validator=[validators.instance_of(float),
+                                 validators.gt(0)])
+
 @define
 class Brownian_integrator_settings:
     type: typing.Literal["brownian"] = "brownian"
-    timestep: float = field(default=0.002,
-                            validator=[validators.instance_of(float),
-                                       validators.gt(0)])
-    friction: float = field(default=1.0,
-                            validator=[validators.instance_of(float),
-                                       validators.ge(0)])
-    target_temperature: float = field(default=298.15,
-                                      validator=[validators.instance_of(float),
-                                                 validators.gt(0)])
-    random_seed: int = field(default=0,
-                             validator=[validators.instance_of(int)])
-    rigid_tolerance: float = field(default=1e-6,
-                                   validator=[validators.instance_of(float),
-                                              validators.gt(0)])
-    
+    timestep: float = field(
+        default=0.002, validator=[validators.instance_of(float),
+                                   validators.gt(0)])
+    friction: float = field(
+        default=1.0, validator=[validators.instance_of(float),
+                                validators.ge(0)])
+    target_temperature: float = field(
+        default=298.15, validator=[validators.instance_of(float),
+                                   validators.gt(0)])
+    random_seed: int = field(
+        default=0, validator=[validators.instance_of(int)])
+    rigid_tolerance: float = field(
+        default=1e-6, validator=[validators.instance_of(float),
+                                 validators.gt(0)])
+
 @define
 class Verlet_integrator_settings:
     type: typing.Literal["verlet"] = "verlet"
-    timestep: float = field(default=0.002,
-                            validator=[validators.instance_of(float),
-                                       validators.gt(0)])
-    rigid_tolerance: float = field(default=1e-6,
-                                   validator=[validators.instance_of(float),
-                                              validators.gt(0)])
+    timestep: float = field(
+        default=0.002, validator=[validators.instance_of(float),
+                                   validators.gt(0)])
+    rigid_tolerance: float = field(
+        default=1e-6, validator=[validators.instance_of(float),
+                                 validators.gt(0)])
 
 Integrator_settings = typing.Union[Langevin_integrator_settings,
                                    Langevin_middle_integrator_settings,
@@ -175,38 +175,29 @@ Integrator_settings = typing.Union[Langevin_integrator_settings,
 @define
 class Cuda_platform_settings:
     type: typing.Literal["cuda"] = "cuda"
-    device_index: str = field(default="0",
-                              validator=[validators.instance_of(str)])
-    precision: str = field(default="mixed",
-                           #converter=str.lower,
-                           converter=base.string_lower,
-                           validator=[validators.instance_of(str),
-                                      validators.in_(["single", 
-                                                      "mixed",
-                                                      "double"])])
+    device_index: str = field(
+        default="0", validator=[validators.instance_of(str)])
+    precision: str = field(
+        default="mixed", validator=[
+            validators.instance_of(str),
+            validators.in_(["single", "mixed", "double"])])
 
 Platform_settings = typing.Union[Cuda_platform_settings]
 
 @define
 class Toy_settings:
-    potential_energy_expression: str = field(default="",
-                                             validator=[validators.instance_of(str)])
-    num_particles: int = field(default=0, 
-                               validator=[validators.instance_of(int),
-                                          validators.ge(0)])
+    potential_energy_expression: str = field(
+        default="", validator=[validators.instance_of(str)])
+    num_particles: int = field(
+        default=0, validator=[validators.instance_of(int), validators.ge(0)])
     masses: list[float] = field(default=Factory(list),)
-                                #validator=validators.deep_iterable(
-                                #    member_validator=[validators.instance_of(float),
-                                #                      validators.ge(0)],
-                                #    iterable_validator=validators.instance_of(list),
-                                #))
     
 @define
 class Amber_parameters_topology:
     type: typing.Literal["Amber"] = "Amber"
-    prmtop_filename: str = field(default="",
-                                validator=validators.instance_of(str))
-    
+    prmtop_filename: str = field(
+        default="", validator=validators.instance_of(str))
+
     def same_parameters(
             self, 
             other: "Parameters_topology"
@@ -217,9 +208,10 @@ class Amber_parameters_topology:
         else:
             return False
         
-    def copy_files(self,
-                   dest_directory: str,
-                   new_md_parameters_topology: "Parameters_topology") -> None:
+    def copy_files(
+            self,
+            dest_directory: str,
+            new_md_parameters_topology: "Parameters_topology") -> None:
         """
         Copy the files for the initial 'stage' from this Anchor_input
         to the actual anchor.
@@ -229,7 +221,8 @@ class Amber_parameters_topology:
         prmtop_basename = os.path.basename(self.prmtop_filename)
         anchor_prmtop_full_path = os.path.join(dest_directory,
                                             prmtop_basename)
-        copyfile(os.path.expanduser(self.prmtop_filename), anchor_prmtop_full_path)
+        copyfile(os.path.expanduser(self.prmtop_filename), 
+                 anchor_prmtop_full_path)
         new_md_parameters_topology.prmtop_filename = prmtop_basename
         return
     
@@ -252,9 +245,10 @@ class Gromacs_parameters_topology:
         else:
             return False
     
-    def copy_files(self,
-                   dest_directory: str,
-                   new_md_parameters_topology: "Parameters_topology") -> None:
+    def copy_files(
+            self,
+            dest_directory: str,
+            new_md_parameters_topology: "Parameters_topology") -> None:
         """
         Copy the files for the initial 'stage' from this Anchor_input
         to the actual anchor.
@@ -306,7 +300,8 @@ class Charmm_parameters_topology:
         """
         assert self.type == new_md_parameters_topology.type, "Type mismatch."
         assert self.psf_filename != "", "psf_filename must be defined."
-        assert len(self.param_filename_list) > 0, "param_filename_list must be defined."
+        assert len(self.param_filename_list) > 0, \
+            "param_filename_list must be defined."
         psf_basename = os.path.basename(self.psf_filename)
         anchor_psf_full_path = os.path.join(dest_directory,
                                             psf_basename)
@@ -342,15 +337,18 @@ class Forcefield_parameters:
             other: "Parameters_topology"
             ) -> bool:
         assert self.type == other.type, "Type mismatch."
-        if (self.built_in_forcefield_filenames == other.built_in_forcefield_filenames) \
-                and (self.custom_forcefield_filenames == other.custom_forcefield_filenames):
+        if (self.built_in_forcefield_filenames \
+                == other.built_in_forcefield_filenames) \
+                and (self.custom_forcefield_filenames \
+                     == other.custom_forcefield_filenames):
             return True
         else:
             return False
         
-    def copy_files(self,
-                   dest_directory: str,
-                   new_md_parameters_topology: "Parameters_topology") -> None:
+    def copy_files(
+            self,
+            dest_directory: str,
+            new_md_parameters_topology: "Parameters_topology") -> None:
         """
         Copy the files for the initial 'stage' from this Anchor_input
         to the actual anchor.
@@ -359,18 +357,22 @@ class Forcefield_parameters:
         new_md_parameters_topology.built_in_forcefield_filenames = []
         for forcefield_filename in self.built_in_forcefield_filenames:
             forcefield_basename = os.path.basename(forcefield_filename)
-            anchor_forcefield_full_path = os.path.join(dest_directory,
-                                                    forcefield_basename)
-            copyfile(os.path.expanduser(forcefield_filename), anchor_forcefield_full_path)
-            new_md_parameters_topology.built_in_forcefield_filenames.append(forcefield_basename)
+            anchor_forcefield_full_path = os.path.join(
+                dest_directory, forcefield_basename)
+            copyfile(os.path.expanduser(forcefield_filename), 
+                     anchor_forcefield_full_path)
+            new_md_parameters_topology.built_in_forcefield_filenames.append(
+                forcefield_basename)
 
         new_md_parameters_topology.custom_forcefield_filenames = []
         for forcefield_filename in self.custom_forcefield_filenames:
             forcefield_basename = os.path.basename(forcefield_filename)
             anchor_forcefield_full_path = os.path.join(dest_directory,
                                                     forcefield_basename)
-            copyfile(os.path.expanduser(forcefield_filename), anchor_forcefield_full_path)
-            new_md_parameters_topology.custom_forcefield_filenames.append(forcefield_basename)
+            copyfile(os.path.expanduser(forcefield_filename), 
+                     anchor_forcefield_full_path)
+            new_md_parameters_topology.custom_forcefield_filenames.append(
+                forcefield_basename)
 
         return
     
@@ -390,9 +392,10 @@ class Openmm_system:
         else:
             return False
         
-    def copy_files(self,
-                   dest_directory: str,
-                   new_md_parameters_topology: "Parameters_topology") -> None:
+    def copy_files(
+            self,
+            dest_directory: str,
+            new_md_parameters_topology: "Parameters_topology") -> None:
           """
           Copy the files for the initial 'stage' from this Anchor_input
           to the actual anchor.
@@ -402,13 +405,14 @@ class Openmm_system:
           system_basename = os.path.basename(self.system_filename)
           anchor_system_full_path = os.path.join(dest_directory,
                                               system_basename)
-          copyfile(os.path.expanduser(self.system_filename), anchor_system_full_path)
+          copyfile(os.path.expanduser(self.system_filename), 
+                   anchor_system_full_path)
           new_md_parameters_topology.system_filename = system_basename
           return
 
 Parameters_topology = typing.Union[
-    Amber_parameters_topology, Gromacs_parameters_topology, Charmm_parameters_topology, 
-    Forcefield_parameters, Openmm_system]
+    Amber_parameters_topology, Gromacs_parameters_topology, 
+    Charmm_parameters_topology, Forcefield_parameters, Openmm_system]
 
 # This object logically belongs here, but many of the methods are
 #  better suited for the preparer module. Move these methods to
@@ -420,10 +424,6 @@ class MD_systemwide_settings:
     directory: str = field(default=base.SYSTEMWIDE_DIRECTORY, 
                            validator=validators.instance_of(str))
     stage_parameters: list[dict | None] = field(default=Factory(list),)
-                                        #validator=validators.deep_iterable(
-                                        #    member_validator=validators.instance_of(dict),
-                                        #    iterable_validator=validators.instance_of(list),
-                                        #))
     md_parameters_topology: Parameters_topology | None = None
     selections: list[Selection] = field(
         default=Factory(list),
@@ -432,7 +432,6 @@ class MD_systemwide_settings:
             iterable_validator=validators.instance_of(list),
         ))
     
-    # TODO: move to preparer module - and combine with anchor generate_filetree()?
     def generate_filetree(
             self, 
             root_directory: str
@@ -455,19 +454,24 @@ class MD_systemwide_settings:
             swarm_id: int | None = None
             ) -> list[str]:
         """
-        Construct the full path to the PDB/TXT for this systemwide and a given stage.
+        Construct the full path to the PDB/TXT for this systemwide and a 
+        given stage.
         """
-        assert len(self.stage_parameters) > input_stage_index, "Stage index "\
-            "provided is out of range."
-        # NOTE: this assert prevents mypy error that Nonetype is not indexable.
+        assert len(self.stage_parameters) > input_stage_index, \
+            "Stage index provided is out of range."
+        # NOTE: this assert prevents mypy error that Nonetype is 
+        # not indexable.
         assert self.stage_parameters[input_stage_index] is not None
-        positions_base_noext = self.stage_parameters[input_stage_index]["positions"]
-        assert isinstance(positions_base_noext, str), "Positions must be a filename str."
-        input_stage_dir = self.stage_parameters[input_stage_index]["directory"]
+        positions_base_noext = self\
+            .stage_parameters[input_stage_index]["positions"]
+        assert isinstance(positions_base_noext, str), \
+            "Positions must be a filename str."
+        input_stage_dir = self\
+            .stage_parameters[input_stage_index]["directory"]
         if swarm_id is None:
-            glob_base = [f"{positions_base_noext}*.pdb", f"{positions_base_noext}*.txt"]
+            glob_base = [f"{positions_base_noext}*.pdb", 
+                         f"{positions_base_noext}*.txt"]
         else:
-            #input_positions_glob_basename = f"{input_stage_parameter['positions']}*.swarm_{swarm_index}.{extension}"
             glob_base = [f"{positions_base_noext}*.swarm_{swarm_id}.pdb",
                          f"{positions_base_noext}*.swarm_{swarm_id}.txt"]
         glob_path = os.path.join(
@@ -489,7 +493,6 @@ class MD_systemwide_settings:
         num_frames = len(pdb_full_paths)
         return num_frames
     
-    # TODO: remove? Handled by the input object.
     def get_atom_indices_by_selection_name(
             self,
             name: str

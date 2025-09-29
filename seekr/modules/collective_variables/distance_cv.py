@@ -128,11 +128,3 @@ class Distance_cv_input(cv_base.Base_CV_input):
         cv.max_value = self.max_value
         return cv
     
-    # TODO: move this sort of check to another object? An external function?
-    # To the partition???
-    def check(self) -> None:
-        """
-        Check that this input CV is valid.
-        """
-        # TODO: implement the checks from SEEKR2 for distance CVs
-        pass

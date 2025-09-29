@@ -7,6 +7,7 @@ Structures for the OpenMM engine - anything that might appear in the model.json.
 import typing
 from attrs import define, field, validators
 from attrs.validators import instance_of, optional, in_, gt, and_
+
 if typing.TYPE_CHECKING:
     import openmm.app as openmm_app
 
@@ -34,16 +35,11 @@ class Openmm_md_engine:
     type: typing.Literal["openmm"] = "openmm"
     scale_type: typing.Literal["molecular_dynamics"] = "molecular_dynamics"
     nonbonded_method: str | None = field(
-        default="pme", converter=base.string_lower) #, validator=
-            #optional(and_(instance_of(str), in_([
-            #    "nocutoff", "cutoffperiodic", "cutoffnonperiodic", 
-            #    "pme", "ljpme", "ewald"]))))
+        default="pme", converter=base.string_lower)
     nonbonded_cutoff: float | None = field(
-        default=0.9) #, validator=optional(and_(instance_of(float), gt(0))))
+        default=0.9)
     constraints: str | None = field(
         default="hbonds", converter=base.string_lower, )
-        #validator=optional(and_(instance_of(str), in_([
-        #    "none", "hbonds", "allbonds", "hangles"]))))
     hydrogen_mass: float | None = field(
         default=None, validator=optional(and_(instance_of(float), gt(0))))
     initial_temperature: float = field(
@@ -124,3 +120,27 @@ class Openmm_md_engine:
         Can this engine handle toy systems?
         """
         return True
+    
+    def get_device_index(
+            self
+            ) -> str | None:
+        """
+        Get the device index for the OpenMM engine.
+        """
+        if self.platform_settings is not None:
+            if hasattr(self.platform_settings, "device_index"):
+                return self.platform_settings.device_index
+            
+        return None
+    
+    def set_device_index(
+            self, 
+            device_index: str
+            ) -> None:
+        """
+        Set the device index for the OpenMM engine.
+        """
+        if self.platform_settings is not None:
+            if hasattr(self.platform_settings, "device_index"):
+                self.platform_settings.device_index = device_index
+        return

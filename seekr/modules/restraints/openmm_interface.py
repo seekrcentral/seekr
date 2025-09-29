@@ -133,7 +133,9 @@ class Proximity_restraint_openmm_interface(Base_restraint_openmm_interface):
         Add force(s) to an OpenMM System object.
         """
         system = kwargs["system"]
-        expr = "0.5*proximity_force_const*step(distance(g1, g2) - radius)*(distance(g1, g2) - radius)^2"
+        expr = "0.5*proximity_force_const"\
+            " * step(distance(g1, g2) - radius)"\
+            " * (distance(g1, g2) - radius)^2"
         group1_indices = self._restraint.atom_indices1
         group2_indices = self._restraint.atom_indices2
         proximity_force_spring_constant = self._restraint.force_constant
@@ -149,11 +151,74 @@ class Proximity_restraint_openmm_interface(Base_restraint_openmm_interface):
         system.addForce(proximityForce)
         return None
 
-#Restraint_openmm_interface = typing.Union[
-#    Positional_restraint_openmm_interface,
-#    Pairwise_restraint_openmm_interface,
-#    Proximity_restraint_openmm_interface
-#]
+@define
+class Cylinder_restraint_openmm_interface(Base_restraint_openmm_interface):
+    """
+    A Cylinder restraint using the OpenMM engine. Keep a group of
+    atoms within a certain distance of an axis defined by two other
+    groups of atoms.
+    """
+    _restraint: restraints_structures.Cylinder_restraint = field()
+    def add_forces_to_system(
+            self, 
+            **kwargs: typing.Any
+            ) -> None:
+        """
+        Add force(s) to an OpenMM System object.
+        """
+        system = kwargs["system"]
+        
+        
+        expr = "0.5*cylinder_force_const*"\
+            "(sqrt(" \
+            " ((x1-x2)"\
+            " - ((x3-x2)*(x3-x2)*(x1-x2) "\
+            "  + (x3-x2)*(y3-y2)*(y1-y2) "\
+            "  + (x3-x2)*(z3-z2)*(z1-z2))"\
+            " / distance(g2,g3)^2)^2"\
+            "+((y1-y2)"\
+            " - ((y3-y2)*(x3-x2)*(x1-x2) "\
+            "  + (y3-y2)*(y3-y2)*(y1-y2) "\
+            "  + (y3-y2)*(z3-z2)*(z1-z2))"\
+            " / distance(g2,g3)^2)^2"\
+            "+((z1-z2)"\
+            " - ((z3-z2)*(x3-x2)*(x1-x2) "\
+            "  + (z3-z2)*(y3-y2)*(y1-y2) "\
+            "  + (z3-z2)*(z3-z2)*(z1-z2))"\
+            " / distance(g2,g3)^2)^2) - radius)^2"\
+            "*step(sqrt(" \
+            " ((x1-x2)"\
+            " - ((x3-x2)*(x3-x2)*(x1-x2) "\
+            "  + (x3-x2)*(y3-y2)*(y1-y2) "\
+            "  + (x3-x2)*(z3-z2)*(z1-z2))"\
+            " / distance(g2,g3)^2)^2"\
+            "+((y1-y2)"\
+            " - ((y3-y2)*(x3-x2)*(x1-x2) "\
+            "  + (y3-y2)*(y3-y2)*(y1-y2) "\
+            "  + (y3-y2)*(z3-z2)*(z1-z2))"\
+            " / distance(g2,g3)^2)^2"\
+            "+((z1-z2)"\
+            " - ((z3-z2)*(x3-x2)*(x1-x2) "\
+            "  + (z3-z2)*(y3-y2)*(y1-y2) "\
+            "  + (z3-z2)*(z3-z2)*(z1-z2))"\
+            " / distance(g2,g3)^2)^2) - radius)"\
+            
+        group1_indices = self._restraint.atom_indices1
+        group2_indices = self._restraint.atom_indices2
+        group3_indices = self._restraint.atom_indices3
+        proximity_force_spring_constant = self._restraint.force_constant
+        proximity_radius = self._restraint.radius
+        proximityForce= openmm.CustomCentroidBondForce(3, expr)
+        proximityGroup1 = proximityForce.addGroup(group1_indices)
+        proximityGroup2 = proximityForce.addGroup(group2_indices)
+        proximityGroup3 = proximityForce.addGroup(group3_indices)
+        proximityForce.setForceGroup(0)
+        proximityForce.addPerBondParameter("cylinder_force_const")
+        proximityForce.addPerBondParameter("radius")
+        proximityForce.addBond([proximityGroup1, proximityGroup2, proximityGroup3], 
+                            [proximity_force_spring_constant, proximity_radius])
+        system.addForce(proximityForce)
+        return None
 
 def assign_restraints_interface(
         restraint: restraints_structures.Base_restraint, 
@@ -172,6 +237,8 @@ def assign_restraints_interface(
         return Pairwise_restraint_openmm_interface(restraint)
     elif restraint.type == "proximity":
         return Proximity_restraint_openmm_interface(restraint)
+    elif restraint.type == "cylinder":
+        return Cylinder_restraint_openmm_interface(restraint)
     else:
         # Run through plugins
         for plugin_name in plugin_list:

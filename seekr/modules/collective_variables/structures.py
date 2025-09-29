@@ -20,10 +20,6 @@ import seekr.modules.collective_variables.rmsd_cv as rmsd_cv
 if typing.TYPE_CHECKING:
     import seekr.modules.structures as structures
 
-#Collective_variable = typing.Union[distance_cv.Distance_CV,
-#                                   external_cv.External_CV,
-#                                   rmsd_cv.RMSD_CV]
-
 cvs = {
     "distance": distance_cv.Distance_CV,
     "external": external_cv.External_CV,
@@ -39,7 +35,7 @@ def get_mdtraj_cv_value(
         Determine the current CV value for an mdtraj object.
         """
         values = []
-        for i, cv in enumerate(model.collective_variables):
+        for cv in model.collective_variables:
             cv_value = cv.get_mdtraj_cv_value(model, traj, frame_index)
             values.append(cv_value)
         

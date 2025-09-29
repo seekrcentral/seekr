@@ -167,6 +167,9 @@ def choose_next_simulation_bd(
         bd_transition_counts = bd_engine.modify_bd_transition_counts(
             bd_transition_counts, lower_milestone_index, upper_milestone_index)
     
+    print("bd_transition_counts", bd_transition_counts)
+
+    
     if "b_surface" not in bd_transition_counts:
         run_instruction = Run_instruction_bd(
             num_trajs_needed, 0, bulk_index, False, 0)

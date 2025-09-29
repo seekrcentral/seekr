@@ -26,20 +26,22 @@ class DCD_reporter(Base_reporter):
     A DCD reporter for SEEKR.
     """
     type: typing.Literal["dcd"] = "dcd"
-    interval: int = field(default=1000,
-                          validator=[validators.instance_of(int),
-                                     validators.gt(0)])
-    enforce_periodic_box: bool = field(default=True,
-                                       validator=validators.instance_of(bool))
-    atom_subset: typing.Optional[typing.List[int]] = field(default=None,
-                                                     validator=validators.optional(
-                                                         validators.deep_iterable(
-                                                             member_validator=validators.instance_of(int),
-                                                             iterable_validator=validators.instance_of(list)
-                                                         )
-                                                     ))
-    make_topology: bool = field(default=True,
-                               validator=validators.instance_of(bool))
+    interval: int = field(
+        default=1000,
+        validator=[validators.instance_of(int),
+                   validators.gt(0)])
+    enforce_periodic_box: bool = field(
+        default=True,
+        validator=validators.instance_of(bool))
+    atom_subset: typing.Optional[typing.List[int]] = field(
+        default=None,
+        validator=validators.optional(
+            validators.deep_iterable(
+                member_validator=validators.instance_of(int),
+                iterable_validator=validators.instance_of(list))))
+    make_topology: bool = field(
+        default=True, 
+        validator=validators.instance_of(bool))
     
     def get_reporter_extension(self) -> str:
         """
@@ -53,18 +55,19 @@ class PDB_reporter(Base_reporter):
     A PDB reporter for SEEKR.
     """
     type: typing.Literal["pdb"] = "pdb"
-    interval: int = field(default=1000,
-                          validator=[validators.instance_of(int),
-                                     validators.gt(0)])
-    enforce_periodic_box: bool = field(default=True,
-                                       validator=validators.instance_of(bool))
-    atom_subset: typing.Optional[typing.List[int]] = field(default=None,
-                                                     validator=validators.optional(
-                                                         validators.deep_iterable(
-                                                             member_validator=validators.instance_of(int),
-                                                             iterable_validator=validators.instance_of(list)
-                                                         )
-                                                     ))
+    interval: int = field(
+        default=1000,
+        validator=[validators.instance_of(int),
+                   validators.gt(0)])
+    enforce_periodic_box: bool = field(
+        default=True,
+        validator=validators.instance_of(bool))
+    atom_subset: typing.Optional[typing.List[int]] = field(
+        default=None,
+        validator=validators.optional(
+            validators.deep_iterable(
+                member_validator=validators.instance_of(int),
+                iterable_validator=validators.instance_of(list))))
     def get_reporter_extension(self) -> str:
         """
         Get the file extension for the reporter.
@@ -109,8 +112,3 @@ class State_reporter(Base_reporter):
         """
         return "dat"
     
-#Reporter = typing.Union[
-#    DCD_reporter,
-#    PDB_reporter,
-#    State_reporter
-#]

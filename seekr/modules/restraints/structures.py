@@ -20,15 +20,16 @@ class Positional_restraint(Base_restraint):
     Cartesian coordinates.
     """
     type: typing.Literal["positional"] = "positional"
-    atom_indices: list[int] = field(default=Factory(list),
-                                    validator=validators.deep_iterable(
-                                        member_validator=[validators.instance_of(int),
-                                                    validators.ge(0)],
-                                        iterable_validator=validators.instance_of(list),
-                                    ))
-    force_constant: float = field(default=400.0,
-                                validator=[validators.instance_of(float),
-                                            validators.ge(0)])
+    atom_indices: list[int] = field(
+        default=Factory(list),
+        validator=validators.deep_iterable(
+            member_validator=[validators.instance_of(int),
+                              validators.ge(0)],
+            iterable_validator=validators.instance_of(list),))
+    force_constant: float = field(
+        default=400.0, validator=[
+            validators.instance_of(float),
+            validators.ge(0)])
     
 @define
 class Pairwise_restraint(Base_restraint):
@@ -37,15 +38,16 @@ class Pairwise_restraint(Base_restraint):
     distances from each other.
     """
     type: typing.Literal["pairwise"] = "pairwise"
-    atom_indices: list[int] = field(default=Factory(list),
-                                    validator=validators.deep_iterable(
-                                        member_validator=[validators.instance_of(int),
-                                                    validators.ge(0)],
-                                        iterable_validator=validators.instance_of(list),
-                                    ))
-    force_constant: float = field(default=400.0,
-                                validator=[validators.instance_of(float),
-                                            validators.ge(0)])
+    atom_indices: list[int] = field(
+        default=Factory(list),
+        validator=validators.deep_iterable(
+            member_validator=[validators.instance_of(int),
+                              validators.ge(0)],
+            iterable_validator=validators.instance_of(list),))
+    force_constant: float = field(
+        default=400.0,
+        validator=[validators.instance_of(float),
+                   validators.ge(0)])
 
 @define
 class Proximity_restraint(Base_restraint):
@@ -54,26 +56,59 @@ class Proximity_restraint(Base_restraint):
     distance of each other.
     """
     type: typing.Literal["proximity"] = "proximity"
-    atom_indices1: list[int] = field(default=Factory(list),
-                                    validator=validators.deep_iterable(
-                                        member_validator=[validators.instance_of(int),
-                                                    validators.ge(0)],
-                                        iterable_validator=validators.instance_of(list),
-                                    ))
-    atom_indices2: list[int] = field(default=Factory(list),
-                                    validator=validators.deep_iterable(
-                                        member_validator=[validators.instance_of(int),
-                                                    validators.ge(0)],
-                                        iterable_validator=validators.instance_of(list),
-                                    ))
-    radius: float = field(default=2.0,
-                        validator=[validators.instance_of(float),
-                                    validators.gt(0)])
-    force_constant: float = field(default=10000.0,
-                                validator=[validators.instance_of(float),
-                                            validators.ge(0)])
+    atom_indices1: list[int] = field(
+        default=Factory(list),
+        validator=validators.deep_iterable(
+            member_validator=[validators.instance_of(int),
+                              validators.ge(0)],
+            iterable_validator=validators.instance_of(list),))
+    atom_indices2: list[int] = field(
+        default=Factory(list),
+        validator=validators.deep_iterable(
+            member_validator=[validators.instance_of(int),
+                              validators.ge(0)],
+            iterable_validator=validators.instance_of(list),))
+    radius: float = field(
+        default=2.0,
+        validator=[validators.instance_of(float),
+                   validators.gt(0)])
+    force_constant: float = field(
+        default=10000.0,
+        validator=[validators.instance_of(float),
+                   validators.ge(0)])
 
-
-# TODO: cylinder restraint force?
-
-#Restraint = typing.Union[Positional_restraint, Pairwise_restraint, Proximity_restraint]
+@define
+class Cylinder_restraint(Base_restraint):
+    """
+    Restrain a group of atoms (atom_indices1) to remain 
+    within a cylinder whose axis is defined by two other 
+    groups of atoms (atom_indices2 and atom_indices3).
+    """
+    type: typing.Literal["cylinder"] = "cylinder"
+    atom_indices1: list[int] = field(
+        default=Factory(list),
+        validator=validators.deep_iterable(
+            member_validator=[validators.instance_of(int),
+                              validators.ge(0)],
+            iterable_validator=validators.instance_of(list),))
+    atom_indices2: list[int] = field(
+        default=Factory(list),
+        validator=validators.deep_iterable(
+            member_validator=[validators.instance_of(int),
+                              validators.ge(0)],
+            iterable_validator=validators.instance_of(list),))
+    atom_indices3: list[int] = field(
+        default=Factory(list),
+        validator=validators.deep_iterable(
+            member_validator=[validators.instance_of(int),
+                              validators.ge(0)],
+            iterable_validator=validators.instance_of(list),))
+    radius: float = field(
+        default=2.0,
+        validator=[validators.instance_of(float),
+                   validators.gt(0)])
+    force_constant: float = field(
+        default=10000.0,
+        validator=[validators.instance_of(float),
+                   validators.ge(0)])
+    

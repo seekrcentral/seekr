@@ -229,6 +229,7 @@ def create_host_guest_example_input(
     receptor_indices_bd = list(range(147))
     ligand_indices_bd = list(range(15))
     o5_group_indices = [15, 36, 57, 78, 99, 120, 141]
+    single_group_index = [15]
     
     seekr_input = preparer.Seekr_input()
     seekr_input.directory = root_dir
@@ -263,9 +264,12 @@ def create_host_guest_example_input(
     o5_group = engines_structures.Selection()
     o5_group.name = "o5_group"
     o5_group.atom_indices = o5_group_indices
+    single_group = engines_structures.Selection()
+    single_group.name = "single_index"
+    single_group.atom_indices = single_group_index
     md_settings.systemwide_settings.selections\
         = [receptor_selection_md, ligand_selection_md, ligand_noh_selection_md, 
-           solute_selection_md, o5_group]
+           solute_selection_md, o5_group, single_group]
     seekr_input.settings_list = [md_settings]
 
     if bd:
@@ -320,7 +324,8 @@ def create_host_guest_example_input(
                 HOSTGUEST_DIRECTORY, "hostguest_ligand.pqr")
             ligand_molecule.selections = [ligand_selection_bd]
             bd_settings.molecules = [receptor_molecule, ligand_molecule]
-            seekr_input.settings_list.append(bd_settings)
+        
+        seekr_input.settings_list.append(bd_settings)
     else:
         pass
 
@@ -365,12 +370,20 @@ def create_host_guest_example_input(
     stage2.run_minimization = False
     stage2.checkpoint_interval = 1000
     stage2.ensemble = base.NVT_ensemble()
-    stage2.completion_criteria = compl_crit_struct.Anchors_filled_completion_criteria()
+    #stage2.completion_criteria = compl_crit_struct.Anchors_filled_completion_criteria()
+    stage2.completion_criteria = compl_crit_struct.Number_of_steps_completion_criteria()
+    stage2.completion_criteria.number_of_steps = 10000000
+    
     proximity_restraint_input = restraints_preparer.Proximity_restraint_input()
     proximity_restraint_input.selection1_name = "host"
     proximity_restraint_input.selection2_name = "guest"
-    proximity_restraint_input.radius = 1.25
-    stage2.restraints = [proximity_restraint_input]
+    proximity_restraint_input.radius = 1.05
+    cylinder_restraint_input = restraints_preparer.Cylinder_restraint_input()
+    cylinder_restraint_input.selection1_name = "guest"
+    cylinder_restraint_input.selection2_name = "host"
+    cylinder_restraint_input.selection3_name = "single_index"
+    cylinder_restraint_input.radius = 0.4
+    stage2.restraints = [proximity_restraint_input, cylinder_restraint_input]
     stage2_state_reporter = reporters_preparer.State_reporter_input()
     stage2_state_reporter.to_stdout = True
     stage2_state_reporter.interval = 500

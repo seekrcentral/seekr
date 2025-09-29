@@ -15,7 +15,6 @@ from attrs import define, field, validators, Factory
 import cattrs
 
 import seekr.modules.base as base
-import seekr.modules.structures as structures
 import seekr.modules.sampling_methods.structures as sampling_methods_structures
 import seekr.modules.completion_criteria.structures as compl_crit_struct
 import seekr.modules.restraints.structures as restraints_structures

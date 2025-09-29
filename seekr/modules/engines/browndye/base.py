@@ -32,7 +32,8 @@ def compute_transition_counts(results_filename_list):
     for results_filename in results_filename_list:
         results_root = ET.parse(results_filename)
         reactions = results_root.find("reactions")
-        n_trajectories = int(reactions.find("n_trajectories").text.strip())
+        n_trajectories = int(
+            reactions.find("n_trajectories").text.strip())
         stuck = int(reactions.find("stuck").text.strip())
         escaped = int(reactions.find("escaped").text.strip())
         for completed in reactions.iter("completed"):
@@ -107,6 +108,8 @@ def run_compute_rate_constant(compute_rate_constant_program,
         logging.info("running command: " + cmd)
         output_string = subprocess.check_output(cmd, shell=True)
         # TODO: validate output string somehow to catch errors
+        # Sep 26, 2025: This is not an error so far, so I will wait
+        #  until I see the problem to fix.
         root = ET.fromstring(output_string)
         # now obtain probabilities and rates
         for rate in root.iter("rate"):

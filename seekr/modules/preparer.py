@@ -42,7 +42,8 @@ import seekr.modules.scales.preparer as scales_preparer
 restraint_inputs: typing.Dict[str, typing.Type[restraints_preparer.Base_restraint_input]] \
         = {"positional": restraints_preparer.Positional_restraint_input,
            "pairwise": restraints_preparer.Pairwise_restraint_input,
-           "proximity": restraints_preparer.Proximity_restraint_input,}
+           "proximity": restraints_preparer.Proximity_restraint_input,
+           "cylinder": restraints_preparer.Cylinder_restraint_input,}
 reporter_inputs: typing.Dict[str, typing.Type[reporters_preparer.Base_reporter_input]] \
         = {"dcd": reporters_preparer.DCD_reporter_input,
            "pdb": reporters_preparer.PDB_reporter_input,

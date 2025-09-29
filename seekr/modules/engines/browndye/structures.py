@@ -16,22 +16,6 @@ import seekr.modules.base as base
 import seekr.modules.engines.browndye.base as browndye_base
 import seekr.modules.engines.structures as engines_structures
 
-""" # TODO: marked for removal
-@define
-class Ion:
-    name: str | None = field(default=None,
-                             validator=validators.optional(
-                                 validators.instance_of(str)))
-    radius: float = field(default=0.9,
-                            validator=[validators.instance_of(float),
-                                         validators.gt(0)])
-    charge: float = field(default=1.0,
-                            validator=[validators.instance_of(float)])
-    concentration: float = field(default=0.0,
-                                    validator=[validators.instance_of(float),
-                                                validators.ge(0)])
-"""
-
 @define
 class Browndye_molecule:
     name: str = field(default="", 
@@ -101,7 +85,6 @@ class Browndye_bd_engine:
                                 validator=[instance_of(float), gt(0)])
     random_seed: int = field(default=0,
                              validator=[instance_of(int), ge(0)])
-    # TODO: Does this belong in a BD CV/anchor object?
     b_surface_directory: str = field(default="b_surface",
                                     validator=instance_of(str))
     

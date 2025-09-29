@@ -19,11 +19,9 @@ import numpy as np
 import seekr.modules.base as base
 import seekr.modules.collective_variables.base as cv_base
 import seekr.modules.engines.structures as engines_structures
-import seekr.modules.collective_variables.structures as cv_structures
 import seekr.modules.completion_criteria.structures as compl_crit_struct
 import seekr.modules.restraints.structures as restraints_structures
 import seekr.modules.reporters.structures as reporters_structures
-import seekr.modules.sampling_methods.structures as sampling_methods_structures
 import seekr.modules.engines.browndye.structures as browndye_structures
 import seekr.modules.engines.sda.structures as sda_structures
 import seekr.modules.engines.openmm.structures as openmm_structures
@@ -31,26 +29,33 @@ import seekr.modules.scales.structures as scales_structures
 
 BD_engine = typing.Union[browndye_structures.Browndye_bd_engine,
                          sda_structures.SDA_bd_engine]
-BD_systemwide_settings = typing.Union[browndye_structures.Browndye_systemwide_settings,
-                                      sda_structures.SDA_systemwide_settings]
+BD_systemwide_settings = typing.Union[
+    browndye_structures.Browndye_systemwide_settings,
+    sda_structures.SDA_systemwide_settings]
 MD_engine = typing.Union[openmm_structures.Openmm_md_engine]
 Engine = typing.Union[BD_engine, MD_engine]
 
 restraints: typing.Dict[str, typing.Type[restraints_structures.Base_restraint]] \
         = {"positional": restraints_structures.Positional_restraint,
            "pairwise": restraints_structures.Pairwise_restraint,
-           "proximity": restraints_structures.Proximity_restraint,}
+           "proximity": restraints_structures.Proximity_restraint,
+           "cylinder": restraints_structures.Cylinder_restraint}
 
 reporters: typing.Dict[str, typing.Type[reporters_structures.Base_reporter]] \
         = {"dcd": reporters_structures.DCD_reporter,
            "pdb": reporters_structures.PDB_reporter,
            "state": reporters_structures.State_reporter,}
 
-completion_criteria: typing.Dict[str, typing.Type[compl_crit_struct.Base_completion_criteria]] \
-        = {"number_of_steps": compl_crit_struct.Number_of_steps_completion_criteria,
-           "anchors_filled": compl_crit_struct.Anchors_filled_completion_criteria,
-           "number_of_trajectories": compl_crit_struct.Number_of_trajectories_completion_criteria,
-           "number_of_encounters": compl_crit_struct.Number_of_encounters_completion_criteria,}
+completion_criteria: typing.Dict[
+    str, typing.Type[compl_crit_struct.Base_completion_criteria]] \
+        = {"number_of_steps": 
+                compl_crit_struct.Number_of_steps_completion_criteria,
+           "anchors_filled": 
+                compl_crit_struct.Anchors_filled_completion_criteria,
+           "number_of_trajectories": 
+                compl_crit_struct.Number_of_trajectories_completion_criteria,
+           "number_of_encounters": 
+                compl_crit_struct.Number_of_encounters_completion_criteria,}
 
 from seekr.modules.collective_variables.structures import cvs
 
@@ -156,15 +161,10 @@ class Anchor:
                             member_validator=validators.instance_of(str),
                             iterable_validator=validators.instance_of(list),
                         ))
-    #md_parameters_topology: engines_structures.Parameters_topology | None = None
     scale_parameters_topology: dict[str, engines_structures.Parameters_topology | None] \
         = field(default=Factory(dict),
             validator=validators.instance_of(dict))
     stage_parameters: list[dict | None] = field(default=Factory(list),)
-                                        #validator=validators.deep_iterable(
-                                        #    member_validator=validators.instance_of(dict),
-                                        #    iterable_validator=validators.instance_of(list),
-                                        #))
     end_anchor: bool = field(default=False,
                             validator=validators.instance_of(bool))
     bulk_anchor: bool = field(default=False,
@@ -177,10 +177,6 @@ class Anchor:
                 iterable_validator=validators.instance_of(list),
             ))
     milestones: list[Milestone] = field(default=Factory(list),)
-                                        #validator=validators.deep_iterable(
-                                        #    member_validator=Milestone,
-                                        #    iterable_validator=validators.instance_of(list),
-                                        #))
     variables: dict[str, typing.Any] = field(default=Factory(dict),
                             validator=validators.instance_of(dict))
     
@@ -193,7 +189,6 @@ class Anchor:
         Returns true if any of the anchor's stage directories contain
         outputs from any of the stages.
         """
-        # TODO: these will be handled by methods in the scale objects
         for scale_type in self.scale_types:
             scale = model.get_scale_by_type(scale_type)
             if scale.has_files(self, root_directory):
@@ -249,7 +244,6 @@ class Anchor:
         if swarm_id is None:
             glob_base = [f"{positions_base_noext}*.pdb", f"{positions_base_noext}*.txt"]
         else:
-            #input_positions_glob_basename = f"{input_stage_parameter['positions']}*.swarm_{swarm_index}.{extension}"
             glob_base = [f"{positions_base_noext}*.swarm_{swarm_id}.pdb", 
                          f"{positions_base_noext}*.swarm_{swarm_id}.txt"]
         glob_path = os.path.join(
@@ -264,10 +258,11 @@ class Anchor:
             ) -> int:
         """
         Return the number of frames within a starting structure
-        for this anchor. AKA: swarm size.
+        for this anchor. AKA: swarm size. This is done by
+        loading the PDB or TXT file and count the number of frames
         """
-        # Load the PDB or TXT file and count the number of frames
-        # NOTE: this used to be the code to handle multiple frames in a single PDB file
+        # NOTE: this used to be the code to handle multiple frames
+        #  in a single PDB file
         pdb_full_paths = self.get_positions_full_paths(
             root_directory, input_stage_index)
         num_frames = len(pdb_full_paths)
@@ -294,7 +289,8 @@ class Anchor:
         """
         # NOTE: assert below prevents mypy error of Nonetype not indexable.
         assert self.stage_parameters[stage_number+1] is not None, "Stage "\
-            f"parameters not defined for anchor {self.index} and stage {stage_number+1}."
+            f"parameters not defined for anchor {self.index} "\
+            f"and stage {stage_number+1}."
         self.stage_parameters[stage_number+1]["positions"] = new_filename
         return
     
@@ -365,9 +361,6 @@ class Anchor:
         else:
             return None
 
-# Moved to scales.structures
-#Stage = typing.Union[Stage_md, Stage_bd]
-
 @define
 class Seekr_model:
     warning: str = DONT_MODIFY_WARNING
@@ -379,9 +372,9 @@ class Seekr_model:
     synopsis_filename: str = field(default="SYNOPSIS",
                                    validator=validators.instance_of(str))
     log_directory: str = field(default="logs",)
-                               #validator=validators.instance_of(str))
     images_and_plots_directory: str = field(default="images_and_plots",
-                                            validator=validators.instance_of(str))
+                                            validator=validators\
+                                                .instance_of(str))
     temperature: float = field(default=298.15,
                                validator=[validators.instance_of(float),
                                           validators.gt(0)])
@@ -390,17 +383,8 @@ class Seekr_model:
     scales: list[scales_structures.Scale] = field(default=Factory(list),)
     engines: list[Engine] = field(default=Factory(list),)
     stages: list[scales_structures.Stage] = field(default=Factory(list),)
-                                #validator=validators.deep_iterable(
-                                #    member_validator=Stage,
-                                #    iterable_validator=validators.instance_of(list),
-                                #))
     collective_variables: list[cv_base.Base_CV] \
         = field(default=Factory(list),)
-            #validator=validators.deep_iterable(
-            #    member_validator=validators.instance_of(
-            #        cv_data_struct.Collective_variable),
-            #    iterable_validator=validators.instance_of(list),
-            #))
     num_anchors: int = field(default=0,
                              validator=[validators.instance_of(int),
                                         validators.ge(0)])
@@ -408,10 +392,6 @@ class Seekr_model:
                                 validator=[validators.instance_of(int),
                                            validators.ge(0)])
     anchors: list[Anchor] = field(default=Factory(list),)
-                            #validator=validators.deep_iterable(
-                            #    member_validator=Anchor,
-                            #    iterable_validator=validators.instance_of(list),
-                            #))
     
     def using_scale(self, scale_type: str) -> bool:
         """
@@ -512,14 +492,6 @@ class Seekr_model:
         log_directory: str = self.get_log_directory(directory)
         return os.path.join(log_directory, self.synopsis_filename)
     
-    def get_on_stage(self) -> int:
-        """
-        Return the current stage index.
-        """
-        # TODO: implement this. This will have to be done by examining 
-        #  whether output files exist for each stage
-        raise NotImplementedError("This function is not yet implemented.")
-    
     def get_random_seed(self) -> int:
         """
         Return the random seed for the MD or BD engines, whichever is higher.
@@ -529,12 +501,7 @@ class Seekr_model:
             engine = self.get_engine_by_scale_type(scale.type)
             if engine is not None:
                 seeds.append(engine.get_random_seed())
-        """
-        if self.md_engine is not None:
-            seeds.append(self.md_engine.get_random_seed())
-        if self.bd_engine is not None:
-            seeds.append(self.bd_engine.get_random_seed())
-        """
+
         return max(seeds)
         
     def set_random_seeds(
@@ -612,11 +579,11 @@ class Seekr_model:
             convenient to set to False if the model should be serialized
             yet we don't care about saving some intermediate model values.
         """
-        if self.md_engine is not None:
-            if self.md_engine.platform_settings is not None:
-                cuda_device_index: str = self.md_engine.platform_settings\
-                    .device_index
-                self.md_engine.platform_settings.device_index = "0"
+        md_engine = self.get_engine_by_scale_type("molecular_dynamics")
+        if md_engine is not None:
+            if md_engine.platform_settings is not None:
+                cuda_device_index: str = md_engine.get_device_index()
+                md_engine.platform_settings.device_index = "0"
             
         model_path: str = os.path.join(self.directory, "model.json")
         if os.path.exists(model_path) and save_old_model:
@@ -634,11 +601,9 @@ class Seekr_model:
         self.directory = "."
         self.save(model_path)
         self.directory = old_rootdir
-        # TODO: implement set_cuda_device_index method in Engine classes
-        if self.md_engine is not None:
-            if self.md_engine.platform_settings is not None:
-                self.md_engine.platform_settings.device_index\
-                    = cuda_device_index
+        if md_engine is not None:
+            if md_engine.platform_settings is not None:
+                md_engine.set_device_index(cuda_device_index)
         return
     
 def load_model(

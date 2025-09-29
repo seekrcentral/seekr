@@ -14,7 +14,6 @@ import shutil
 
 from attrs import define, field, validators
 import numpy as np
-#import numpy.typing as nptyping
 import mdtraj
 
 import seekr.modules.base as base
@@ -161,11 +160,3 @@ class RMSD_cv_input(cv_base.Base_CV_input):
         shutil.copyfile(self.ref_structure, absolute_RMSD_ref_pdb)
         return cv
     
-    # TODO: move this sort of check to another object? An external function?
-    # To the partition???
-    def check(self) -> None:
-        """
-        Check that this input CV is valid.
-        """
-        # TODO: implement the checks from SEEKR2 for distance CVs
-        pass
