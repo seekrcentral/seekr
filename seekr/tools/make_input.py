@@ -26,6 +26,7 @@ import seekr.modules.sampling_methods.preparer as sampling_preparer
 import seekr.modules.preparer as preparer
 import seekr.modules.scales.molecular_dynamics.preparer as md_preparer
 import seekr.modules.scales.brownian_dynamics.preparer as bd_preparer
+import seekr.modules.anchor_schemes.preparer as anchor_scheme_preparer
 
 TOOLS_DIRECTORY = os.path.dirname(__file__)
 DATA_DIRECTORY = os.path.abspath(os.path.join(TOOLS_DIRECTORY, "..", "data"))
@@ -91,7 +92,9 @@ def create_toy_model_input(
         else:
             stage2.sampling_method.cv_names = ["progress_coordinate"]
         stage2.sampling_method.force_constant = 100000.0
-        stage2.sampling_method.velocity = 1.0
+        stage2.sampling_method.velocity = 10.0
+        stage2_dcd_reporter = reporters_preparer.DCD_reporter_input()
+        stage2_dcd_reporter.interval = 500
     else:
         stage2.name = "metadynamics"
         stage2.sampling_method = sampling_preparer.Metadynamics_md_input()
@@ -100,6 +103,8 @@ def create_toy_model_input(
             stage2.sampling_method.cv_names = ["progress_coordinate"]
         else:
             stage2.sampling_method.cv_names = ["progress_coordinate"]
+        stage2_dcd_reporter = reporters_preparer.DCD_reporter_input()
+        stage2_dcd_reporter.interval = 50
     
     stage2.run_minimization = False
     stage2.checkpoint_interval = 10
@@ -110,8 +115,6 @@ def create_toy_model_input(
     stage2_state_reporter = reporters_preparer.State_reporter_input()
     stage2_state_reporter.to_stdout = True
     stage2_state_reporter.interval = 50
-    stage2_dcd_reporter = reporters_preparer.DCD_reporter_input()
-    stage2_dcd_reporter.interval = 500
     stage2_dcd_reporter.enforce_periodic_box = False
     stage2.reporters = [stage2_dcd_reporter] #[stage2_state_reporter, stage2_dcd_reporter]
 
@@ -169,14 +172,18 @@ def create_toy_model_input(
     state_point2.end_state = True
     seekr_input.partitions[0].state_points = [state_point1, state_point2]
     
-    seekr_input.partitions[0].anchors = []
+    seekr_input.partitions[0].anchor_scheme \
+        = anchor_scheme_preparer.Anchors_as_voronoi_cells_anchor_scheme()
+    seekr_input.partitions[0].anchor_scheme.voronoi_cells = []
     for i, (value, position) in enumerate(zip(values_list, positions_list)):
-        input_anchor = preparer.Anchor_input()
-        input_anchor.value = value
+        #input_anchor = preparer.Anchor_input()
+        #input_anchor.value = value
         #input_anchor.positions = [position]
-        input_anchor.positions = ""
-
-        seekr_input.partitions[0].anchors.append(input_anchor)
+        #input_anchor.positions = ""
+        voronoi_cell = anchor_scheme_preparer.Voronoi_cell()
+        voronoi_cell.value = value
+        voronoi_cell.positions = [position]
+        seekr_input.partitions[0].anchor_scheme.voronoi_cells.append(voronoi_cell)
 
     seekr_input.toy_settings = preparer.Toy_settings_input()
     seekr_input.toy_settings.potential_energy_expression \
@@ -370,9 +377,7 @@ def create_host_guest_example_input(
     stage2.run_minimization = False
     stage2.checkpoint_interval = 1000
     stage2.ensemble = base.NVT_ensemble()
-    #stage2.completion_criteria = compl_crit_struct.Anchors_filled_completion_criteria()
-    stage2.completion_criteria = compl_crit_struct.Number_of_steps_completion_criteria()
-    stage2.completion_criteria.number_of_steps = 10000000
+    stage2.completion_criteria = compl_crit_struct.Anchors_filled_completion_criteria()
     
     proximity_restraint_input = restraints_preparer.Proximity_restraint_input()
     proximity_restraint_input.selection1_name = "host"
@@ -451,19 +456,21 @@ def create_host_guest_example_input(
     bulk_state_point.end_state = True
     seekr_input.partitions[0].state_points = [bound_state_point, bulk_state_point]
     
-    seekr_input.partitions[0].anchors = []
+    seekr_input.partitions[0].anchor_scheme \
+        = anchor_scheme_preparer.Anchors_as_voronoi_cells_anchor_scheme()
+    seekr_input.partitions[0].anchor_scheme.voronoi_cells = []
     for i, (value, pdb_filename) in enumerate(zip(values_list, pdb_filenames)):
-        input_anchor = preparer.Anchor_input()
-        input_anchor.value = [value]
+        voronoi_cell = anchor_scheme_preparer.Voronoi_cell()
+        voronoi_cell.value = [value]
         if pdb_filename == "":
             pdb_filename_full = ""
         else:
             pdb_filename_full = os.path.join(HOSTGUEST_DIRECTORY, pdb_filename)
-        input_anchor.positions = ""
-        seekr_input.partitions[0].anchors.append(input_anchor)
-    
+        voronoi_cell.positions = ""
+        seekr_input.partitions[0].anchor_scheme.voronoi_cells.append(voronoi_cell)
+
     if bd:
-        seekr_input.partitions[0].anchors[-1].bulk_anchor = True
+        seekr_input.partitions[0].anchor_scheme.voronoi_cells[-1].bulk_anchor = True
 
     return seekr_input
     

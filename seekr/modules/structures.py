@@ -132,7 +132,7 @@ class Milestone:
             neighbor_this_value = (neighbor_i_value - cv_value)**2
             me_total_value += me_this_value
             neighbor_total_value += neighbor_this_value
-                
+        
         distance = me_total_value - neighbor_total_value
         if (distance-tolerance) > 0.0: 
             return False
@@ -274,9 +274,9 @@ class Anchor:
         """
         var_list = []
         for variable_key in self.variables:
-            if variable_key in self.variables:
+            if variable_key.startswith("value_"):
                 value = self.variables[variable_key]
-            var_list.append("{:.3f}".format(value))
+                var_list.append("{:.3f}".format(value))
         var_string = "_".join(var_list)
         return var_string
     

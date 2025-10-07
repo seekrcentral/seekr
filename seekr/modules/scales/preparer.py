@@ -31,6 +31,8 @@ class Input_stage_placeholder:
     type: typing.Literal["placeholder_stage"] = "placeholder_stage"
     name: str = field(default="placeholder", 
                       validator=validators.instance_of(str))
+    comment: str = field(default="This is a placeholder stage.",
+                         validator=validators.instance_of(str))
     output_positions_basename_noext: str = field(
         default="output_positions", 
         validator=validators.instance_of(str))

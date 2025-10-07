@@ -62,6 +62,9 @@ class Conventional_md_sampling_method(Base_md_sampling_method):
     
     def get_output_positions_basename_noext(self) -> str:
         return "conventional"
+    
+    def get_output_positions_format(self) -> str:
+        return "conventional.{}.swarm_{}"
 
     def get_output_positions_glob_list(self) -> list[str]:
         return ["conventional*.pdb", "conventional*.txt"]
@@ -91,7 +94,6 @@ class Metadynamics_md_sampling_method(Base_md_sampling_method):
     type: typing.Literal["metadynamics"] = "metadynamics"
     cv_names: typing.List[str] = field(default=Factory(list),
                                             validator=validators.instance_of(list))
-    #number_of_points: base.Int_or_list_type = field(default=101)
     number_of_points: list[int] = field(default=Factory(list),)
     bias_factor: float = field(default=10.0,
                                 validator=[validators.instance_of(float),
@@ -99,7 +101,6 @@ class Metadynamics_md_sampling_method(Base_md_sampling_method):
     gaussian_height: float = field(default=0.5,
                                     validator=[validators.instance_of(float),
                                                validators.gt(0)])
-    #gaussian_width: base.Float_or_list_type = field(default=0.1)
     gaussian_width: list[float] = field(default=Factory(list),)
     steps_per_update: int = field(default=250,
                                     validator=[validators.instance_of(int),
@@ -118,7 +119,10 @@ class Metadynamics_md_sampling_method(Base_md_sampling_method):
     
     def get_output_positions_basename_noext(self) -> str:
         return "metadynamics"
-    
+
+    def get_output_positions_format(self) -> str:
+        return "metadynamics.{}.swarm_{}"
+
     def get_output_positions_glob_list(self) -> list[str]:
         return ["metadynamics*.pdb", "metadynamics*.txt"]
     
@@ -166,6 +170,9 @@ class Steered_md_sampling_method(Base_md_sampling_method):
     def get_output_positions_basename_noext(self) -> str:
         return "steered"
     
+    def get_output_positions_format(self) -> str:
+        return "steered.{}.swarm_{}"
+    
     def get_output_positions_glob_list(self) -> list[str]:
         return ["steered*.pdb", "steered*.txt"]
     
@@ -205,6 +212,9 @@ class MMVT_md_sampling_method(Base_md_sampling_method):
     
     def get_output_positions_basename_noext(self) -> str:
         return "mmvt"
+    
+    def get_output_positions_format(self) -> str:
+        return "mmvt.{}.swarm_{}"
     
     def get_output_positions_glob_list(self) -> list[str]:
         return ["mmvt*.pdb", "mmvt*.txt"]

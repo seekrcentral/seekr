@@ -9,7 +9,6 @@ import typing
 
 from attrs import define, field, validators
 
-MAX_ANCHORS_FILLED_STEPS = 2000000 # ~4 ns
 MAX_BD_STEPS = 1e12 # a large number - essential infinite
 
 class Base_completion_criteria(typing.Protocol):
@@ -76,6 +75,9 @@ class Anchors_filled_completion_criteria(Base_completion_criteria):
     eval_interval: int = field(
         default=250, validator=[validators.instance_of(int),
                                 validators.gt(0)])
+    max_number_of_steps: int = field(
+        default=2000000, validator=[validators.instance_of(int),
+                                       validators.gt(0)]) # ~4 ns
 
     # NOTE: these functions are needed for chunking in runner modules
     def get_min_sim_len(self) -> int:
@@ -88,22 +90,11 @@ class Anchors_filled_completion_criteria(Base_completion_criteria):
         """
         Return the minimum simulation length for this completion criteria.
         """
-        return MAX_ANCHORS_FILLED_STEPS #base.MAX_SEEKR_SIMULATION_STEPS
+        return self.max_number_of_steps
     
     def get_evaluation_interval(self) -> int:
         return self.eval_interval
     
-#  Sep 26, 2025: I don't foresee needing this anytime soon, but
-#   I want to keep these ideas here for possible future implementation.
-#    - lvotapka
-# TODO: Maybe implement someday?
-#@define
-#class CV_value_attained_completion_criteria:
-
-# TODO: Maybe implement someday?
-#@define
-#class Surface_crossed_completion_criteria:
-
 @define
 class Number_of_trajectories_completion_criteria(Base_completion_criteria):
     """

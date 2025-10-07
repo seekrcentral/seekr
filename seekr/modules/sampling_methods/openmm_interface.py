@@ -35,8 +35,8 @@ import seekr.modules.collective_variables.openmm_interface \
     as collective_variables_openmm_interface
 
 BIAS_DIR_NAME = "metad_bias"
-METADYN_NAME = "metadynamics.{}.swarm_{}"
-SMD_NAME = "steered.{}.swarm_{}"
+#METADYN_NAME = "metadynamics.{}.swarm_{}"
+#SMD_NAME = "steered.{}.swarm_{}"
 BUFFER_FRAMES = 1 # How many positions variables to store for encounter positions.
 INITIAL_BENCHMARK_STEPS = 100 # Number of steps to take for the initial benchmark.
 NUM_SMD_WINDOWS = 10 # Number of windows to use for SMD.
@@ -135,6 +135,7 @@ class Base_md_openmm_interface:
     _cv_interface_list: list[collective_variables_openmm_interface\
                              .CV_openmm_interface] | None = None
     _openmm_cv_object: typing.Any | None = None
+    _fail_on_save_to_current_anchor_if_outside_milestones: bool = True
 
     # TODO: return a list of names?
     def create_openmm_cv_list(self) -> None:
@@ -428,12 +429,12 @@ class Base_md_openmm_interface:
     def find_current_anchor_index(
             self,
             cv_values: list[float]
-            ) -> int:
+            ) -> int | None:
         """
         Find the current anchor index the simulation is in.
         """
         found_anchor = False
-        current_anchor_index: int = -1
+        current_anchor_index: int | None = None
         for alpha, anchor in enumerate(self._model.anchors):
             in_anchor = True
             for milestone in anchor.milestones:
@@ -452,7 +453,7 @@ class Base_md_openmm_interface:
                 found_anchor = True
                 current_anchor_index = alpha
 
-        assert current_anchor_index >= 0, \
+        assert (current_anchor_index is not None) and (current_anchor_index >= 0), \
             "No anchor was found for the current simulation step."
         return current_anchor_index
                 
@@ -474,15 +475,20 @@ class Base_md_openmm_interface:
                  "Consider imposing a Proximity restraint or other restraint.")
             raise Exception("Simulation has reached a non-MD anchor. Aborting.")
         for milestone in current_anchor.milestones:
+            if not milestone.boundary:
+                continue
             curdir = os.getcwd()
             os.chdir(self._model.directory)
             result = milestone.is_point_within(cv_values)
             os.chdir(curdir)
             if not result:
-                logging.critical(
-                    f"System has not reached the target anchor {current_anchor_index}."
-                     "If using SMD, stronger force constant needed?")
-                raise Exception("Target anchor not reached.")
+                if self._fail_on_save_to_current_anchor_if_outside_milestones:
+                    logging.critical(
+                        f"System has not reached the target anchor {current_anchor_index}. "
+                        "If using SMD, stronger force constant needed?")
+                    print("cv_values:", cv_values)
+                    print("milestone variables:", milestone.variables)
+                    raise Exception("Target anchor not reached.")
         anchor_directory = os.path.join(
             self._model.directory, current_anchor.directory,
             current_anchor.stage_parameters[self._stage_index+1]["directory"])
@@ -503,6 +509,36 @@ class Base_md_openmm_interface:
             write_txt_file_from_simulation(output_positions_filename, self._simulation_obj)
         else:
             write_pdb_file_from_simulation(output_positions_filename, self._simulation_obj)
+        return
+
+    def save_to_closest_anchor(
+            self, 
+            cv_values: list[float],
+            basename: str
+            ) -> None:
+        """
+        Save the current state of the simulation to the closest anchor.
+        """
+        assert self._model is not None
+        closest_anchor_index = None
+        closest_distance = float('inf')
+        for alpha, anchor in enumerate(self._model.anchors):
+            if "molecular_dynamics" not in anchor.scale_types:
+                continue
+            variable_distance_sq = 0.0
+            for variable in anchor.variables:
+                if variable.startswith("value_"):
+                    cv_index = int(variable.split("value_")[1])
+                    if variable in anchor.variables:
+                        distance = anchor.variables[variable] - cv_values[cv_index]
+                        variable_distance_sq += distance**2
+            total_distance = np.sqrt(variable_distance_sq)
+            if total_distance < closest_distance:
+                closest_distance = total_distance
+                closest_anchor_index = alpha
+        assert closest_anchor_index is not None, "No valid anchor found."
+        self.save_to_current_anchor(closest_anchor_index, cv_values, basename)
+        return
 
     def load_current_anchor(
             self, 
@@ -560,6 +596,7 @@ class Conventional_md_openmm_interface(Base_md_openmm_interface):
     _cv_interface_list: list[collective_variables_openmm_interface\
                              .CV_openmm_interface] | None = None
     _openmm_cv_object: typing.Any | None = None
+    _fail_on_save_to_current_anchor_if_outside_milestones: bool = True
 
     def pre_simulation_preparations(
             self, 
@@ -588,7 +625,7 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
     _cv_interface_list: list[collective_variables_openmm_interface\
                              .CV_openmm_interface] | None = None
     _openmm_cv_object: typing.Any | None = None
-
+    _fail_on_save_to_current_anchor_if_outside_milestones: bool = True
     _metadynamics_obj: openmm_app.Metadynamics | None = None
     _current_alpha: int | None = None
     #_directory: str | None = None
@@ -700,9 +737,16 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
         cv_values = self._metadynamics_obj.getCollectiveVariables(self._simulation_obj)
         
         current_anchor_index = self.find_current_anchor_index(cv_values)
-        if current_anchor_index != self._current_alpha:
+        #print("Evaluation performed.")
+        #print("current anchor index:", current_anchor_index)
+        #print("self._current_alpha:", self._current_alpha)
+        if (current_anchor_index != self._current_alpha) and (current_anchor_index is not None):
             self._current_alpha = current_anchor_index
-            self.save_to_current_anchor(current_anchor_index, cv_values, METADYN_NAME)
+            #self.save_to_current_anchor(current_anchor_index, cv_values, METADYN_NAME)
+            self.save_to_current_anchor(
+                current_anchor_index, cv_values, 
+                self.sampling_method.get_output_positions_format())
+            
 
     def _step(
             self,
@@ -732,6 +776,7 @@ class Steered_md_openmm_interface(Base_md_openmm_interface):
     _cv_interface_list: list[collective_variables_openmm_interface\
                              .CV_openmm_interface] | None = None
     _openmm_cv_object: openmm.CustomCVForce | None = None
+    _fail_on_save_to_current_anchor_if_outside_milestones: bool = True
 
     _current_alpha: int | None = None
     #_directory: str | None = None
@@ -762,25 +807,7 @@ class Steered_md_openmm_interface(Base_md_openmm_interface):
         stage = model.stages[self._stage_index]
         assert stage.type == "md_stage"
         
-        # TODO: remove
-        #if self._openmm_cv_list is None:
-        #    self._openmm_cv_list = []
-
         expr_list = []
-        force_list = []
-        """
-        self._cv_interface_list = []
-        # TODO: need a way to toggle CVs within this expression on or off
-        for cv_index, cv in enumerate(model.collective_variables):
-            cv_interface = collective_variables_openmm_interface.assign_cv_interface(
-                    cv, md_engine, self._model.directory)
-            assert cv_interface is not None, f"An interface was not found for cv {cv_index}"
-            force = cv_interface.make_voronoi_cv_restraining_forces()
-            self._cv_interface_list.append(cv_interface)
-            force_list.append(force)
-            cv_expr = f"(cv_{cv_index} - value_{cv_index})^2" #f"toggle_{cv_index} * cv_{cv_index}"
-            expr_list.append(cv_expr)
-        """
         self.create_openmm_cv_list()
         cv_name_list = []
         value_name_list = []
@@ -821,7 +848,15 @@ class Steered_md_openmm_interface(Base_md_openmm_interface):
         assert self._openmm_cv_list is not None
         cv_values = self._openmm_cv_object.getCollectiveVariableValues(self._simulation_obj.context)
         current_anchor_index = self.find_current_anchor_index(cv_values)
-        self.save_to_current_anchor(current_anchor_index, cv_values, SMD_NAME)
+        if current_anchor_index is None:
+            #self.save_to_closest_anchor(cv_values, SMD_NAME)
+            self.save_to_closest_anchor(
+                cv_values, self.sampling_method.get_output_positions_format())
+        else:
+            #self.save_to_current_anchor(current_anchor_index, cv_values, SMD_NAME)
+            self.save_to_current_anchor(
+                current_anchor_index, cv_values, 
+                self.sampling_method.get_output_positions_format())
         # Update the 'value' variable so that a spurious force at 0.0 isn't applied
         for cv_index, cv_value in enumerate(cv_values):
             for i in range(self._openmm_cv_object.getNumGlobalParameters()):
@@ -832,7 +867,7 @@ class Steered_md_openmm_interface(Base_md_openmm_interface):
         filled_anchors, unfilled_anchors = md_runner.filled_and_unfilled_anchors(
             model, stage)
         self._procedure = sampling_methods_runner.get_smd_procedure(
-            self._model, filled_anchors, unfilled_anchors)
+            self._model, filled_anchors, unfilled_anchors, cv_values)
         logging.info("Steered MD procedure summary:")
         for step in self._procedure:
             logging.info(f"anchor {step[0]} to anchor {step[1]}")
@@ -857,6 +892,8 @@ class Steered_md_openmm_interface(Base_md_openmm_interface):
         total_sq_distance = 0.0
         logging.info(f"Assigning a new set of windows for SMD:")
         for variable_key in source_anchor.variables:
+            if not variable_key.startswith("value_"):
+                continue
             var_cv = int(variable_key.split("_")[1])
             if variable_key in target_anchor.variables:
                 start_value = cv_values[var_cv]
@@ -871,6 +908,8 @@ class Steered_md_openmm_interface(Base_md_openmm_interface):
         num_smd_windows = (total_num_timesteps // self._steps_between_evals) + 1
 
         for variable_key in source_anchor.variables:
+            if not variable_key.startswith("value_"):
+                continue
             var_cv = int(variable_key.split("_")[1])
             if variable_key in target_anchor.variables:
                 start_value = cv_values[var_cv]
@@ -924,7 +963,10 @@ class Steered_md_openmm_interface(Base_md_openmm_interface):
             # The destination is reached
             logging.info(f"Reached anchor {target_anchor_index}.")
             self._current_step_in_procedure += 1
-            self.save_to_current_anchor(target_anchor_index, cv_values, SMD_NAME)
+            #self.save_to_current_anchor(target_anchor_index, cv_values, SMD_NAME)
+            self.save_to_current_anchor(
+                target_anchor_index, cv_values, 
+                self.sampling_method.get_output_positions_format())
             if self._current_step_in_procedure < len(self._procedure):
                 new_source_anchor_index = self._procedure[self._current_step_in_procedure][0]
                 self.load_current_anchor(new_source_anchor_index)
@@ -954,7 +996,7 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
     _cv_interface_list: list[collective_variables_openmm_interface\
                              .CV_openmm_interface] | None = None
     _openmm_cv_object: typing.Any | None = None
-
+    _fail_on_save_to_current_anchor_if_outside_milestones: bool = True
     _anchor_obj: structures.Anchor | None = None
 
     def add_global_variables_integrator(
@@ -964,14 +1006,11 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
         """
         Add global variables to an OpenMM CustomIntegrator object.
 
-        Some global variables for milestoning method.
+        Some global variables for MMVT method.
         """
         integrator: openmm.Integrator = kwargs["integrator"]
-        # TODO: make anchor and/or integrator an attribute of this class?
         anchor: structures.Anchor = kwargs["anchor"]
         self._anchor_obj = anchor
-        # TODO: create variables to handle bootstrapping with replacement.
-        #num_included_milestones = 0
         for i, milestone in enumerate(anchor.milestones):
             alias_index_i = milestone.alias_index
             if milestone.boundary:
@@ -1009,7 +1048,7 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
         """
         Add per-degree-of-freedom variables to an OpenMM CustomIntegrator object.
 
-        Some per-DOF variables for MetaD.
+        Some per-DOF variables for MMVT.
         """
         
         integrator: openmm.Integrator = kwargs["integrator"]
@@ -1026,7 +1065,7 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
         """
         Add pre-integration instructions to an OpenMM CustomIntegrator object.
 
-        Some steps to do for milestoning.
+        Some steps to do for MMVT.
         """
         integrator: openmm.Integrator = kwargs["integrator"]
         #integrator.addComputePerDof("old_x", "x")

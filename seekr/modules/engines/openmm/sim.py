@@ -378,6 +378,8 @@ class Sim_openmm:
     
     def add_restraints(
             self,
+            model: structures.Seekr_model,
+            anchor_index: int | None,
             restraints_interfaces: list[restraints_openmm_interface.Base_restraint_openmm_interface],
             positions: unit.Quantity,
             periodic_system: bool
@@ -385,12 +387,14 @@ class Sim_openmm:
         """
         Add restraints to the OpenMM system.
         """
-        if restraints_interfaces is not None:
-            for restraint_interface in restraints_interfaces:
-                restraint_interface.add_forces_to_system(
-                    system=self.system, 
-                    positions=positions,
-                    periodic_system=periodic_system)
+        for restraint_interface in restraints_interfaces:
+            restraint_interface.add_forces_to_system(
+                model=model,
+                anchor_index=anchor_index,
+                system=self.system, 
+                positions=positions,
+                periodic_system=periodic_system)
+            
         return
 
     def add_integrator(
@@ -660,6 +664,7 @@ class Sim_openmm:
         if self.box_vectors is not None:
             self.simulation.context.setPeriodicBoxVectors(
                 *self.box_vectors)
+        
         return
     
     def write_pdb_file(
@@ -736,13 +741,16 @@ def create_sim_openmm(
             periodic_system = True
     # TODO: replace with adding integrator from sampling method
     # A sampling method of None will be conventional MD.
-    sim_openmm.add_integrator(model, anchor_index, ensemble, sampling_engine_interface,
-                              completion_criteria_interface)
+    sim_openmm.add_integrator(
+        model, anchor_index, ensemble, sampling_engine_interface,
+        completion_criteria_interface)
     if ensemble is not None:
         sim_openmm.add_barostat(model, ensemble)
     sim_openmm.add_platform(model)
     # TODO: add forces here based on sampling method
-    sim_openmm.add_restraints(restraints_interfaces, positions, periodic_system)
+    sim_openmm.add_restraints(
+        model, anchor_index, restraints_interfaces, positions, 
+        periodic_system)
     sim_openmm.add_simulation(model, positions)
     if model.using_toy():
         toy_pdb_filename = os.path.join(running_directory, "toy.pdb")

@@ -26,10 +26,9 @@ def plot_voronoi_tesselation(
         boundaries: nptyping.ArrayLike
         ) -> tuple[plt.Figure, plt.Axes, list[list[float]]]:
     points = []
-    num_variables = len(model.anchors[0].variables)
-    for alpha, anchor in enumerate(model.anchors):
-        #if anchor.bulkstate:
-        #    continue
+    num_variables = len([varname for varname in model.anchors[0].variables \
+                         if varname.startswith("value_")])
+    for anchor in model.anchors:
         values = []
         for i in range(num_variables):
             var_name = "value_{}".format(i)

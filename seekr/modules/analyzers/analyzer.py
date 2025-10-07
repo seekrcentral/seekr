@@ -44,6 +44,8 @@ def analyze(
             if model.stages[test_stage_index].sampling_method.type in AVAILABLE_ANALYZERS:
                 stage_index = test_stage_index+1
                 break
+    if stage_index is None:
+        return None
     assert 1 <= stage_index < len(model.stages)+1, "Invalid stage index."
     stage = model.stages[stage_index-1]
     if stage.sampling_method.type not in AVAILABLE_ANALYZERS:

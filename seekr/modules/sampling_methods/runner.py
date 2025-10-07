@@ -13,6 +13,21 @@ import numpy as np
 
 import seekr.modules.structures as structures
 
+def find_anchor_value(
+        model: structures.Seekr_model, 
+        anchor_index: int
+        ) -> list[float]:
+    """
+    
+    """
+    value = []
+    anchor = model.anchors[anchor_index]
+    for variable_key, variable_value in anchor.variables.items():
+        if variable_key.startswith("value_"):
+            value.append(variable_value)
+    assert len(value) > 0, "No value variables found for anchor."
+    return value
+
 def find_edge_distance(
         model: structures.Seekr_model, 
         src_anchor_index: int, 
@@ -40,18 +55,21 @@ def find_edge_distance(
     """
     # NOTE: How to handle the Jacobian of CV space? I guess just assume it's 
     # approximately constant over the space.
+    src_anchor = model.anchors[src_anchor_index]
+    dest_anchor = model.anchors[dest_anchor_index]
     variable_distance_sq = 0.0
-    for variable in model.anchors[src_anchor_index].variables:
-        if variable in model.anchors[dest_anchor_index].variables:
-            distance = model.anchors[src_anchor_index].variables[variable] \
-                - model.anchors[dest_anchor_index].variables[variable]
-            variable_distance_sq += distance**2
+    for variable in src_anchor.variables:
+        if variable.startswith("value_"):
+            if variable in dest_anchor.variables:
+                distance = src_anchor.variables[variable] - dest_anchor.variables[variable]
+                variable_distance_sq += distance**2
             
     return np.sqrt(variable_distance_sq)
 
 def find_next_anchor_index(
         model: structures.Seekr_model, 
-        visited_anchor_dict: dict[int, float]
+        visited_anchor_dict: dict[int, float],
+        present_cv_values: list[float]
         ) -> tuple[int, int, float]:
     """
     Given a set of explored anchors, find a candidate for the next step
@@ -82,20 +100,38 @@ def find_next_anchor_index(
     prev_anchor_index = None
     next_anchor_index = None
     next_anchor_distance = 9e9
-    for visited_anchor_index in visited_anchor_dict:
-        for milestone in model.anchors[visited_anchor_index].milestones:
-            neighbor_index = milestone.neighbor_anchor_index
-            if "molecular_dynamics" not in model.anchors[neighbor_index].scale_types:
+    if len(visited_anchor_dict) == 0:
+        # If not anchors have been visited, find the closest one to the current cv_values
+        for anchor_index, anchor in enumerate(model.anchors):
+            if "molecular_dynamics" not in anchor.scale_types:
                 continue
-            if neighbor_index not in visited_anchor_dict:
-                edge_distance = find_edge_distance(model, visited_anchor_index, 
-                                               neighbor_index)
-                total_distance = visited_anchor_dict[visited_anchor_index] \
-                    * FACTOR + edge_distance
-                if total_distance < next_anchor_distance:
-                    next_anchor_distance = total_distance
-                    prev_anchor_index = visited_anchor_index
-                    next_anchor_index = neighbor_index
+            anchor_value = find_anchor_value(model, anchor_index)
+            assert len(anchor_value) == len(present_cv_values), \
+                "Anchor and present CV values have different dimensions."
+            total_distance_sq = 0.0
+            for dim_val_anchor, dim_val_present in zip(anchor_value, present_cv_values):
+                total_distance_sq += (dim_val_anchor - dim_val_present)**2
+            total_distance = np.sqrt(total_distance_sq)
+            if total_distance < next_anchor_distance:
+                next_anchor_distance = total_distance
+                next_anchor_index = anchor_index
+                prev_anchor_index = anchor_index
+
+    else:
+        for visited_anchor_index in visited_anchor_dict:
+            for milestone in model.anchors[visited_anchor_index].milestones:
+                neighbor_index = milestone.neighbor_anchor_index
+                if "molecular_dynamics" not in model.anchors[neighbor_index].scale_types:
+                    continue
+                if neighbor_index not in visited_anchor_dict:
+                    edge_distance = find_edge_distance(model, visited_anchor_index, 
+                                                neighbor_index)
+                    total_distance = visited_anchor_dict[visited_anchor_index] \
+                        * FACTOR + edge_distance
+                    if total_distance < next_anchor_distance:
+                        next_anchor_distance = total_distance
+                        prev_anchor_index = visited_anchor_index
+                        next_anchor_index = neighbor_index
 
     assert next_anchor_index is not None
     assert prev_anchor_index is not None
@@ -105,6 +141,7 @@ def get_smd_procedure(
             model: structures.Seekr_model,
             source_anchor_indices: list[int],
             destimation_anchor_indices: list[int],
+            present_cv_values: list[float]
             ) -> list:
         """
         The procedure is a list of anchor pairs that should be sampled
@@ -118,7 +155,7 @@ def get_smd_procedure(
         
         for i in range(len(model.anchors)):
             prev_anchor_index, next_anchor_index, next_anchor_distance \
-                = find_next_anchor_index(model, visited_anchor_dict)
+                = find_next_anchor_index(model, visited_anchor_dict, present_cv_values)
             if next_anchor_index is None:
                 # No more paths found
                 break
