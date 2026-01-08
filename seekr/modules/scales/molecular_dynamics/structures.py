@@ -164,7 +164,8 @@ class Stage_md:
     
     def has_files(
             self, 
-            model: "Seekr_model"
+            model: "Seekr_model",
+            anchor_index: int | None = None,
             ) -> bool:
         """
         Returns true if any of the stage directories contain
@@ -173,6 +174,8 @@ class Stage_md:
         stage_output_globs: list[str] = self.sampling_method.get_output_positions_glob_list()
         my_directory = self.get_directory_name()
         for anchor in model.anchors:
+            if anchor_index is not None and anchor.index != anchor_index:
+                continue
             for stage_parameter in anchor.stage_parameters:
                 if stage_parameter is None:
                     continue

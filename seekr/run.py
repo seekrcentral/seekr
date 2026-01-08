@@ -56,7 +56,8 @@ def run(
         stage_arg: str, 
         anchor_arg: str = "any", 
         device_index: str | None = None, 
-        force_overwrite: bool = False
+        force_overwrite: bool = False,
+        swarm_id: int | None = None
         ) -> None:
     stage_index = extract_stage_index(model, stage_arg)
     assert stage_index is not None, \
@@ -81,10 +82,11 @@ def run(
     }
     while not complete:
         run_instructions = scales_runner.choose_next_simulation(
-            model, stage, choose_params, force_overwrite)
+            model, stage, choose_params, force_overwrite, swarm_id, use_json=False)
         for instruction in run_instructions:
             scales_runner.do_run_instruction(
                 model, force_overwrite, stage_index, instruction, device_index)
+            
         if len(run_instructions) > 0:
             complete = False
             ran_nothing = False
@@ -104,6 +106,8 @@ def run(
         base.configure_file_and_stdout_logger(synopsis_filename, False)
         logging.warning(log_string)
 
+    return
+
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser(description=__doc__)
     argparser.add_argument(
@@ -119,6 +123,11 @@ if __name__ == "__main__":
             "or restart. The argument 'any' is allowed - which will run "\
             "whichever anchors that still need to be finished for the "\
             "specified anchor. Default: 'any'.")
+    argparser.add_argument(
+        "-s", "--swarm_id", dest="swarm_id", type=int, default=None,
+        help="The swarm ID to run. This is only relevant for stages that "\
+            "use swarm sampling methods. If not specified, all swarm IDs "\
+            "that need to be run will be run. Default: None.",)
     argparser.add_argument(
         "-c", "--device_index", dest="device_index", default=None,
         help="modify which CUDA (or other GPU platform) device_index to run "\
@@ -144,6 +153,7 @@ if __name__ == "__main__":
     model_file = args["model_file"]
     stage = args["stage"]
     anchor = args["anchor"]
+    swarm_id = args["swarm_id"]
     device_index = args["device_index"]
     force_overwrite = args["force_overwrite"]
     restart_attempts = args["restart_attempts"]
@@ -152,7 +162,7 @@ if __name__ == "__main__":
     success = False
     while not success:
         try:
-            run(model, stage, anchor, device_index, force_overwrite)
+            run(model, stage, anchor, device_index, force_overwrite, swarm_id)
             success = True
         except Exception:
             if num_restart_attempts < restart_attempts:

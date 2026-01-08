@@ -556,6 +556,17 @@ def make_sda_input(
     sda_input = sda_sda_structures.Input()
     sda_input.nrun = n_trajectories
     sda_input.dseed = bd_engine.random_seed
+    # NOTE: take a look at the newer code in SEEKR2 to get this working
+    sda_input.geometry = model.sda_settings.geometry
+    if sda_input.geometry.lower() == "box":
+        sda_input.pbc = 1
+        sda_input.surface = 1
+    sda_input.xmin = model.sda_settings.xmin
+    sda_input.xmax = model.sda_settings.xmax
+    sda_input.ymin = model.sda_settings.ymin
+    sda_input.ymax = model.sda_settings.ymax
+    sda_input.zmin = model.sda_settings.zmin
+    sda_input.zmax = model.sda_settings.zmax
     sda_input.solutes = []
     for molecule in bd_engine.systemwide_settings.molecules:
         sda_input.solutes.append(molecule.make_solute_object(bd_engine.apbs_grid_spacing))

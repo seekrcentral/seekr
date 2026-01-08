@@ -1,5 +1,5 @@
 """
-modules/analyzers/error_analysis.py
+modules/analyzers/mmvt_error_analysis.py
 
 Procedures used for error analysis in MMVT.
 """
@@ -61,6 +61,7 @@ def resample_anchor_statistics(
             count_matrix = np.zeros((len(ordered_keys), len(ordered_keys)))
             avg_times_i_j = {}
             
+            
             for key_index in key_indices:
                 for key_index2 in key_indices:
                     if key_index == key_index2:
@@ -73,7 +74,11 @@ def resample_anchor_statistics(
                 avg_times_i_j[key_index] = anchor_stats.R_i_alpha_total[key] / \
                     count_matrix[key_index,:].sum() \
                     if count_matrix[key_index,:].sum() > 0 else 0.0
-            
+                
+            # NOTE: this is correct: N_i_j_alpha determines how many transitions
+            #  to a different milestone, and N_alpha_beta contains all bounces.
+            #  therefore, the value of the main diagonal is found by: 
+            #  N_alpha_beta[alpha] - sum_over_j(N_i_j_alpha)
             for key_index in key_indices:
                 row_sum = np.sum(count_matrix[:, key_index])
                 count_matrix[key_index, key_index] \
@@ -149,6 +154,7 @@ def resample_anchor_statistics(
 
     return new_anchor_stats_alpha_list
 
+# TODO: move to analyzers_base
 def find_nonzero_matrix_entries(
         M: np.ndarray
         ) -> list[tuple[int, int]]:

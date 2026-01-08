@@ -5,6 +5,7 @@ Contain data structure classes used for seekr model.json.
 """
 
 import os
+import re
 import typing
 import glob
 from shutil import copyfile
@@ -189,9 +190,8 @@ class Anchor:
         Returns true if any of the anchor's stage directories contain
         outputs from any of the stages.
         """
-        for scale_type in self.scale_types:
-            scale = model.get_scale_by_type(scale_type)
-            if scale.has_files(self, root_directory):
+        for stage in model.stages:
+            if stage.has_files(model, anchor_index=self.index):
                 return True
             
         return False
@@ -242,32 +242,46 @@ class Anchor:
         assert isinstance(positions_base_noext, str), "Positions must be a filename str."
         input_stage_dir = self.stage_parameters[input_stage_index]["directory"]
         if swarm_id is None:
-            glob_base = [f"{positions_base_noext}*.pdb", f"{positions_base_noext}*.txt"]
+            glob_base = [f"{positions_base_noext}*.pdb",
+                          f"{positions_base_noext}*.txt",
+                          f"{positions_base_noext}*.state"]
         else:
-            glob_base = [f"{positions_base_noext}*.swarm_{swarm_id}.pdb", 
-                         f"{positions_base_noext}*.swarm_{swarm_id}.txt"]
+            glob_base = [f"{positions_base_noext}*.swarm_{swarm_id}.pdb",
+                         f"{positions_base_noext}*.swarm_{swarm_id}.txt",
+                         f"{positions_base_noext}*.swarm_{swarm_id:06d}.state"]
         glob_path = os.path.join(
             root_directory, self.directory, input_stage_dir)
         positions_full_paths = base.glob_or(glob_base, glob_path)
         return positions_full_paths
 
-    def get_starting_structure_num_frames(
+    #def get_starting_structure_num_swarms(
+    def get_starting_structure_swarm_ids(
             self,
             root_directory: str,
             input_stage_index: int
-            ) -> int:
+            ) -> list[int]:
         """
         Return the number of frames within a starting structure
         for this anchor. AKA: swarm size. This is done by
-        loading the PDB or TXT file and count the number of frames
+        using a glob of the PDB or TXT files that are the 'positions'
+        of a stage.
         """
+        # TODO: fix docstring
         # NOTE: this used to be the code to handle multiple frames
         #  in a single PDB file
         pdb_full_paths = self.get_positions_full_paths(
             root_directory, input_stage_index)
-        num_frames = len(pdb_full_paths)
-        return num_frames
-        
+        swarm_ids = []
+        # Loop through the paths, and use the re module to extract
+        #  instances where .swarm_123456. is in the filename
+        for pdb_full_path in pdb_full_paths:
+            match = re.search(r"swarm_(\d+)", pdb_full_path)
+            if match:
+                swarm_id = int(match.group(1))
+                swarm_ids.append(swarm_id)
+        swarm_ids.sort()
+        return swarm_ids
+
     def make_var_string(self) -> str:
         """
         Return a string of the variables in this anchor.
@@ -360,6 +374,17 @@ class Anchor:
             return alias_key_id_value_dict[alias_id]
         else:
             return None
+        
+    def get_stage_output_directory(
+            self,
+            stage_index: int
+            ) -> str:
+        """
+        Get the output directory for this anchor for a given stage index.
+        """
+        stage_output_directory \
+            = self.stage_parameters[stage_index]["directory"]
+        return stage_output_directory
 
 @define
 class Seekr_model:

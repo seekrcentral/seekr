@@ -5,6 +5,7 @@ Import base objects from all implemented engines.
 """
 
 import os
+import re
 import json
 import typing
 from shutil import copyfile
@@ -479,19 +480,30 @@ class MD_systemwide_settings:
         positions_full_paths = base.glob_or(glob_base, glob_path)
         return positions_full_paths
 
-    def get_starting_structure_num_frames(
+    #def get_starting_structure_num_swarms(
+    def get_starting_structure_swarm_ids(
             self,
             root_directory: str,
             input_stage_index: int
-            ) -> int:
+            ) -> list[int]:
         """
         Return the number of frames within a starting structure
         for this systemwide. AKA: swarm size.
         """
         pdb_full_paths = self.get_positions_full_paths(
             root_directory, input_stage_index)
-        num_frames = len(pdb_full_paths)
-        return num_frames
+        #num_frames = len(pdb_full_paths)
+        #return num_frames
+        swarm_ids = []
+        # Loop through the paths, and use the re module to extract
+        #  instances where .swarm_123456. is in the filename
+        for pdb_full_path in pdb_full_paths:
+            match = re.search(r"swarm_(\d+)", pdb_full_path)
+            if match:
+                swarm_id = int(match.group(1))
+                swarm_ids.append(swarm_id)
+        swarm_ids.sort()
+        return swarm_ids
     
     def get_atom_indices_by_selection_name(
             self,
@@ -504,3 +516,14 @@ class MD_systemwide_settings:
             if selection.name == name:
                 return selection.atom_indices
         raise Exception(f"Selection with name {name} not found.")
+    
+    def get_stage_output_directory(
+            self,
+            stage_index: int
+            ) -> str:
+        """
+        Get the output directory for this anchor for a given stage index.
+        """
+        stage_output_directory \
+            = self.stage_parameters[stage_index]["directory"]
+        return stage_output_directory

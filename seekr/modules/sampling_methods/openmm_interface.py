@@ -162,7 +162,7 @@ class Base_md_openmm_interface:
                 self._openmm_cv_list.append(cv_force)
 
         # else, do nothing - it's already filled out.
-        return None
+        return
 
     def create_openmm_cv_object(self) -> None:
         """
@@ -199,7 +199,7 @@ class Base_md_openmm_interface:
 
         Conventional MD can rely on the default method for this
         """
-        return None
+        return
     
     def add_global_variables_integrator(
             self, 
@@ -213,7 +213,7 @@ class Base_md_openmm_interface:
         """
         integrator: openmm.Integrator = kwargs["integrator"]
         integrator.addGlobalVariable("abort", 0)
-        return None
+        return
     
     def add_per_DOF_variables_integrator(
             self, 
@@ -224,7 +224,7 @@ class Base_md_openmm_interface:
 
         None for conventional MD.
         """
-        return None
+        return
     
     def pre_integration_instructions(
             self, 
@@ -235,7 +235,7 @@ class Base_md_openmm_interface:
 
         None for conventional MD.
         """
-        return None
+        return
     
     def post_integration_instructions(
             self, 
@@ -246,7 +246,7 @@ class Base_md_openmm_interface:
 
         None for conventional MD.
         """
-        return None
+        return
     
     def assign_system_openmm(
             self,
@@ -256,7 +256,7 @@ class Base_md_openmm_interface:
         Assign the system object from an OpenMM system object.
         """
         self._system_obj = system
-        return None
+        return
 
     # TODO: simulation itself should be passed in here
     def assign_sim_openmm(
@@ -267,7 +267,7 @@ class Base_md_openmm_interface:
         Assign the simulation object from an OpenMM simulation object.
         """
         self._simulation_obj = simulation
-        return None
+        return
 
     def pre_simulation_preparations(
             self, 
@@ -276,7 +276,7 @@ class Base_md_openmm_interface:
         """
         Perform any necessary preparations before the simulation starts.
         """
-        return None
+        return
     
     def _step(
             self,
@@ -292,17 +292,18 @@ class Base_md_openmm_interface:
     def perform_eval(
             self, 
             _restart_index: int, 
-            _swarm_index: int
-            ) -> None:
+            _swarm_id: int
+            ) -> bool:
         """
-        Perform an evaluation at a certain point in the simulation.
+        Perform an evaluation at a certain point in the simulation. If returning
+        True, the simulation will stop.
         """
-        pass
+        return False
 
     def perform_early_simulation_eval(
             self, 
             restart_index: int, 
-            swarm_index: int
+            swarm_id: int
             ) -> None:
         """
         Perform an evaluation once at an early point in the simulation.
@@ -317,7 +318,7 @@ class Base_md_openmm_interface:
             min_steps: int,
             max_steps: int,
             restart_index: int,
-            swarm_index: int,
+            swarm_id: int,
             checkpoint_filename: str,
             checkpoint_info_filename: str,
             lock_filename: str,
@@ -379,7 +380,7 @@ class Base_md_openmm_interface:
             if finish_benchmark:
                 total_time = time.time() - start_time
                 early_simulation_abort = self.perform_early_simulation_eval(
-                    restart_index, swarm_index)
+                    restart_index, swarm_id)
                 if not early_simulation_abort:
                     ns_per_day = steps_to_take * timestep * 1e-3 \
                         * 86400 / total_time
@@ -396,17 +397,15 @@ class Base_md_openmm_interface:
                 if num_steps % steps_between_checkpoints == 0:
                     make_checkpoint = True
                 if make_eval:
-                    #integrator = self._simulation_obj.context.getIntegrator()
-                    #abort = integrator.getGlobalVariableByName("abort")
-                    self.perform_eval(restart_index, swarm_index)
+                    stopping = self.perform_eval(restart_index, swarm_id)
                     # NOTE: an logging update is printed every checkpoint. Is this right?
                     if completion_openmm_interface.needs_cv_values():
                         cv_values = self._openmm_cv_object.getCollectiveVariableValues(
                             self._simulation_obj.context)
                         
                     criteria_satisfied = completion_openmm_interface.criteria_satisfied(
-                        current_step=on_step, print_update=False, cv_values=cv_values,)
-                        #current_step=on_step, print_update=make_checkpoint)
+                        current_step=on_step, print_update=False, cv_values=cv_values, 
+                        swarm_id=swarm_id)
                 if make_checkpoint:
                     self._simulation_obj.saveCheckpoint(checkpoint_filename)
                     engines_structures.write_checkpoint_information_file(
@@ -416,9 +415,11 @@ class Base_md_openmm_interface:
                     
             if on_step >= max_steps:
                 stopping = True
+                
             elif criteria_satisfied:
                 if on_step >= min_steps:
                     stopping = True
+                    
             
         self._simulation_obj.saveCheckpoint(checkpoint_filename)
         engines_structures.write_checkpoint_information_file(
@@ -460,7 +461,7 @@ class Base_md_openmm_interface:
     def save_to_current_anchor(
             self, 
             current_anchor_index: int,
-            cv_values: list[float],
+            cv_values: list[float] | None,
             basename: str
             ) -> None:
         """
@@ -474,21 +475,22 @@ class Base_md_openmm_interface:
                 f"System has reached non-MD (BD only?) anchor {current_anchor_index}. "
                  "Consider imposing a Proximity restraint or other restraint.")
             raise Exception("Simulation has reached a non-MD anchor. Aborting.")
-        for milestone in current_anchor.milestones:
-            if not milestone.boundary:
-                continue
-            curdir = os.getcwd()
-            os.chdir(self._model.directory)
-            result = milestone.is_point_within(cv_values)
-            os.chdir(curdir)
-            if not result:
-                if self._fail_on_save_to_current_anchor_if_outside_milestones:
-                    logging.critical(
-                        f"System has not reached the target anchor {current_anchor_index}. "
-                        "If using SMD, stronger force constant needed?")
-                    print("cv_values:", cv_values)
-                    print("milestone variables:", milestone.variables)
-                    raise Exception("Target anchor not reached.")
+        if cv_values is not None:
+            for milestone in current_anchor.milestones:
+                if not milestone.boundary:
+                    continue
+                curdir = os.getcwd()
+                os.chdir(self._model.directory)
+                result = milestone.is_point_within(cv_values)
+                os.chdir(curdir)
+                if not result:
+                    if self._fail_on_save_to_current_anchor_if_outside_milestones:
+                        logging.critical(
+                            f"System has not reached the target anchor {current_anchor_index}. "
+                            "If using SMD, stronger force constant needed?")
+                        print("cv_values:", cv_values)
+                        print("milestone variables:", milestone.variables)
+                        raise Exception("Target anchor not reached.")
         anchor_directory = os.path.join(
             self._model.directory, current_anchor.directory,
             current_anchor.stage_parameters[self._stage_index+1]["directory"])
@@ -577,7 +579,10 @@ class Base_md_openmm_interface:
             open_txt_file_for_simulation(loading_filename, self._simulation_obj)
         else:
             open_pdb_file_for_simulation(loading_filename, self._simulation_obj)
-        return            
+        return
+
+    def get_evaluation_interval(self) -> int:
+        return 0       
             
 
 @define
@@ -720,8 +725,8 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
     def perform_eval(
             self, 
             _restart_index: int, 
-            _swarm_index: int
-            ) -> None:
+            _swarm_id: int
+            ) -> bool:
         """
         Perform an evaluation at a certain point in the simulation.
         """
@@ -746,7 +751,8 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
             self.save_to_current_anchor(
                 current_anchor_index, cv_values, 
                 self.sampling_method.get_output_positions_format())
-            
+        
+        return False
 
     def _step(
             self,
@@ -932,8 +938,8 @@ class Steered_md_openmm_interface(Base_md_openmm_interface):
     def perform_eval(
             self, 
             _restart_index: int, 
-            _swarm_index: int
-            ) -> None:
+            _swarm_id: int
+            ) -> bool:
         """
         Perform an evaluation at a certain point in the simulation.
         """
@@ -980,6 +986,8 @@ class Steered_md_openmm_interface(Base_md_openmm_interface):
             else:
                 # Simulation is complete: let the completion criteria finish
                 pass
+
+        return False
 
 @define
 class MMVT_md_openmm_interface(Base_md_openmm_interface):
@@ -1036,9 +1044,6 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
         integrator.addGlobalVariable("encounter_this_step", 0)
         integrator.addGlobalVariable("bitvar", 0)
         integrator.addGlobalVariable("threshold", 0)
-        # DEBUG
-        integrator.addGlobalVariable("oldenergy", 0)
-
         return None
     
     def add_per_DOF_variables_integrator(
@@ -1052,8 +1057,6 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
         """
         
         integrator: openmm.Integrator = kwargs["integrator"]
-        #integrator.addPerDofVariable("old_x", 0)
-        #integrator.addPerDofVariable("old_v", 0)
         for i in range(BUFFER_FRAMES):
             integrator.addPerDofVariable(f"encounter_pos_{i}", 0)
         return None
@@ -1095,7 +1098,6 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
         assert anchor is not None
         integrator.addComputeGlobal("encounter_this_step", "0")
         integrator.addComputeGlobal("bitvar", "energy1")
-        integrator.addComputeGlobal("oldenergy", "bitvar")
         
         for j, milestone in enumerate(anchor.milestones):
             i = len(anchor.milestones) - (j + 1)
@@ -1113,9 +1115,9 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
             for j, milestone2 in enumerate(anchor.milestones):
                 alias_index_j = j+1
                 integrator.beginIfBlock(f"last_milestone_alias_touched = {alias_index_j}")
-                integrator.addComputeGlobal(f"milestone_{alias_index_i}_{alias_index_j}_count", f"milestone_{alias_index_i}_{alias_index_j}_count + 1")
+                integrator.addComputeGlobal(f"milestone_{alias_index_j}_{alias_index_i}_count", f"milestone_{alias_index_j}_{alias_index_i}_count + 1")
+                integrator.addComputeGlobal(f"milestone_{alias_index_j}_time", f"milestone_{alias_index_j}_time + time_count - last_milestone_time_touched")
                 integrator.endBlock()
-            integrator.addComputeGlobal(f"milestone_{alias_index_i}_time", f"milestone_{alias_index_i}_time + time_count - last_milestone_time_touched")
             integrator.addComputeGlobal("last_milestone_time_touched", "time_count")
             integrator.addComputeGlobal("last_milestone_alias_touched", f"{alias_index_i}")
             integrator.endBlock() # End If last_milestone_alias_touched > -1
@@ -1147,7 +1149,6 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
         """
         Perform any necessary preparations before the simulation starts.
         """
-        #system: openmm.System = kwargs["system"]
         system: openmm.System = self._system_obj
         model: structures.Seekr_model = kwargs["model"]
         self._model = model
@@ -1163,9 +1164,6 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
         boundary_expr_list: list[str] = []
         if num_cvs == 1:
             my_cv_index = anchor_cv_indices[0]
-            my_cv = model.collective_variables[my_cv_index]
-            #cv_interface = collective_variables_openmm_interface.assign_cv_interface(
-            #    my_cv, md_engine, self._model.directory)
             cv_interface = self._cv_interface_list[my_cv_index]
             assert cv_interface is not None, f"An interface was not found for cv {cv_index}"
             variables: dict[str, unit.Quantity] = {}
@@ -1188,8 +1186,7 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
                 boundary_force, variables)
             boundary_force.setForceGroup(1)
             system.addForce(boundary_force)
-            #self._openmm_cv_list.append(boundary_force)
-
+            
         else: # num_cvs > 1
             me_expr_list_all_milestones = []
             neighbor_expr_list_all_milestones = []
@@ -1207,9 +1204,6 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
                 for variable in milestone.variables:
                     if variable.startswith("me"):
                         cv_index = int(variable.split("_")[1])
-                        cv = model.collective_variables[cv_index]
-                        #cv_interface = collective_variables_openmm_interface.assign_cv_interface(
-                        #    cv, md_engine, self._model.directory)
                         cv_interface = self._cv_interface_list[cv_index]
                         assert cv_interface is not None, f"An interface was not found for cv {cv_index}"
                         me_key_name = f"me_{cv_index}"
@@ -1248,7 +1242,6 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
 
             openmm_cv_object.setForceGroup(1)
             system.addForce(openmm_cv_object)
-            #self._openmm_cv_list.append(openmm_cv_object)
             
         assert self._simulation_obj is not None
         self._simulation_obj.context.reinitialize(preserveState=True)
@@ -1257,8 +1250,8 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
     def perform_eval(
             self, 
             restart_index: int, 
-            swarm_index: int
-            ) -> None:
+            swarm_id: int
+            ) -> bool:
         """
         This is when milestoning information is written to the output file.
         """
@@ -1271,7 +1264,7 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
         anchor_directory = os.path.join(
             self._model.directory, anchor.directory,
             anchor.stage_parameters[self._stage_index+1]["directory"])
-        output_basename = f"milestoning_restart{restart_index}_swarm_{swarm_index}.out"
+        output_basename = f"milestoning_restart{restart_index}_swarm_{swarm_id}.out"
         output_filename = os.path.join(anchor_directory, output_basename)
         
         milestone_count_dict = {}
@@ -1299,12 +1292,12 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
             milestone_count_dict=milestone_count_dict,
             milestone_time_dict=milestone_time_dict
         )
-        return
+        return False
     
     def perform_early_simulation_eval(
             self, 
             restart_index: int, 
-            swarm_index: int
+            swarm_id: int
             ) -> bool:
         """
         Perform an evaluation once at an early point in the simulation.

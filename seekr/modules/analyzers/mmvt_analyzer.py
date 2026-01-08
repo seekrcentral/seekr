@@ -5,7 +5,6 @@ Analyze the results of a SEEKR MMVT calculation.
 """
 
 import os
-import glob
 import math
 
 from attrs import define, field, validators

@@ -21,6 +21,7 @@ def status(
         instruction: str, 
         stage_arg: str = "all", 
         anchor_arg: str = "any", 
+        swarm_id: int | None = None,
         print_json: bool = True
         ) -> str | dict:
     # Stage(s)
@@ -31,7 +32,6 @@ def status(
     else:
         stage_index = run.extract_stage_index(model, stage_arg)
         stages_to_check = [stage_index]
-    # Anchor(s)
     anchor_index_instruction = run.extract_anchor_index(model, anchor_arg)
     if print_json:
         message = {}
@@ -43,12 +43,29 @@ def status(
         message = ""
         if instruction in ["progress", "all"]:
             message += "Progress:\n"
-
+    choose_params = {
+        "device_index": None,
+        "anchor_index_instruction": anchor_index_instruction,
+    }
     for stage_index in stages_to_check:
         stage = model.stages[stage_index]
         if instruction in ["progress", "all"]:
-            finished, stage_message = scales_runner.is_finished_with_message(
+            finished_tmp, stage_message_tmp = scales_runner.is_finished_with_message(
                 model, stage, anchor_index_instruction, use_json=print_json)
+            run_instructions = scales_runner.choose_next_simulation(
+                model, stage, choose_params, False, swarm_id, use_json=print_json,
+                silent=True)
+            if finished_tmp:
+                if len(run_instructions) > 0:
+                    finished = False
+                    stage_message = run_instructions[0].message + "\n"
+                else:
+                    finished = True
+                    stage_message = stage_message_tmp
+            else:
+                finished = False
+                stage_message = stage_message_tmp
+                
             if print_json:
                 message["progress"][stage.index] = {
                     "stage_name": stage.name,
@@ -57,8 +74,8 @@ def status(
                 }
             else:
                 message += f"  Stage {stage.index} ({stage.name}):\n" \
-                    + f"    Finished: {finished}\n{stage_message}"
-        
+                    + f"    Finished: {finished}\n    Message: {stage_message}"
+
     if instruction in ["statistics", "all"]:
         analysis = analyze.analyze(model, stage_index=None, 
                                     skip_checks=True, only_extract_data=True)
@@ -69,7 +86,7 @@ def status(
         if print_json:
             message["statistics"] = stats_message
         else:
-            message += "Statistics:\n"
+            message += "\nStatistics:\n"
             message += stats_message
             
     return message
@@ -85,7 +102,7 @@ if __name__ == "__main__":
         help="Which status information to print. Options are: 'progress', "\
             "'statistics', or 'all'. Default: 'all'.")
     argparser.add_argument(
-        "-s", "--stage", dest="stage", type=str, default="all",
+        "-S", "--stage", dest="stage", type=str, default="all",
         help="The name or index of the stage to run.")
     argparser.add_argument(
         "-a", "--anchor", dest="anchor", type=str, default="any",
@@ -93,6 +110,11 @@ if __name__ == "__main__":
             "or restart. The argument 'any' is allowed - which will run "\
             "whichever anchors that still need to be finished for the "\
             "specified anchor. Default: 'any'.")
+    argparser.add_argument(
+        "-s", "--swarm_id", dest="swarm_id", type=int, default=None,
+        help="The swarm ID to run. This is only relevant for stages that "\
+            "use swarm sampling methods. If not specified, all swarm IDs "\
+            "that need to be run will be run. Default: None.",)
     argparser.add_argument(
         "-j", "--json", dest="json", action="store_true", default=False,
         help="If specified, the status will be printed in JSON format.")
@@ -103,10 +125,12 @@ if __name__ == "__main__":
     instruction = args["instruction"]
     stage = args["stage"]
     anchor = args["anchor"]
+    swarm_id = args["swarm_id"]
     print_json = args["json"]
     model = structures.load_model(model_file)
     message = status(
-        model, instruction, stage_arg=stage, anchor_arg=anchor, print_json=print_json)
+        model, instruction, stage_arg=stage, anchor_arg=anchor, swarm_id=swarm_id, 
+        print_json=print_json)
     if print_json:
         import json
         print(json.dumps(message, indent=4))

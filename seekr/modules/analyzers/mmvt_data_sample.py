@@ -372,6 +372,8 @@ class Mmvt_data_sample:
                 pi_alpha_val = self.pi_alpha[-1, 0]
             else:
                 pi_alpha_val = self.pi_alpha[alpha, 0]
+            if pi_alpha_val == 0.0:
+                pi_alpha_val = LOW_PROBABILITY
             free_energy = -analyzers_base.GAS_CONSTANT*model.temperature*np.log(
                 pi_alpha_val / highest_pi_alpha)
             self.free_energy_anchors[alpha] = free_energy

@@ -7,7 +7,7 @@ Structures for any restraints that are applied to the system.
 import typing
 from attrs import define, field, validators, Factory
 
-class Base_restraint(typing.Protocol):
+class Base_restraint:
     """
     Base class for all restraints.
     """

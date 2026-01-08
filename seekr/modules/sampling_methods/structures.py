@@ -13,7 +13,7 @@ from attrs import define, field, validators, Factory
 #  methods added to this directory, but for now, they must be
 #  defined here
 
-class Base_md_sampling_method(typing.Protocol):
+class Base_md_sampling_method:
     """
     Base class for all MD sampling methods.
     """
@@ -31,7 +31,10 @@ class Base_md_sampling_method(typing.Protocol):
     def get_output_positions_basename_noext(self) -> str:
         raise NotImplementedError("Subclasses must implement this method.")
     
-    def get_output_positions_glob_list(self) -> list[str]:
+    def get_output_positions_glob_list(
+            self, 
+            swarm_id: int = 0
+            ) -> list[str]:
         raise NotImplementedError("Subclasses must implement this method.")
     
     def get_final_pdb_output_basename(
@@ -66,9 +69,13 @@ class Conventional_md_sampling_method(Base_md_sampling_method):
     def get_output_positions_format(self) -> str:
         return "conventional.{}.swarm_{}"
 
-    def get_output_positions_glob_list(self) -> list[str]:
-        return ["conventional*.pdb", "conventional*.txt"]
-    
+    def get_output_positions_glob_list(
+            self,
+            swarm_id: int = 0
+            ) -> list[str]:
+        swarm_string = f"swarm_{swarm_id}"
+        return [f"conventional*{swarm_string}*.pdb", f"conventional*{swarm_string}*.txt"]
+
     def get_final_pdb_output_basename(
             self, 
             toy_mode: bool,
@@ -123,9 +130,13 @@ class Metadynamics_md_sampling_method(Base_md_sampling_method):
     def get_output_positions_format(self) -> str:
         return "metadynamics.{}.swarm_{}"
 
-    def get_output_positions_glob_list(self) -> list[str]:
-        return ["metadynamics*.pdb", "metadynamics*.txt"]
-    
+    def get_output_positions_glob_list(
+            self,
+            swarm_id: int = 0
+            ) -> list[str]:
+        swarm_string = f"swarm_{swarm_id}"
+        return [f"metadynamics*{swarm_string}*.pdb", f"metadynamics*{swarm_string}*.txt"]
+
     def get_final_pdb_output_basename(
             self, 
             toy_mode: bool,
@@ -173,9 +184,13 @@ class Steered_md_sampling_method(Base_md_sampling_method):
     def get_output_positions_format(self) -> str:
         return "steered.{}.swarm_{}"
     
-    def get_output_positions_glob_list(self) -> list[str]:
-        return ["steered*.pdb", "steered*.txt"]
-    
+    def get_output_positions_glob_list(
+            self,
+            swarm_id: int = 0
+            ) -> list[str]:
+        swarm_string = f"swarm_{swarm_id}"
+        return [f"steered*{swarm_string}*.pdb", f"steered*{swarm_string}*.txt"]
+
     def get_final_pdb_output_basename(
             self, 
             toy_mode: bool,
@@ -216,9 +231,13 @@ class MMVT_md_sampling_method(Base_md_sampling_method):
     def get_output_positions_format(self) -> str:
         return "mmvt.{}.swarm_{}"
     
-    def get_output_positions_glob_list(self) -> list[str]:
-        return ["mmvt*.pdb", "mmvt*.txt"]
-    
+    def get_output_positions_glob_list(
+            self,
+            swarm_id: int = 0
+            ) -> list[str]:
+        swarm_string = f"swarm_{swarm_id}"
+        return [f"mmvt*{swarm_string}*.pdb", f"mmvt*{swarm_string}*.txt"]
+
     def get_final_pdb_output_basename(
             self, 
             toy_mode: bool,
@@ -265,7 +284,7 @@ class MMVT_md_sampling_method(Base_md_sampling_method):
 #  Alternatively, it can be run separately between stages, but modifies the
 #  model JSON file.
 
-class Base_bd_sampling_method(typing.Protocol):
+class Base_bd_sampling_method:
     """
     Base class for all BD sampling methods.
     """

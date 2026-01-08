@@ -250,7 +250,7 @@ class Voronoi_cell:
                             f"{engines_preparer.POSITIONS_BASENAME}.swarm_{frame_id}.pdb")
                         mdtraj_obj[frame_id].save(output_pdb_full_path)
 
-class Base_anchor_scheme(typing.Protocol):
+class Base_anchor_scheme:
     """
     Base class for all anchor schemes.
     """

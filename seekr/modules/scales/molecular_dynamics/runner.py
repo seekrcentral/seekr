@@ -24,7 +24,8 @@ Run_instruction_md = namedtuple(
         "current_step",
         "anchor_index",
         "restart",
-        "swarm_index"
+        "swarm_id",
+        "message"
     ])
 
 def filled_and_unfilled_anchors(
@@ -102,7 +103,8 @@ def is_finished_md_with_message(
                 "total_steps": completion_criteria.number_of_steps
             }
         else:
-            message = f"steps {current_step} of {completion_criteria.number_of_steps} completed."
+            message = f"steps {current_step} of {completion_criteria.number_of_steps} "\
+                "completed."
         return current_step >= completion_criteria.number_of_steps, message
 
     elif completion_criteria.type == "anchors_filled":
@@ -163,13 +165,17 @@ def is_finished_md_with_message(
         for plugin_name in model.plugins:
             spec = importlib.util.find_spec(plugin_name)
             if spec is None:
-                raise ImportError(f"Plugin '{plugin_name}' not found. Please install it or check the spelling.")
+                raise ImportError(f"Plugin '{plugin_name}' not found. Please install "\
+                                  "it or check the spelling.")
             # TODO: see if plugin.modules exists, and if not, raise an error
             #  Then if plugin.modules.completion_criteria doesn't exist, skip quietly
-            #  Then if plugin.modules.scales.molecular_dynamics.runner doesn't exist, raise an error
-            plugin_module_scales_md_runner = importlib.import_module(plugin_name+".modules.scales.molecular_dynamics.runner")
-            found, completed, message = plugin_module_scales_md_runner.is_finished_md_with_message(
-                model, stage, anchor_or_systemwide, current_step, swarm_id)
+            #  Then if plugin.modules.scales.molecular_dynamics.runner doesn't exist,
+            #   raise an error
+            plugin_module_scales_md_runner = importlib.import_module(
+                plugin_name+".modules.scales.molecular_dynamics.runner")
+            found, completed, message = plugin_module_scales_md_runner\
+                .is_finished_md_with_message(
+                    model, stage, anchor_or_systemwide, current_step, swarm_id)
             if found:
                 return completed, message
 
@@ -192,14 +198,15 @@ def get_calculation_directory_md(
         if "molecular_dynamics" not in anchor_or_systemwide.scale_types:
             raise NotImplementedError("MD not running in this anchor/systemwide.")
     stage_directory = anchor_or_systemwide.stage_parameters[stage_list_index]["directory"]
-    full_directory = os.path.join(root_directory, anchor_or_systemwide.directory, stage_directory)
+    full_directory = os.path.join(root_directory, anchor_or_systemwide.directory, 
+                                  stage_directory)
     return full_directory
 
 def get_current_md_step(
         anchor_or_systemwide: engines_structures.MD_systemwide_settings \
             | structures.Anchor, 
         stage_index: int, 
-        swarm_index: int | None,
+        swarm_id: int,
         root_directory: str) -> int:
     """
     Return the current step for a given stage index.
@@ -211,9 +218,10 @@ def get_current_md_step(
         if "molecular_dynamics" not in anchor_or_systemwide.scale_types:
             raise NotImplementedError("BD current step not yet implemented.")
     stage_directory = anchor_or_systemwide.stage_parameters[stage_index]["directory"]
-    full_directory = os.path.join(root_directory, anchor_or_systemwide.directory, stage_directory)
+    full_directory = os.path.join(root_directory, anchor_or_systemwide.directory, 
+                                  stage_directory)
     checkpoint_info_basename = engines_runner.get_checkpoint_information_basename(
-        swarm_index)
+        swarm_id)
     checkpoint_information_filename = os.path.join(
         full_directory, checkpoint_info_basename)
     if os.path.exists(checkpoint_information_filename):
@@ -228,7 +236,7 @@ def get_restart_checkpoint_filename(
         anchor_or_systemwide: engines_structures.MD_systemwide_settings \
             | structures.Anchor, 
         stage_index: int, 
-        swarm_index: int | None,
+        swarm_id: int,
         root_directory: str):
     """
     Return the restart checkpoint filename for a given stage index.
@@ -238,7 +246,7 @@ def get_restart_checkpoint_filename(
     full_directory = os.path.join(
         root_directory, anchor_or_systemwide.directory, stage_directory)
     restart_checkpoint_basename = engines_runner\
-        .get_restart_checkpoint_basename(swarm_index)
+        .get_restart_checkpoint_basename(swarm_id)
     restart_checkpoint_filename = os.path.join(
         full_directory, restart_checkpoint_basename)
     return restart_checkpoint_filename
@@ -274,6 +282,9 @@ def choose_next_simulation_md(
         anchor_index: str, 
         force_overwrite: bool,
         device_index: str | None = None,
+        swarm_id_wanted: int | None = None,
+        use_json: bool = True,
+        silent: bool = False
         ) -> list:
     md_engine = model.get_engine_by_scale_type("molecular_dynamics")
     if device_index is not None:
@@ -294,28 +305,30 @@ def choose_next_simulation_md(
         else:
             anchor_or_systemwide = model.anchors[anchor_or_systemwide_index]
             partition_name = f"anchor {anchor_or_systemwide_index}"
-        # TODO: remove support for multiple frames in this module - multiple-frame
-        #  PDBs will be handled at the preparer level.
         assert anchor_or_systemwide is not None
-        num_swarm_frames = anchor_or_systemwide.get_starting_structure_num_frames(
+        # TODO: it's not enough to get at how many swarms, one needs to find the
+        # index of the valid swarm ids
+        #num_swarm_ids = anchor_or_systemwide.get_starting_structure_num_swarms(
+        #    model.directory, stage_md.input_stage_index)
+        swarm_ids = anchor_or_systemwide.get_starting_structure_swarm_ids(
             model.directory, stage_md.input_stage_index)
         calculation_dir = get_calculation_directory_md(
             anchor_or_systemwide, stage_md.index-1, model.directory)
         log_filename = os.path.join(calculation_dir, "run.log")
         base.configure_file_and_stdout_logger(
             log_filename, overwrite=force_overwrite)
-        for swarm_frame in range(num_swarm_frames):
-            swarm_string = f" swarm {swarm_frame}"
-            if num_swarm_frames <= 1:
-                swarm_string = ""
+        #for swarm_id in range(num_swarm_ids):
+        for swarm_id in swarm_ids:
+            if (swarm_id_wanted is not None) and (swarm_id != swarm_id_wanted):
+                continue
+            swarm_string = f" swarm {swarm_id}"
             current_step = get_current_md_step(anchor_or_systemwide,
-                stage_md.index, swarm_frame, model.directory)
+                stage_md.index, swarm_id, model.directory)
             restart_checkpoint_filename \
                 = get_restart_checkpoint_filename(
-                    anchor_or_systemwide, stage_md.index, swarm_frame, model.directory)
+                    anchor_or_systemwide, stage_md.index, swarm_id, model.directory)
             if (not os.path.exists(restart_checkpoint_filename)) \
-                    or force_overwrite: # or umbrella_restart_mode:
-                    # TODO: extract from sampling method whether restarts will be done
+                    or force_overwrite:
                 restart = False
                 current_step = 0
             else:
@@ -323,15 +336,17 @@ def choose_next_simulation_md(
             
             if not force_overwrite:
                 run_finished, message = is_finished_md_with_message(
-                    model, stage_md, anchor_or_systemwide, current_step, swarm_frame,
-                    use_json=False)
+                    model, stage_md, anchor_or_systemwide, current_step, swarm_id,
+                    use_json=use_json)
             else:
                 run_finished = False
                 message = "Force overwrite."
-            logging.info(f"{partition_name}{swarm_string}: {message}")
+            if not silent:
+                logging.info(f"{partition_name}{swarm_string}: {message}")
             if not run_finished:
                 run_instruction = Run_instruction_md(
-                    current_step, anchor_or_systemwide_index, restart, swarm_frame)
+                    current_step, anchor_or_systemwide_index, restart, swarm_id, 
+                    message)
                 run_instructions_unsorted.append(run_instruction)
 
     # sort the run instructions by current step to run the laggers first
@@ -353,11 +368,8 @@ def do_run_instruction_md(
     md_engine = model.get_engine_by_scale_type("molecular_dynamics")
     anchor_index = instruction.anchor_index
     restart = instruction.restart
-    swarm_index = instruction.swarm_index
-    if swarm_index is None:
-        swarm_string = ""
-    else:
-        swarm_string = f", swarm index: {swarm_index}"
+    swarm_id = instruction.swarm_id
+    swarm_string = f", swarm id: {swarm_id}"
     if force_overwrite and restart:
         restart = False
     if anchor_index is None:
@@ -375,5 +387,5 @@ def do_run_instruction_md(
         log_filename, overwrite=force_overwrite)
     logging.info(log_string)
     engines_runner.run_simulation(
-        model, stage_index, restart, anchor_index=anchor_index, swarm_index=swarm_index, 
+        model, stage_index, restart, anchor_index=anchor_index, swarm_id=swarm_id, 
         device_index=device_index, force_overwrite=force_overwrite)

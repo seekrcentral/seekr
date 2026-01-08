@@ -1367,6 +1367,8 @@ def create_ghost_atom_from_atoms_center_of_mass(
     ghost_structure = parmed.Structure()
     ghost_structure.add_atom(ghost_atom, "GHO", 1)
     ghost_structure.coordinates = np.array(center_of_mass)
+    assert np.isfinite(ghost_structure.coordinates).all(), \
+        "Ghost atom has non-finite coordinates!"
 
     #pqr_complex = pqr_struct + ghost_structure
     pqr_complex = pqr_struct

@@ -21,6 +21,8 @@ import seekr.modules.completion_criteria.openmm_interface as completion_openmm_i
 import seekr.modules.restraints.openmm_interface as restraints_openmm_interface
 
 DEFAULT_BAROSTAT_FREQUENCY = 25
+SWARM_ID_RANDOM_SEED_FACTOR = 10000
+RANDOM_VEL_SEED_FACTOR = 1234
 
 kB = unit.BOLTZMANN_CONSTANT_kB * unit.AVOGADRO_CONSTANT_NA
 
@@ -203,7 +205,6 @@ def create_openmm_system(
         positions_basename: str,
         md_parameters_directory: str,
         md_parameters_topology: engines_structures.Parameters_topology,
-        frame_index: int = 0,
         ) -> openmm.System:
     """
     Create an OpenMM system object for the given frame.
@@ -268,11 +269,24 @@ def create_openmm_system(
     else:
         hydrogenMass = None
 
+    velocities = None
     if model.using_toy():
         if (positions_basename is not None) and \
                 positions_basename != "":
             toy_full_path = os.path.join(positions_directory, positions_basename)
-            positions = np.loadtxt(toy_full_path, ndmin=2)
+            ext = os.path.splitext(toy_full_path)[-1]
+            if ext == ".txt":
+                positions = np.loadtxt(toy_full_path, ndmin=2)
+            elif ext == ".state":
+                with open(toy_full_path, "r") as f:
+                    xml = f.read()
+
+                state = openmm.XmlSerializer.deserialize(xml)
+                positions = state.getPositions(asNumpy=True)
+                velocities = state.getVelocities(asNumpy=True)
+            else:
+                raise Exception("For toy systems, positions file must be .txt or .state")
+
             num_frames = 1 #len(positions_frames)
         else:
             num_frames = 0
@@ -281,12 +295,30 @@ def create_openmm_system(
     else:
         if (positions_basename is not None) and \
                 positions_basename != "":
-            pdb_full_path = os.path.join(positions_directory, positions_basename)
-            pdb_obj = openmm_app.PDBFile(pdb_full_path)
-            box_vectors = openmm_base.get_box_vectors_from_pdb(pdb_full_path)
+            positions_full_path = os.path.join(positions_directory, positions_basename)
+            ext = os.path.splitext(positions_full_path)[-1]
+            if ext == ".pdb":
+                pdb_obj = openmm_app.PDBFile(positions_full_path)
+                box_vectors = openmm_base.get_box_vectors_from_pdb(positions_full_path)
+                positions = pdb_obj.getPositions()
+                num_frames = pdb_obj.getNumFrames()
+            elif ext == ".state":
+                with open(toy_full_path, "r") as f:
+                    xml = f.read()
+
+                state = openmm.XmlSerializer.deserialize(xml)
+                box_vectors = state.getPeriodicBoxVectors()
+                positions = state.getPositions(asNumpy=True)
+                velocities = state.getVelocities(asNumpy=True)
+                num_frames = 1
+            else:
+                raise Exception("For non-toy systems, positions file must be .pdb or .state")
+            
         else:
             pdb_obj = None
             box_vectors = None
+            positions = None
+            num_frames = 0
 
         if md_parameters_topology.type == "Amber":
             system, topology = make_topology_system_from_amber(
@@ -308,23 +340,14 @@ def create_openmm_system(
                 md_parameters_topology, pdb_obj,
                 md_parameters_directory, nonbondedMethod,
                 md_engine.nonbonded_cutoff, constraints, hydrogenMass)
+            assert pdb_obj is not None
             topology = pdb_obj.topology
 
-        if pdb_obj is None:
-            positions = None
-            num_frames = 0
-        else:
-            assert frame_index >= 0, "Cannot have negative frame index"
-            assert frame_index < pdb_obj.getNumFrames(), \
-                f"Frame index {frame_index} out of range."
-            positions = pdb_obj.getPositions(frame=frame_index)
-            num_frames = pdb_obj.getNumFrames()
-    
     # set all non-milestoning force groups to zero
     for force in system.getForces():
         force.setForceGroup(0)
 
-    return system, topology, positions, box_vectors, num_frames
+    return system, topology, positions, box_vectors, num_frames, velocities
 
 class Sim_openmm:
     """
@@ -363,7 +386,7 @@ class Sim_openmm:
         state data will be reported.
         
     """
-    def __init__(self):
+    def __init__(self, anchor_index, swarm_id):
         self.platform = None
         self.properties = None
         self.timestep = None
@@ -374,6 +397,11 @@ class Sim_openmm:
         self.simulation = None
         self.traj_reporter = openmm_app.DCDReporter
         self.energy_reporter = openmm_app.StateDataReporter
+        if anchor_index is None:
+            self.random_seed = 0
+        else:
+            self.random_seed = anchor_index + 1
+        self.random_seed += swarm_id * SWARM_ID_RANDOM_SEED_FACTOR
         return
     
     def add_restraints(
@@ -403,7 +431,9 @@ class Sim_openmm:
             anchor_index: int | None,
             ensemble: base.Ensemble,
             sampling_engine_interface: sampling_openmm_interface.Sampling_md_openmm_interface,
-            completion_criteria_interface: completion_openmm_interface.Completion_criteria_openmm_interface
+            completion_criteria_interface: completion_openmm_interface\
+                .Completion_criteria_openmm_interface,
+            restart: bool
             ) -> None:
         """
         Assign the proper integrator to this OpenMM simulation.
@@ -459,13 +489,8 @@ class Sim_openmm:
                 integrator=integrator, anchor=anchor)
             #completion_criteria_interface.post_integration_instructions(
             #    integrator=integrator)
-            if anchor_index is None:
-                random_sum_factor = 0
-            else:
-                random_sum_factor = anchor_index + 1
-            random_seed = integrator_settings.random_seed + random_sum_factor
-            if random_seed is not None:
-                integrator.setRandomNumberSeed(random_seed)
+            random_seed = integrator_settings.random_seed + self.random_seed
+            integrator.setRandomNumberSeed(random_seed)
 
         elif integrator_type == "langevin":
             if ensemble is not None:
@@ -480,7 +505,7 @@ class Sim_openmm:
             integrator.addGlobalVariable("fscale", 0.0)
             integrator.addGlobalVariable("noisescale", 0.0)
             sampling_engine_interface.add_global_variables_integrator(
-                integrator=integrator, anchor=anchor)
+                integrator=integrator, anchor=anchor, is_restart=restart)
             integrator.addPerDofVariable("old_x", 0)
             integrator.addPerDofVariable("old_v", 0)
             sampling_engine_interface.add_per_DOF_variables_integrator(
@@ -502,13 +527,8 @@ class Sim_openmm:
             integrator.addComputePerDof("v", "(x-old_x)/dt")
             sampling_engine_interface.post_integration_instructions(
                 integrator=integrator, anchor=anchor)
-            if anchor_index is None:
-                random_sum_factor = 0
-            else:
-                random_sum_factor = anchor_index + 1
-            random_seed = integrator_settings.random_seed + random_sum_factor
-            if random_seed is not None:
-                integrator.setRandomNumberSeed(random_seed)
+            random_seed = integrator_settings.random_seed + self.random_seed    
+            integrator.setRandomNumberSeed(random_seed)
 
         elif integrator_type == "brownian":
             if ensemble is not None:
@@ -538,15 +558,8 @@ class Sim_openmm:
             integrator.addComputePerDof("old_v", "v")
             integrator.addConstrainPositions()
             integrator.addComputePerDof("v", "(x-old_x)/dt")
-            sampling_engine_interface.post_integration_instructions(
-                integrator=integrator, anchor=anchor)
-            if anchor_index is None:
-                random_sum_factor = 0
-            else:
-                random_sum_factor = anchor_index + 1
-            random_seed = integrator_settings.random_seed + random_sum_factor
-            if random_seed is not None:
-                integrator.setRandomNumberSeed(random_seed)
+            random_seed = integrator_settings.random_seed + self.random_seed
+            integrator.setRandomNumberSeed(random_seed)
         elif integrator_type == "verlet":
             #integrator_object = openmm.VerletIntegrator
             if ensemble is not None:
@@ -644,6 +657,7 @@ class Sim_openmm:
             self, 
             model: structures.Seekr_model,
             positions: unit.Quantity | None,
+            velocities: unit.Quantity | None = None
             ) -> unit.Quantity:
         """
         Add the simulation object to the OpenMM simulation.
@@ -659,8 +673,12 @@ class Sim_openmm:
         if positions is not None:
             self.simulation.context.setPositions(positions)
             assert md_engine is not None
-            self.simulation.context.setVelocitiesToTemperature(
-                md_engine.initial_temperature * unit.kelvin)
+            if velocities is None:
+                self.simulation.context.setVelocitiesToTemperature(
+                    md_engine.initial_temperature * unit.kelvin,
+                    self.random_seed+RANDOM_VEL_SEED_FACTOR)
+            else:
+                self.simulation.context.setVelocities(velocities)
         if self.box_vectors is not None:
             self.simulation.context.setPeriodicBoxVectors(
                 *self.box_vectors)
@@ -714,21 +732,22 @@ def create_sim_openmm(
         md_parameters_directory: str,
         md_parameters_topology: engines_structures.Parameters_topology,
         running_directory: str,
-        frame: int,
         ensemble: base.Ensemble,
         sampling_engine_interface: sampling_openmm_interface.Sampling_md_openmm_interface,
         completion_criteria_interface: completion_openmm_interface.Completion_criteria_openmm_interface,
-        restraints_interfaces: list[restraints_openmm_interface.Base_restraint_openmm_interface]
+        restraints_interfaces: list[restraints_openmm_interface.Base_restraint_openmm_interface],
+        swarm_id: int,
+        restart: bool
         ) -> Sim_openmm:
     """
     Generate an OpenMM simulation and other objects for a given
     calculation.
     """
-    sim_openmm = Sim_openmm()
-    system, topology, positions, box_vectors, _ \
+    sim_openmm = Sim_openmm(anchor_index, swarm_id)
+    system, topology, positions, box_vectors, _, velocities \
         = create_openmm_system(
             model, positions_directory, positions_basename, 
-            md_parameters_directory, md_parameters_topology, frame)
+            md_parameters_directory, md_parameters_topology)
     sim_openmm.system = system
     sim_openmm.topology = topology
     sim_openmm.box_vectors = box_vectors
@@ -743,7 +762,7 @@ def create_sim_openmm(
     # A sampling method of None will be conventional MD.
     sim_openmm.add_integrator(
         model, anchor_index, ensemble, sampling_engine_interface,
-        completion_criteria_interface)
+        completion_criteria_interface, restart)
     if ensemble is not None:
         sim_openmm.add_barostat(model, ensemble)
     sim_openmm.add_platform(model)
@@ -751,7 +770,7 @@ def create_sim_openmm(
     sim_openmm.add_restraints(
         model, anchor_index, restraints_interfaces, positions, 
         periodic_system)
-    sim_openmm.add_simulation(model, positions)
+    sim_openmm.add_simulation(model, positions, velocities)
     if model.using_toy():
         toy_pdb_filename = os.path.join(running_directory, "toy.pdb")
         write_toy_pdb_file(topology, positions, toy_pdb_filename)

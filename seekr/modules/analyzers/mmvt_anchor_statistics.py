@@ -7,7 +7,6 @@ an MMVT calculation.
 
 import os
 from collections import defaultdict
-from xml.parsers.expat import model
 
 from attrs import define, field, validators
 import numpy as np
@@ -65,6 +64,7 @@ class Mmvt_anchor_statistics:
                     self.k_alpha_beta[key] = self.N_alpha_beta[key] / self.T_alpha_total
         else:
             self.k_alpha_beta = None
+        return
 
     def add_mmvt_anchor_statistics(
             self, 
@@ -81,6 +81,7 @@ class Mmvt_anchor_statistics:
         for key in other.R_i_alpha_total:
             self.R_i_alpha_total[key] += other.R_i_alpha_total[key]
         self.T_alpha_total += other.T_alpha_total
+        return
 
     def get_statistics_message(
             self,
@@ -95,7 +96,6 @@ class Mmvt_anchor_statistics:
         counts_anchor_to_anchor = {}
         counts_milestone_to_milestone = {}
         times_milestone_to_milestone = {}
-        total_times = {}
         anchor = model.anchors[alpha]
         existing_alias_alpha_beta = []
         existing_alias_i_j = []
@@ -198,8 +198,6 @@ def read_output_file(
                 if anchor_statistics.step_count > 0:
                     anchor_statistics.compute_k_alpha_beta()
                     anchor_statistics_windows_list.append(anchor_statistics)
-                #if step_count > 3998000:
-                #    print("anchor_statistics:", anchor_statistics)
                 anchor_statistics = Mmvt_anchor_statistics(alpha=alpha)
                 anchor_statistics.N_i_j_alpha = defaultdict(int)
                 anchor_statistics.R_i_alpha_total = defaultdict(float)

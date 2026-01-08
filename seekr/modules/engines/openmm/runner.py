@@ -29,37 +29,38 @@ class Runner_openmm():
             model: structures.Seekr_model, 
             stage_output_index: int,
             anchor_index: int | None = None):
-        self._model = model
-        self._stage_output_index = stage_output_index
-        self._anchor_index = anchor_index
-        self._ensemble: base.Ensemble | None = None
+        self.model = model
+        self.stage_output_index = stage_output_index
+        self.anchor_index = anchor_index
+        self.ensemble: base.Ensemble | None = None
+        self.restart_checkpoint_interval: int | None = None
+        self.start_step: int = 0
+        self.min_steps: int = 0
+        self.max_steps: int = 0
 
     def get_ensemble(self) -> base.Ensemble:
-        assert self._ensemble is not None, "The ensemble is not set."
-        return self._ensemble
+        assert self.ensemble is not None, "The ensemble is not set."
+        return self.ensemble
 
     def prepare(
             self, 
             restart: bool = False, 
             force_overwrite: bool = False, 
-            swarm_index: int | None = None
+            swarm_id: int = 0
             ) -> int:
         """
         This function gets run before the sim_openmm object is created
         so that the proper paths can be found, etc.
         """
-        # TODO: find a better way to deal with the swarm index that eliminates the None
-        if swarm_index is None:
-            swarm_index = 0
         md_parameters_half_directory = None
-        md_engine = self._model.get_engine_by_scale_type("molecular_dynamics")
+        md_engine = self.model.get_engine_by_scale_type("molecular_dynamics")
         assert md_engine is not None
         assert md_engine.type == "openmm", \
             "This model was not prepared for OpenMM."
         assert md_engine.systemwide_settings is not None, \
             "No systemwide settings are set in the model."
         anchor_systemwide: structures.Anchor | engines_structures.MD_systemwide_settings
-        if self._anchor_index is None:
+        if self.anchor_index is None:
             anchor = None
             anchor_systemwide = md_engine.systemwide_settings
             self.md_parameters_topology \
@@ -71,7 +72,7 @@ class Runner_openmm():
                     md_engine.systemwide_settings.directory, 
                     md_engine.systemwide_settings.stage_parameters[0]["directory"])
         else:
-            anchor = self._model.anchors[self._anchor_index]
+            anchor = self.model.anchors[self.anchor_index]
             anchor_systemwide = anchor
             anchor_md_parameters_topology \
                 = anchor.scale_parameters_topology.get("molecular_dynamics")
@@ -93,42 +94,41 @@ class Runner_openmm():
         assert md_parameters_half_directory is not None, \
             "No initial directory from which to take MD parameters/topology."
         self.md_parameters_directory = os.path.join(
-            self._model.directory, md_parameters_half_directory)
-        stage_output = self._model.stages[self._stage_output_index]
+            self.model.directory, md_parameters_half_directory)
+        stage_output = self.model.stages[self.stage_output_index]
         anchor_systemwide_dir = anchor_systemwide.directory
         # MYPY: ignore mypy error here - the dictionary is having trouble with typing
-        # TODO: replace all references to this dictionary with a call to anchor or systemwide?
-        stage_output_directory \
-            = anchor_systemwide.stage_parameters[self._stage_output_index+1]["directory"]
+        stage_output_directory = anchor_systemwide.get_stage_output_directory(
+            self.stage_output_index + 1)
         assert stage_output.type == "md_stage"
-        self._ensemble = stage_output.ensemble
+        self.ensemble = stage_output.ensemble
         # Sampling method interfaces
         sampling_method = stage_output.sampling_method
-        self._output_positions_basename = sampling_method.get_final_pdb_output_basename(
-            toy_mode=self._model.using_toy(),
-            frame_number=swarm_index)
+        self.output_positions_basename = sampling_method.get_final_pdb_output_basename(
+            toy_mode=self.model.using_toy(),
+            frame_number=swarm_id)
         self.sampling_engine_interface = sampling_openmm_interface\
             .assign_sampling_method_interface(
-                self._stage_output_index, sampling_method, md_engine,
-                self._model.plugins)
+                self.stage_output_index, sampling_method, md_engine,
+                self.model.plugins)
         # Completion criteria interfaces.
         completion_criteria = stage_output.completion_criteria
         self.completion_criteria_interface = completion_openmm_interface\
             .assign_completion_interface(
-                completion_criteria, self._model, stage_output, anchor_systemwide)
+                completion_criteria, self.model, stage_output, anchor_systemwide)
         # Restraints interfaces.
         self.restraints_interfaces = []
         for restraint in stage_output.restraints:
             self.restraints_interfaces.append(
                 restraints_openmm_interface.assign_restraints_interface(
-                    restraint, md_engine, self._model.plugins)
+                    restraint, md_engine, self.model.plugins)
             )
         # Reporters interfaces.
         self.reporters_interfaces = []
         for reporter in stage_output.reporters:
             self.reporters_interfaces.append(
                 reporters_openmm_interface.assign_reporter_interface(
-                    reporter, md_engine, self._model.plugins)
+                    reporter, md_engine, self.model.plugins)
             )
         # TODO: check in loaded modules from model JSON to see if any of these
         #  modules contain a "assign_interface" function, and run them.
@@ -149,12 +149,12 @@ class Runner_openmm():
                 = md_engine.systemwide_settings\
                     .stage_parameters[input_stage_index]
             input_positions_filenames = md_engine.systemwide_settings\
-                .get_positions_full_paths(self._model.directory, input_stage_index, swarm_index)
+                .get_positions_full_paths(self.model.directory, input_stage_index, swarm_id)
         elif stage_output.input_from == "anchors":
             assert anchor is not None
             input_stage_parameter = anchor.stage_parameters[input_stage_index]
             input_positions_filenames = anchor.get_positions_full_paths(
-                self._model.directory, input_stage_index, swarm_index)
+                self.model.directory, input_stage_index, swarm_id)
         else:
             raise Exception("Invalid input stage type: "\
                 f"{stage_output.input_from}.")
@@ -162,16 +162,16 @@ class Runner_openmm():
         # MYPY: ignore mypy error here - the dictionary is having trouble with typing
         input_stage_directory = input_stage_parameter["directory"]
         self.input_directory = os.path.join(
-            self._model.directory, anchor_systemwide_dir, input_stage_directory)
+            self.model.directory, anchor_systemwide_dir, input_stage_directory)
         self.running_directory = os.path.join(
-            self._model.directory, anchor_systemwide_dir, stage_output_directory)
-        self._basename = stage_output.sampling_method.get_output_positions_basename_noext()
+            self.model.directory, anchor_systemwide_dir, stage_output_directory)
+        self.basename = stage_output.sampling_method.get_output_positions_basename_noext()
         assert len(input_positions_filenames) == 1, \
             "Ambiguity detected in input positions files: "\
             f"{input_positions_filenames}. "
         self.input_positions = os.path.basename(input_positions_filenames[0])
 
-        glob_ = stage_output.sampling_method.get_output_positions_glob_list()
+        glob_ = stage_output.sampling_method.get_output_positions_glob_list(swarm_id=swarm_id)
         
         if stage_output.input_from == "systemwide":
             if stage_output.output_to == "systemwide":
@@ -180,7 +180,7 @@ class Runner_openmm():
 
             elif stage_output.output_to == "anchors":
                 anchor_dirs_glob = os.path.join(
-                    self._model.directory, "anchor_*", stage_output_directory)
+                    self.model.directory, "anchor_*", stage_output_directory)
                 output_files_glob_dir = os.path.join(
                     anchor_dirs_glob)
 
@@ -189,7 +189,7 @@ class Runner_openmm():
         elif stage_output.input_from == "anchors":
             if stage_output.output_to == "systemwide":
                 systemwide_dir_glob = os.path.join(
-                    self._model.directory, "systemwide", stage_output_directory)
+                    self.model.directory, "systemwide", stage_output_directory)
                 output_files_glob_dir = os.path.join(
                     systemwide_dir_glob)
 
@@ -200,25 +200,18 @@ class Runner_openmm():
             else:
                 raise Exception("Invalid output_to")
             
-        self._restart_checkpoint_interval: int | None = None
-        self._start_step: int = 0
-        self._min_steps: int = 0
-        self._max_steps: int = 0
-        self._swarm_index = swarm_index
-        self._swarm_string = ""
+        self.swarm_id = swarm_id
+        self.swarm_string = ""
         assert md_engine.type == "openmm", \
             "This model was not prepared for OpenMM."
         restart_index = 1
-        if swarm_index is None:
-            self._swarm_string = ""
-        else:
-            self._swarm_string = ".swarm_{}".format(swarm_index)
+        self.swarm_string = ".swarm_{}".format(swarm_id)
             
         output_files_list = base.glob_or(glob_, output_files_glob_dir)
         checkpoint_information_basename = engines_runner\
-            .get_checkpoint_information_basename(swarm_index)
+            .get_checkpoint_information_basename(swarm_id)
         restart_checkpoint_basename = engines_runner\
-            .get_restart_checkpoint_basename(swarm_index)
+            .get_restart_checkpoint_basename(swarm_id)
         self.checkpoint_information_filename = os.path.join(
             self.running_directory, checkpoint_information_basename)
         self.restart_checkpoint_filename = os.path.join(
@@ -250,12 +243,12 @@ class Runner_openmm():
             if force_overwrite:
                 if anchor is None:
                     preparer.cleanse_outputs_stage(
-                        self._model, md_engine.systemwide_settings, 
-                        self._stage_output_index)
+                        self.model, md_engine.systemwide_settings, 
+                        self.stage_output_index, swarm_id)
                 else:
                     preparer.cleanse_outputs_stage(
-                        self._model, anchor, self._stage_output_index)
-                        
+                        self.model, anchor, self.stage_output_index, swarm_id)
+
         return restart_index
     
     def run(
@@ -273,19 +266,18 @@ class Runner_openmm():
         assert self.sampling_engine_interface is not None
         self.sampling_engine_interface.assign_system_openmm(system)
         self.sampling_engine_interface.assign_sim_openmm(simulation)
-        output_stage = self._model.stages[self._stage_output_index]
+        output_stage = self.model.stages[self.stage_output_index]
         assert output_stage.type == "md_stage"
         assert self.completion_criteria_interface is not None
-        self._restart_checkpoint_interval \
+        self.restart_checkpoint_interval \
             = output_stage.md_restart_checkpoint_interval
         # TODO: have multiple kinds of simulation? Like umbrella stage, other stages?
         # This can be handled by making elber umbrella vs. elber reverse vs. elber forward
         if restart:
             simulation.loadCheckpoint(self.restart_checkpoint_filename)
             currentStep = simulation.context.getState().getStepCount()
-            self._start_step = currentStep #int(
-            #    currentStep // self._restart_checkpoint_interval)
-            
+            self.start_step = currentStep 
+
             simulation.currentStep = currentStep
             logging.info(
                   "restarting from saved checkpoint:"\
@@ -293,37 +285,52 @@ class Runner_openmm():
             # see how many restart files have already been created
             reporter_basename = os.path.join(
                 self.running_directory, 
-                f"{self._basename}{restart_index}{self._swarm_string}"
+                f"{self.basename}{restart_index}{self.swarm_string}"
             )
         else:
-            self._start_step = 0
+            self.start_step = 0
             reporter_basename = os.path.join(
                 self.running_directory, 
-                f"{self._basename}1{self._swarm_string}")
+                f"{self.basename}1{self.swarm_string}")
         
-        self._min_steps = output_stage.completion_criteria.get_min_sim_len()
-        self._max_steps = output_stage.completion_criteria.get_max_sim_len()
+        self.min_steps = output_stage.completion_criteria.get_min_sim_len()
+        self.max_steps = output_stage.completion_criteria.get_max_sim_len()
         self.sampling_engine_interface.pre_simulation_preparations(
-            #system=self.sim_openmm.system,
-            model=self._model,
+            model=self.model,
             directory=self.running_directory,)
         for i, reporter_interface in enumerate(self.reporters_interfaces):
             reporter_ext = reporter_interface.get_reporter_extension()
             reporter_filename = reporter_basename + f".reporter_{i}." + reporter_ext
             reporter_interface.add_reporter_to_simulation(
                 simulation=simulation, filename=reporter_filename, 
-                toy_mode=self._model.using_toy())
+                toy_mode=self.model.using_toy())
         lock_filename = os.path.join(
             self.running_directory, "LOCK")
-        steps_between_evals = output_stage.completion_criteria\
+        steps_between_evals_compl_crit = output_stage.completion_criteria\
             .get_evaluation_interval()
+        steps_between_evals_sampling = self.sampling_engine_interface\
+            .get_evaluation_interval()
+        if steps_between_evals_compl_crit  == 0:
+            if steps_between_evals_sampling == 0:
+                steps_between_evals = 0
+            else:
+                steps_between_evals = steps_between_evals_sampling
+        else:
+            if steps_between_evals_sampling == 0:
+                steps_between_evals = steps_between_evals_compl_crit
+            else:
+                assert steps_between_evals_compl_crit == steps_between_evals_sampling, \
+                    "The evaluation intervals for the sampling method and "\
+                    "the completion criteria do not match. Please make them "\
+                    "the same, or set one of them to 0."
+                steps_between_evals = steps_between_evals_compl_crit
         start_time = time.time()
         num_steps = self.sampling_engine_interface.run(
-            steps_between_checkpoints=self._restart_checkpoint_interval,
+            steps_between_checkpoints=self.restart_checkpoint_interval,
             steps_between_evals=steps_between_evals,
-            start_step=self._start_step, min_steps=self._min_steps, 
-            max_steps=self._max_steps, restart_index=restart_index,
-            swarm_index=self._swarm_index,
+            start_step=self.start_step, min_steps=self.min_steps,
+            max_steps=self.max_steps, restart_index=restart_index,
+            swarm_id=self.swarm_id,
             checkpoint_filename=self.restart_checkpoint_filename,
             checkpoint_info_filename=self.checkpoint_information_filename,
             lock_filename=lock_filename,
@@ -334,10 +341,10 @@ class Runner_openmm():
             * 86400 / total_time
         logging.info(f"Final benchmark (ns/day): {ns_per_day}")
         # Write final PDB file
-        if self._output_positions_basename is not None:
+        if self.output_positions_basename is not None:
             final_positions_filename = os.path.join(
-                self.running_directory, self._output_positions_basename)
-            if self._model.using_toy():
+                self.running_directory, self.output_positions_basename)
+            if self.model.using_toy():
                 sampling_openmm_interface.write_txt_file_from_simulation(
                     final_positions_filename, simulation)
             else:
@@ -350,7 +357,7 @@ def run_simulation(
         stage_index: int, 
         anchor_index: int, 
         restart: bool, 
-        swarm_index: int | None = None, 
+        swarm_id: int, 
         device_index: str | None = None,
         force_overwrite: bool = False
         ) -> None:
@@ -372,14 +379,10 @@ def run_simulation(
         md_engine.platform_settings.device_index = device_index
 
     runner = Runner_openmm(model, stage_index, anchor_index)
-    restart_index = runner.prepare(restart, force_overwrite, swarm_index)
+    restart_index = runner.prepare(restart, force_overwrite, swarm_id)
     #assert runner.md_parameters_topology is not None
     assert runner.sampling_engine_interface is not None
     assert runner.completion_criteria_interface is not None
-    if swarm_index is None:
-        frame = 0
-    else:
-        frame = swarm_index
     sim_openmm_obj = None
     if sim_openmm_obj is None:
         sim_openmm_obj = sim_openmm.create_sim_openmm(
@@ -390,11 +393,13 @@ def run_simulation(
             md_parameters_directory=runner.md_parameters_directory,
             md_parameters_topology=runner.md_parameters_topology, 
             running_directory=runner.running_directory,
-            frame=frame, 
             ensemble=runner.get_ensemble(),
             sampling_engine_interface=runner.sampling_engine_interface,
             completion_criteria_interface=runner.completion_criteria_interface, 
-            restraints_interfaces=runner.restraints_interfaces)
+            restraints_interfaces=runner.restraints_interfaces,
+            swarm_id=swarm_id,
+            restart=restart
+            )
             
     runner.run(sim_openmm_obj, restart, restart_index)
     return

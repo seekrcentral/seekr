@@ -586,15 +586,19 @@ def check_mutual_neighbor_anchors(
     double_booked_neighbors = set()
     for anchor in model.anchors:
         for milestone in anchor.milestones:
+            if not milestone.boundary:
+                continue
             anchor2 = model.anchors[milestone.neighbor_anchor_index]
             # now check this anchor to ensure that it has me as a neighbor
             has_me_as_neighbor = False
             for milestone2 in anchor2.milestones:
+                if not milestone2.boundary:
+                    continue
                 if anchor.index == milestone2.neighbor_anchor_index:
                     if has_me_as_neighbor:
                         double_booked_neighbors.add(anchor.index)
                     has_me_as_neighbor = True
-            
+                    
             if not has_me_as_neighbor:
                 anchors_missing_neighbors.add(anchor.index)
     

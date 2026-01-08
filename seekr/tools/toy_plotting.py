@@ -136,7 +136,8 @@ class Toy_plot():
     def load_trajs(
             self, 
             stage: md_structures.Stage_md, 
-            anchor_indices: None | list[int]
+            anchor_indices: None | list[int],
+            swarm_id_wanted: int | None = None
             ) -> list[list[nptyping.ArrayLike]]:
         """
         Load the trajectory files of the toy system and return arrays of 
@@ -166,22 +167,27 @@ class Toy_plot():
                 pdb_path = os.path.join(
                     rootdir, anchor_or_systemwide.directory, 
                     anchor_or_systemwide.stage_parameters[stage_id]["directory"], "toy.pdb")
-            swarm0_dcds_glob = os.path.join(
+            swarm_dcds_glob = os.path.join(
                 rootdir, anchor_or_systemwide.directory, 
                 anchor_or_systemwide.stage_parameters[stage_id]["directory"], 
-                "*swarm_0.reporter_*.dcd")
-            num_swarm0_dcds = len(glob.glob(swarm0_dcds_glob))
-            if num_swarm0_dcds == 0:
-                continue
+                "*1.swarm_*.reporter_*.dcd")
+            swarm_dcds = glob.glob(swarm_dcds_glob)
+            swarm_ids = []
+            for swarm_dcd in swarm_dcds:
+                match = re.search(r"swarm_(\d+)", swarm_dcd)
+                if match:
+                    swarm_id = int(match.group(1))
+                    if swarm_id_wanted is not None and swarm_id != swarm_id_wanted:
+                        continue
+                    swarm_ids.append(swarm_id)
+            swarm_ids.sort()
             positions_frame_list = []
             num_steps = 0
-            for swarm_frame in range(num_swarm0_dcds):
-                if num_swarm0_dcds == 1:
-                    dcd_file_glob = "*.dcd".format(swarm_frame)
-                else:
-                    dcd_file_glob = "*.swarm_{}.reporter_*.dcd".format(swarm_frame)
+            for swarm_id in swarm_ids:
+                dcd_file_glob = "*.swarm_{}.reporter_*.dcd".format(swarm_id)
                 dcd_glob = os.path.join(
-                    rootdir, anchor_or_systemwide.directory, anchor_or_systemwide.stage_parameters[stage_id]["directory"], 
+                    rootdir, anchor_or_systemwide.directory, 
+                    anchor_or_systemwide.stage_parameters[stage_id]["directory"], 
                     dcd_file_glob)
                 dcd_files = glob.glob(dcd_glob)
                 if len(dcd_files) == 0:
@@ -285,13 +291,14 @@ class Toy_plot():
     def animate_trajs(
             self, 
             stage: md_structures.Stage_md,
-            animating_anchor_indices: None | list[int]
+            animating_anchor_indices: None | list[int],
+            swarm_id: int | None = None
             ) -> animation.FuncAnimation:
         """
         Animate the trajectories to view how the system progresses along
         the landscape.
         """
-        positions_list, _ = self.load_trajs(stage, animating_anchor_indices)
+        positions_list, _ = self.load_trajs(stage, animating_anchor_indices, swarm_id)
         walks = self.traj_walk(positions_list)
         lines = self.make_graphical_objects(len(walks))
         
@@ -357,7 +364,9 @@ def toy_plotting(
         miny: float | None = None, 
         maxy: float | None = None, 
         animating_anchor_indices: list[int] | None = None,
-        traj_stride: int = 1):
+        traj_stride: int = 1,
+        swarm_id: int | None = None,
+        ) -> None:
     """
     Main function to run the toy plotting.
     """
@@ -387,7 +396,7 @@ def toy_plotting(
         else:
             raise Exception("1D CV functions including both x1 and y1 not yet implemented.")
         draw_linear_milestones(toy_plot, ["value"])
-    ani = toy_plot.animate_trajs(stage, animating_anchor_indices)
+    ani = toy_plot.animate_trajs(stage, animating_anchor_indices, swarm_id)
     plt.show()
     return
 
@@ -401,7 +410,7 @@ if __name__ == "__main__":
         "stage", metavar="STAGE", type=str,
         help="The name or index of the stage to run.")
     argparser.add_argument(
-        "-s", "--stride", dest="stride", type=int, default=1,
+        "-S", "--stride", dest="stride", type=int, default=1,
         help="The stride to use for trajectories. Default: 1.")
     argparser.add_argument(
         "-t", "--title", dest="title", type=str, default="Toy System",
@@ -431,6 +440,11 @@ if __name__ == "__main__":
         default="all", help="A comma-separated list of anchor indices whose "
         "trajectories will be plotted. If 'all' is entered, then all anchors with "
         "existing trajectories will be plotted. Default: 'all'.")
+    argparser.add_argument(
+        "-s", "--swarm_id", dest="swarm_id", type=int, default=None,
+        help="The swarm ID to run. This is only relevant for stages that "\
+            "use swarm sampling methods. If not specified, all swarm IDs "\
+            "that need to be run will be run. Default: None.",)
     
     args = argparser.parse_args()
     args = vars(args)
@@ -443,9 +457,12 @@ if __name__ == "__main__":
     miny = args["miny"]
     maxy = args["maxy"]
     animating_anchor_indices = args["animating_anchor_indices"]
+    swarm_id = args["swarm_id"]
+
     if animating_anchor_indices == "all":
         animating_anchor_indices = None
     else:
         animating_anchor_indices = [int(i) for i in animating_anchor_indices.split(",")]
     model = structures.load_model(model_file)
-    toy_plotting(model, stage_arg, title, minx, maxx, miny, maxy, animating_anchor_indices, traj_stride=stride)
+    toy_plotting(model, stage_arg, title, minx, maxx, miny, maxy, animating_anchor_indices, 
+                 traj_stride=stride, swarm_id=swarm_id)

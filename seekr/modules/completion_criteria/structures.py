@@ -120,8 +120,8 @@ class Number_of_trajectories_completion_criteria(Base_completion_criteria):
         """
         Return the minimum simulation length for this completion criteria.
         """
-        return MAX_BD_STEPS
-    
+        return self.max_number_of_steps
+
     def get_evaluation_interval(self) -> int:
         return 0
     

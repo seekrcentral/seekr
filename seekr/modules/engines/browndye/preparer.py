@@ -294,6 +294,8 @@ def make_browndye_input_xml(
     #if root.n_trajectories_per_output > root.n_trajectories:
     #    root.n_trajectories_per_output = root.n_trajectories
     root.n_threads = n_threads
+    # TODO: pass this variable from the model object, not a constant - sometimes
+    # It's helpful to have an alternative possibility for a Reaction filename.
     root.system.reaction_file = browndye_base.REACTION_FILENAME
     reaction_filename = root.system.reaction_file
     if make_apbs_mode:

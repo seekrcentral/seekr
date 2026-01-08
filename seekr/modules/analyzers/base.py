@@ -459,7 +459,8 @@ def plot_scalar_conv(
         title: str, 
         conv_errors: dict | None = None,
         y_axis_logarithmic: bool = True,
-        return_plot: bool = True
+        return_plot: bool = True,
+        xlabel: str = "time per anchor (ns)",
         ) -> None | tuple:
     """
     Plot convergence of off/on rate or other scalar values as a 
@@ -515,7 +516,7 @@ def plot_scalar_conv(
     ax.set_xlim((0.0, upper_limit))
     plt.ylabel("$"+label+"$")
     # TODO: change this to plotting over time
-    plt.xlabel("time per anchor (ns)")
+    plt.xlabel(xlabel)
     plt.title(title)
     if y_axis_logarithmic:
         plt.yscale("log", nonpositive="mask")
@@ -537,7 +538,8 @@ def plot_2d_conv(
         conv_errors: dict | None = None,
         y_axis_logarithmic: bool = True,
         num_convergence_steps: int | None = 8,
-        return_plot: bool = True
+        return_plot: bool = True,
+        ylabel: str = "time (ns)"
         ) -> None | tuple:
     """
     
@@ -613,7 +615,7 @@ def plot_2d_conv(
     upper_limit = ax.get_ylim()[1]
     ax.set_ylim((upper_limit, 0))
     ax.set_xlabel(xlabel, labelpad=12)
-    ax.set_ylabel("time (ns)", labelpad=12)
+    ax.set_ylabel(ylabel, labelpad=12)
     ax.set_zlabel(zlabel + (" (log₁₀ scale)" if y_axis_logarithmic else ""), labelpad=14)
     plt.title(title)
     if return_plot:
@@ -635,7 +637,8 @@ def plot_dict_conv(
         title_suffix: str = "", 
         name_base: str | None = None,
         draw_double: bool = True,
-        return_plot: bool = True
+        return_plot: bool = True,
+        xlabel: str = "time per anchor (ns)",
         ) -> None | tuple:
     """
     Plot convergence of N_ij or R_i or other dictionary-based value 
@@ -734,7 +737,7 @@ def plot_dict_conv(
             ax1.fill_between(conv_times, conv_values - conv_error, 
                              conv_values + conv_error, color="r", alpha=0.2)
         ax1.set_ylabel(label, color="r")
-        ax1.set_xlabel("time per anchor (ns)")
+        ax1.set_xlabel(xlabel)
         if y_axis_logarithmic:
             plt.yscale("log", nonpositive="mask")
         ax_list.append(ax1)
@@ -1076,6 +1079,8 @@ def plot_milestones_2d(
     fig, ax, vor, anchor_points = plot_voronoi_tesselation(
         model, boundaries, fill_values=None)
     milestone_points = find_milestone_points_2d(model, vor, boundaries)
+    print("Found {} milestones.".format(len(milestone_points)))
+    print("fill_values:", fill_values)
     ax.set_title(title)
     ax.set_xlabel(x_coordinate_title)
     ax.set_ylabel(y_coordinate_title)

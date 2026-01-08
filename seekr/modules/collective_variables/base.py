@@ -7,13 +7,13 @@ any other common structures or functions related to CVs.
 
 import typing
 
-class Base_CV(typing.Protocol):
+class Base_CV:
     """
     Base class for all collective variables.
     """
     pass
 
-class Base_CV_input(typing.Protocol):
+class Base_CV_input:
     """
     Base class for all collective variable inputs.
     """

@@ -22,7 +22,8 @@ Run_instruction_bd = namedtuple(
         "trajs_so_far",
         "anchor_index",
         "restart",
-        "num_transitions"
+        "num_transitions",
+        "message"
     ])
 
 def get_calculation_directory_bd(
@@ -125,6 +126,8 @@ def choose_next_simulation_bd(
         model: structures.Seekr_model,
         stage_bd: scales_structures.Stage,
         force_overwrite: bool,
+        use_json: bool = True,
+        silent: bool = False
         ) -> list:
     bd_engine = model.get_engine_by_scale_type("brownian_dynamics")
     # Device_index is currently irrelevant because no BD engine
@@ -167,9 +170,12 @@ def choose_next_simulation_bd(
         bd_transition_counts = bd_engine.modify_bd_transition_counts(
             bd_transition_counts, lower_milestone_index, upper_milestone_index)
     
+    completed, message = is_finished_bd_with_message(
+        model, stage_bd, use_json=use_json)
+
     if "b_surface" not in bd_transition_counts:
         run_instruction = Run_instruction_bd(
-            num_trajs_needed, 0, bulk_index, False, 0)
+            num_trajs_needed, 0, bulk_index, False, 0, message)
         run_instructions_unsorted.append(run_instruction)
     else:
         # see how many simulations need to be run in b_surface
@@ -187,7 +193,7 @@ def choose_next_simulation_bd(
         if steps_to_go_minimum > 0:
             run_instruction = Run_instruction_bd(
                 steps_to_go_minimum, b_surface_sims_so_far, bulk_index, True, 
-                total_b_surface_encounters)
+                total_b_surface_encounters, message)
             run_instructions_unsorted.append(run_instruction)
             
         elif min_b_surface_encounters is not None:

@@ -312,7 +312,7 @@ def struct_cv_inputs(
         ) -> cv_base.Base_CV_input:
     typ = obj.pop("type")
     return cattrs.structure(obj, cv_inputs[typ])
-
+    
 def read_input(input_filename: str) -> Seekr_input:
     """
     Read the input JSON file into the input object.
@@ -571,43 +571,52 @@ def cleanse_outputs_stage(
         model: "structures.Seekr_model",
         anchor_or_systemwide: engines_structures.MD_systemwide_settings \
             | structures.Anchor, 
-        stage_index: int
+        stage_index: int,
+        swarm_id: int
         ) -> None:
     """
     Delete all simulation outputs from systemwide or anchor.
     """
     stage = model.stages[stage_index]
+    swarm_string = f"*swarm_{swarm_id}"
     # Replace with methods in the scales
     if stage.type == "md_stage":
         full_directory = os.path.join(model.directory, anchor_or_systemwide.directory, 
                                     stage.get_directory_name())
         if os.path.exists(full_directory):
-            file_globs = stage.sampling_method.get_output_positions_glob_list()
+            file_globs = stage.sampling_method.get_output_positions_glob_list(swarm_id)
             for file_glob in file_globs:
                 full_glob = os.path.join(full_directory, file_glob)
                 for file in glob.glob(full_glob):
+                    #print("removing file:", file)
                     os.remove(file)
-            dcd_glob = os.path.join(full_directory, "*.dcd")
+                    
+            dcd_glob = os.path.join(full_directory, f"{swarm_string}*.dcd")
             for dcd_file in glob.glob(dcd_glob):
+                #print("removing file:", dcd_file)
                 os.remove(dcd_file)
-            out_glob = os.path.join(full_directory, "*.out")
+            out_glob = os.path.join(full_directory, f"{swarm_string}.out")
             for out_file in glob.glob(out_glob):
+                #print("removing file:", out_file)
                 os.remove(out_file)
-            log_glob = os.path.join(full_directory, "*.log")
-            for log_file in glob.glob(log_glob):
-                os.remove(log_file)
+            #log_glob = os.path.join(full_directory, "*.log")
+            #for log_file in glob.glob(log_glob):
+            #    os.remove(log_file)
             backup_info_glob = os.path.join(full_directory, 
                 engines_base.INFORMATION_CHECKPOINT_FILENAME_NOEXT \
-                + "*" + engines_base.INFORMATION_CHECKPOINT_FILENAME_EXT)
+                + f"{swarm_id}." + engines_base.INFORMATION_CHECKPOINT_FILENAME_EXT)
             for backup_info_file in glob.glob(backup_info_glob):
+                #print("removing file:", backup_info_file)
                 os.remove(backup_info_file)
             backup_glob = os.path.join(full_directory, 
                 engines_base.RESTART_CHECKPOINT_FILENAME_NOEXT \
-                + "*" + engines_base.RESTART_CHECKPOINT_FILENAME_EXT)
+                + f".{swarm_id}." + engines_base.RESTART_CHECKPOINT_FILENAME_EXT)
             for backup_file in glob.glob(backup_glob):
+                #print("removing file:", backup_file)
                 os.remove(backup_file)
             lock_filename = os.path.join(full_directory, "LOCK")
             if os.path.exists(lock_filename):
+                #print("removing file:", lock_filename)
                 os.remove(lock_filename)
     elif stage.type == "bd_stage":
         assert model.bd_engine is not None
@@ -636,7 +645,6 @@ def cleanse_outputs_stage(
         if plugin_module_str is not None:
             plugin_module_prep = importlib.import_module(plugin_module_str+".preparer")
             plugin_module_prep.cleanse_outputs_stage(model, anchor_or_systemwide, stage_index)
-
     return
 
 def modify_model(
@@ -737,7 +745,7 @@ def modify_model(
     deleting_directories_with_files = []
     for del_anchor_index in old_anchors_to_delete:
         del_anchor: structures.Anchor = old_model.anchors[del_anchor_index]
-        if del_anchor.has_files(root_directory):
+        if del_anchor.has_files(old_model, root_directory):
             deleting_directories_with_files.append(del_anchor.directory)
     
     if len(deleting_directories_with_files) > 0 :
@@ -753,7 +761,7 @@ def modify_model(
     cleansing_directories: list[str] = []
     for cleanse_anchor_index in old_anchors_with_changed_milestones:
         cleanse_anchor: structures.Anchor = old_model.anchors[cleanse_anchor_index]
-        if cleanse_anchor.has_files(root_directory):
+        if cleanse_anchor.has_files(old_model, root_directory):
             cleansing_anchors.append(cleanse_anchor)
             cleansing_directories.append(cleanse_anchor.directory)
     

@@ -85,6 +85,9 @@ def choose_next_simulation(
         stage: scales_structures.Stage,
         choose_params: dict,
         force_overwrite: bool,
+        swarm_id: int | None = None,
+        use_json: bool = True,
+        silent: bool = False
         ) -> list:
     """
     Choose the next simulation to run based on the stage scale, and return
@@ -94,9 +97,12 @@ def choose_next_simulation(
         anchor_index_instruction = choose_params["anchor_index_instruction"]
         device_index = choose_params["device_index"]
         run_instructions = md_runner.choose_next_simulation_md(
-            model, stage, anchor_index_instruction, force_overwrite, device_index)
+            model, stage, anchor_index_instruction, force_overwrite, device_index, swarm_id, 
+            use_json, silent=silent)
     elif stage.scale_type == "brownian_dynamics":
-        run_instructions = bd_runner.choose_next_simulation_bd(model, stage, force_overwrite)
+        assert swarm_id is None, "Swarm ID is not used in BD simulations."
+        run_instructions = bd_runner.choose_next_simulation_bd(
+            model, stage, force_overwrite, use_json, silent=silent)
     else:
         raise Exception(f"Stage type not recognized: {stage.type}.")
     return run_instructions

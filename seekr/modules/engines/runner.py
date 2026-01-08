@@ -38,7 +38,7 @@ def run_simulation(
         stage_index: int, 
         restart: bool, 
         anchor_index: int | None = None, 
-        swarm_index: int | None = None, 
+        swarm_id: int | None = None, 
         device_index: str | None = None,
         n_trajectories: int = 0,
         force_overwrite: bool = False
@@ -52,7 +52,7 @@ def run_simulation(
         import seekr.modules.engines.openmm.runner as runner_openmm
         runner_openmm.run_simulation(
             model, stage_index, anchor_index, 
-            restart, swarm_index, device_index, 
+            restart, swarm_id, device_index, 
             force_overwrite)
     elif engine.type == "browndye":
         runner_browndye.run_simulation(
@@ -62,6 +62,8 @@ def run_simulation(
             model, n_trajectories, restart, force_overwrite)
     else:
         # TODO: search plugins for other MD engines
+        # Oct 9, 2025 - This is not a priority right now, as we are a long way
+        #  from supporting other engines in plugins.
         pass
 
     return
@@ -85,28 +87,26 @@ def cleanse_outputs_bd(
                                       check_mode=False)
         found_engine = True
     else:
-        # TODO: search plugins for other MD engines
+        # TODO: search plugins for other BD engines
+        # Oct 9, 2025 - This is not a priority right now, as we are a long way
+        #  from supporting other engines in plugins.
         pass
 
     if not found_engine:
         raise Exception(f"BD engine not found: {bd_engine.type}.")
     
 def get_checkpoint_information_basename(
-        swarm_index: int | None
+        swarm_id: int
         ) -> str:
-    if swarm_index is None:
-        swarm_index = 0
     checkpoint_information_filename \
             = engines_base.INFORMATION_CHECKPOINT_FILENAME_NOEXT \
-            + f".swarm_{swarm_index}" \
+            + f".swarm_{swarm_id}" \
             + engines_base.INFORMATION_CHECKPOINT_FILENAME_EXT
     return checkpoint_information_filename
 
 def get_restart_checkpoint_basename(
-        swarm_index: int | None
+        swarm_id: int
         ) -> str:
-    if swarm_index is None:
-        swarm_index = 0
     restart_checkpoint_filename = engines_base.RESTART_CHECKPOINT_FILENAME_NOEXT\
-            + str(swarm_index) + engines_base.RESTART_CHECKPOINT_FILENAME_EXT
+            + str(swarm_id) + engines_base.RESTART_CHECKPOINT_FILENAME_EXT
     return restart_checkpoint_filename

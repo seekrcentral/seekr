@@ -10,9 +10,8 @@ import os
 import functools
 from collections import defaultdict
 
-from attrs import define, field, validators
+from attrs import define
 import numpy as np
-import matplotlib.pyplot as plt
 
 import seekr.modules.analyzers.base as analyzers_base
 import seekr.modules.analyzers.mmvt_data_window as mmvt_data_window

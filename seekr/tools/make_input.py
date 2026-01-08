@@ -424,10 +424,10 @@ def create_host_guest_example_input(
         stage4.n_trajectories_per_output = 1000
         stage4.n_steps_per_output = 100000
         stage4.sampling_method = sampling_preparer.NAM_bd_input()
-        #stage4.completion_criteria = compl_crit_struct.Number_of_trajectories_completion_criteria()
-        #stage4.completion_criteria.number_of_trajectories = 10000
-        stage4.completion_criteria = compl_crit_struct.Number_of_encounters_completion_criteria()
-        stage4.completion_criteria.number_of_encounters = 1000
+        stage4.completion_criteria = compl_crit_struct.Number_of_trajectories_completion_criteria()
+        stage4.completion_criteria.number_of_trajectories = 10000
+        #stage4.completion_criteria = compl_crit_struct.Number_of_encounters_completion_criteria()
+        #stage4.completion_criteria.number_of_encounters = 1000
         seekr_input.stages.append(stage4)
     
     seekr_input.partitions = [preparer.Partition_input()]
