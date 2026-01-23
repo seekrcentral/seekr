@@ -199,14 +199,15 @@ class Anchor:
     def generate_filetree(
             self, 
             model: "Seekr_model",
-            root_directory: str
+            root_directory: str,
+            anchor_set_name: str
             ) -> None:
         """
         Generate the filetree for this anchor.
         """
         for scale_type in self.scale_types:
             scale = model.get_scale_by_type(scale_type)
-            scale.generate_filetree_anchor(self, root_directory)
+            scale.generate_filetree_anchor(self, root_directory, anchor_set_name)
         
         return
     
@@ -225,6 +226,18 @@ class Anchor:
                     return False
         return True
     
+    def get_stage_parameters_by_index(
+            self,
+            stage_index: int
+            ) -> dict:
+        """
+        Get the stage parameters for a given stage index.
+        """
+        for stage_parameters in self.stage_parameters:
+            if stage_parameters["index"] == stage_index:
+                return stage_parameters
+        raise Exception(f"Stage parameters with index {stage_index} not found.")
+
     def get_positions_full_paths(
             self,
             root_directory: str,
@@ -234,13 +247,10 @@ class Anchor:
         """
         Construct the full path to the PDB/TXT for this anchor and stage.
         """
-        assert len(self.stage_parameters) > input_stage_index, "Stage index "\
-            "provided is out of range."
-        # NOTE: assert below prevents mypy error of Nonetype not indexable.
-        assert self.stage_parameters[input_stage_index] is not None
-        positions_base_noext = self.stage_parameters[input_stage_index]["positions"]
+        positions_base_noext = self.get_stage_parameters_by_index(
+            input_stage_index)["positions"]
         assert isinstance(positions_base_noext, str), "Positions must be a filename str."
-        input_stage_dir = self.stage_parameters[input_stage_index]["directory"]
+        input_stage_dir = self.get_stage_parameters_by_index(input_stage_index)["directory"]
         if swarm_id is None:
             glob_base = [f"{positions_base_noext}*.pdb",
                           f"{positions_base_noext}*.txt",
@@ -301,11 +311,7 @@ class Anchor:
         """
         Change the positions filename for this anchor.
         """
-        # NOTE: assert below prevents mypy error of Nonetype not indexable.
-        assert self.stage_parameters[stage_number+1] is not None, "Stage "\
-            f"parameters not defined for anchor {self.index} "\
-            f"and stage {stage_number+1}."
-        self.stage_parameters[stage_number+1]["positions"] = new_filename
+        self.get_stage_parameters_by_index(stage_number+1)["positions"] = new_filename
         return
     
     def get_cv_index_from_variable(
@@ -385,6 +391,23 @@ class Anchor:
         stage_output_directory \
             = self.stage_parameters[stage_index]["directory"]
         return stage_output_directory
+    
+    def save(
+            self,
+            directory: str,
+            ) -> None:
+        """
+        Save this anchor's data to the specified directory.
+        """
+        filename = os.path.join(directory, f"anchor_{self.index:04d}.json")
+        converter: cattrs.Converter = cattrs.Converter()
+        anchor_dict: dict = converter.unstructure(self)
+        anchor_dict_noindent: dict = base.wrap_noindent_integers(anchor_dict)
+        json_dump: str = json.dumps(anchor_dict_noindent, indent=4, 
+                                    cls=base.NoIndentListEncoder)
+        with open(filename, "w") as file:
+            file.write(json_dump)
+        return
 
 @define
 class Seekr_model:
@@ -561,6 +584,21 @@ class Seekr_model:
         """
         Write the model object to a file.
         """
+        # Empty the cvs, selections, and anchor sets before saving
+        tmp_collective_variables = self.collective_variables
+        self.collective_variables = []
+        tmp_selections = {}
+        for engine in self.engines:
+            if hasattr(engine.systemwide_settings, "selections"):
+                tmp_selections[engine.scale_type] = engine.systemwide_settings.selections
+                engine.systemwide_settings.selections = []
+        tmp_anchor_set = self.anchors
+        self.anchors = []
+        tmp_num_anchors = self.num_anchors
+        tmp_num_milestones = self.num_milestones
+        self.num_anchors = 0
+        self.num_milestones = 0
+
         converter: cattrs.Converter = cattrs.Converter()
         converter.register_unstructure_hook(restraints_structures.Base_restraint,
                                             unstruct_restraint)
@@ -577,6 +615,72 @@ class Seekr_model:
                                     cls=base.NoIndentListEncoder)
         with open(filename, "w") as file:
             file.write(json_dump)
+
+        # Restore the cvs, selections, and anchor sets
+        self.collective_variables = tmp_collective_variables
+        for engine in self.engines:
+            if engine.scale_type in tmp_selections:
+                engine.systemwide_settings.selections = tmp_selections[engine.scale_type]
+        self.anchors = tmp_anchor_set
+        self.num_anchors = tmp_num_anchors
+        self.num_milestones = tmp_num_milestones
+        return
+    
+    def save_cvs(
+            self, 
+            directory: str,
+            set_name: str
+            ) -> None:
+        """
+        Save any collective variables that need to be saved during prepare.
+        """
+        cv_directory = os.path.join(directory, "collective_variable_sets")
+        if not os.path.exists(cv_directory):
+            os.makedirs(cv_directory)
+        this_cv_set_directory = os.path.join(
+            cv_directory, set_name)
+        if not os.path.exists(this_cv_set_directory):
+            os.makedirs(this_cv_set_directory)
+        for cv in self.collective_variables:
+            cv.save(this_cv_set_directory)
+        return
+    
+    def save_selections(
+            self, 
+            directory: str,
+            set_name: str
+            ) -> None:
+        """
+        Save any selections that need to be saved during prepare.
+        """
+        selections_directory = os.path.join(directory, "selection_sets")
+        if not os.path.exists(selections_directory):
+            os.makedirs(selections_directory)
+        this_selections_set_directory = os.path.join(
+            selections_directory, set_name)
+        if not os.path.exists(this_selections_set_directory):
+            os.makedirs(this_selections_set_directory)
+        for engine in self.engines:
+            engine.save_selections(this_selections_set_directory)
+        return
+    
+    def save_anchor_set(
+            self, 
+            directory: str,
+            set_name: str
+            ) -> None:
+        """
+        Save any anchor sets that need to be saved during prepare.
+        """
+        anchor_sets_directory = os.path.join(directory, "anchor_sets")
+        if not os.path.exists(anchor_sets_directory):
+            os.makedirs(anchor_sets_directory)
+        this_anchor_set_directory = os.path.join(
+            anchor_sets_directory, set_name)
+        if not os.path.exists(this_anchor_set_directory):
+            os.makedirs(this_anchor_set_directory)
+        for anchor in self.anchors:
+            anchor.save(this_anchor_set_directory)
         return
     
     def save_next_model(

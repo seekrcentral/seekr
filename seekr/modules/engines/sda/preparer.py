@@ -46,8 +46,7 @@ class SDA_molecule_input:
             center_molecule: bool = True,
             ) -> typing.Dict[str, int]:
         """
-        Add a ghost atom to the PQR file to represent a significant location.
-        Write a new PQR file and return the index of the ghost atom.
+        Add ghost atoms to the SDA reaction file.
         """
         pqr_struct = parmed.load_file(self.pqr_filename, skip_bonds=True)
         centers_of_mass = []

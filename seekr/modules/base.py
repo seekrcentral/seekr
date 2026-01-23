@@ -16,7 +16,7 @@ import typing
 import logging
 import importlib
 
-from attrs import define, field, validators
+from attrs import define, field, validators, Factory
 import numpy.typing as nptyping
 import mdtraj
 
@@ -25,6 +25,10 @@ INITIAL_DIRECTORY = "stage_0_initial"
 MAX_SEEKR_SIMULATION_STEPS = 100000000000 # ~100 us
 SYSTEMWIDE_DIRECTORY = "systemwide"
 STEP_TOLERANCE = 5
+ANCHOR_SETS_DIR = "anchor_sets"
+CVS_DIR = "collective_variables"
+SELECTIONS_DIR = "selections"
+PREPARE_SET_NAME = "main"
 
 # NOTE: Positions_type needed for toy system inputs. Do not delete.
 Positions_type = typing.Union[typing.List, str, None]
@@ -401,6 +405,26 @@ class NVE_ensemble:
     Use the constant volume/energy ensemble.
     """
     type: typing.Literal["NVE"] = "NVE"
+
+@define
+class State_point:
+    """
+    An object that can be put into the input file to indicate the location
+    of a state within a CV or Combo. The name of the anchor containing this
+    point will be changed, and end_state will be set to True.
+    """
+    name: str = field(default="",
+                        validator=validators.instance_of(str))
+    value: list[float | None] = field(default=Factory(list),)
+                                #validator=validators.deep_iterable(
+                                #    member_validator=validators.instance_of(float),
+                                #    iterable_validator=validators.instance_of(list),
+                                #))
+    # whether to set the end_anchor attribute to True in an Anchor
+    end_state: bool = field(default=True,
+                            validator=validators.instance_of(bool))
+    bulk_state: bool = field(default=False,
+                            validator=validators.instance_of(bool))
 
 Ensemble = typing.Union[NVT_ensemble, NPT_ensemble, NPT_membrane_ensemble, 
                         NVE_ensemble]

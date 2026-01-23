@@ -15,6 +15,7 @@ from attrs import define, field, validators, Factory
 import numpy as np
 import parmed
 
+import seekr.modules.base as base
 import seekr.modules.structures as structures
 import seekr.modules.engines.structures as engines_structures
 import seekr.modules.engines.browndye.base as browndye_base
@@ -100,6 +101,7 @@ class Browndye_molecule_input:
                     
             pqr_complex.coordinates = new_coordinates
         
+        logging.info(f"Saving PQR file with ghost atoms added: {new_pqr_filename}")
         pqr_complex.save(new_pqr_filename, overwrite=True)
         return ghost_site_indices, original_indices
     
@@ -162,6 +164,7 @@ class Browndye_settings_input:
             self,
             model: structures.Seekr_model, 
             root_directory: str,
+            anchor_set_name: str = "main",
             using_toy: bool = False # dummy parameter
             ) -> None:
         """
@@ -177,7 +180,7 @@ class Browndye_settings_input:
                 # If anchor.bd is True, while anchor.md is False, then this
                 # must be the b-surface directory - "bulk anchor"
                 b_surface_directory = os.path.join(
-                    root_directory, anchor.directory)
+                    root_directory, base.ANCHOR_SETS_DIR, anchor_set_name, anchor.directory)
                 for molecule in self.molecules:
                     pqr_filename = os.path.basename(molecule.pqr_filename)
                     new_bd_molecule = browndye_structures.Browndye_molecule()
@@ -573,7 +576,7 @@ def make_browndye_reaction_xml(
 
 def generate_bd_files(
         model: structures.Seekr_model,
-        root_directory: str
+        root_directory: str,
         ) -> None:
     bd_engine = model.get_engine_by_scale_type("brownian_dynamics")
     assert bd_engine is not None

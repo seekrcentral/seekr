@@ -69,7 +69,7 @@ class Input_stage_bd:
 
 def generate_bd_files(
         model: structures.Seekr_model, 
-        directory: str
+        directory: str,
         ) -> None:
     """
     Determine the BD engine and prepare the necessary files for it.

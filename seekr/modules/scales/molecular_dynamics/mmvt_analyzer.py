@@ -31,7 +31,7 @@ def make_anchor_stats_alpha_md(
     #  because this feels hacky.
     output_file_glob = os.path.join(
         model.directory, anchor.directory, 
-        anchor.stage_parameters[stage_index]["directory"],
+        anchor.get_stage_parameters_by_index(stage_index)["directory"],
         "*.out")
     output_file_list = glob.glob(output_file_glob)
     output_file_list = base.order_files_numerically(

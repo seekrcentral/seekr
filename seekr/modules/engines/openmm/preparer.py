@@ -5,6 +5,7 @@ Objects and routines for the input stage of an anchor that
 uses OpenMM.
 """
 
+import os
 import typing
 from attrs import define, field, validators
 

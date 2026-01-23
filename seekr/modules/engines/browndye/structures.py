@@ -147,3 +147,23 @@ class Browndye_bd_engine:
         Can this engine handle toy systems?
         """
         return False
+    
+    def save_selections(
+            self, 
+            directory: str, 
+            ) -> None:
+        """
+        Save the selections to files.
+        """
+        # Does nothing for now - there are no selections to save for Browndye
+        return
+    
+    def get_selection_names(
+            self,
+            ) -> list[str]:
+        """
+        Get the names of all selections.
+        """
+        selection_names = []
+        # Does nothing for now
+        return selection_names

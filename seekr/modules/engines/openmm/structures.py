@@ -144,3 +144,24 @@ class Openmm_md_engine:
             if hasattr(self.platform_settings, "device_index"):
                 self.platform_settings.device_index = device_index
         return
+    
+    def save_selections(
+            self, 
+            directory: str, 
+            ) -> None:
+        """
+        Save the selections to files.
+        """
+        if self.systemwide_settings is not None:
+            self.systemwide_settings.save_selections(directory)
+
+    def get_selection_names(
+            self,
+            ) -> list[str]:
+        """
+        Get the names of all selections.
+        """
+        selection_names = []
+        for selection in self.systemwide_settings.selections:
+            selection_names.append(selection.name)
+        return selection_names

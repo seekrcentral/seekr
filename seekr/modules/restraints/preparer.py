@@ -11,7 +11,7 @@ import seekr.modules.engines.structures as engines_structures
 import seekr.modules.restraints.structures as restraints_structures
 import seekr.modules.engines.preparer as engines_preparer
 
-class Base_restraint_input:
+class Base_restraint_input(typing.Protocol):
     """
     Base class for restraint inputs.
     """

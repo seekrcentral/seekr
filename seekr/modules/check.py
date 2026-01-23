@@ -466,8 +466,13 @@ def check_atom_selections_MD_BD(
         # First check to ensure that the selection indices are actually contained
         #  within the BD pqr files.
         bd_engine = model.get_engine_by_scale_type("brownian_dynamics")
-        b_surface_dir = os.path.join(
-            model.directory, bd_engine.b_surface_directory)
+        anchor_set_glob = os.path.join(
+            model.directory, base.ANCHOR_SETS_DIR, "*", bd_engine.b_surface_directory)
+        b_surface_dir = glob.glob(anchor_set_glob)
+        if len(b_surface_dir) == 0:
+            raise Exception("No Browndye b_surface directories found "
+                            "in anchor_sets/.")
+        b_surface_dir = b_surface_dir[0]
         pqr_paths = []
         pqr_structures = []
         for bd_molecule in bd_engine.systemwide_settings.molecules:
@@ -539,8 +544,13 @@ def check_pqr_residues(
     """
     if model.using_scale("brownian_dynamics"):
         bd_engine = model.get_engine_by_scale_type("brownian_dynamics")
-        b_surface_dir = os.path.join(
-            model.directory, bd_engine.b_surface_directory)
+        anchor_set_glob = os.path.join(
+            model.directory, base.ANCHOR_SETS_DIR, "*", bd_engine.b_surface_directory)
+        b_surface_dir = glob.glob(anchor_set_glob)
+        if len(b_surface_dir) == 0:
+            raise Exception("No Browndye b_surface directories found "
+                            "in anchor_sets/.")
+        b_surface_dir = b_surface_dir[0]
         pqr_paths = []
         pqr_structures = []
         list_of_residue_lists = []

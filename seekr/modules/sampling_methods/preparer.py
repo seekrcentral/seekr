@@ -12,7 +12,7 @@ import seekr.modules.sampling_methods.structures as sampling_method_structures
 #  methods added to this directory, but for now, they must be
 #  defined here
 
-class Base_md_sampling_method_input:
+class Base_md_sampling_method_input(typing.Protocol):
     """
     Base class for all MD sampling method inputs.
     """
@@ -115,7 +115,7 @@ class MMVT_md_input(Base_md_sampling_method_input):
         milestoning = sampling_method_structures.MMVT_md_sampling_method()
         return milestoning
 
-class Base_bd_sampling_method_input:
+class Base_bd_sampling_method_input(typing.Protocol):
     """
     Base class for all BD sampling method inputs.
     """

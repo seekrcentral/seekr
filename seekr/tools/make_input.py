@@ -26,7 +26,9 @@ import seekr.modules.sampling_methods.preparer as sampling_preparer
 import seekr.modules.preparer as preparer
 import seekr.modules.scales.molecular_dynamics.preparer as md_preparer
 import seekr.modules.scales.brownian_dynamics.preparer as bd_preparer
+import seekr.modules.scales.logistic.preparer as logistic_preparer
 import seekr.modules.anchor_schemes.preparer as anchor_scheme_preparer
+import seekr.modules.scales.logistic.reassign_anchors_logistic_stage as reassign_anchors_logistic_stage
 
 TOOLS_DIRECTORY = os.path.dirname(__file__)
 DATA_DIRECTORY = os.path.abspath(os.path.join(TOOLS_DIRECTORY, "..", "data"))
@@ -35,7 +37,8 @@ HOSTGUEST_DIRECTORY = os.path.join(DATA_DIRECTORY, "hostguest_files")
 def create_toy_model_input(
         root_dir: str,
         use_smd: bool = False,
-        use_2cvs: bool = False
+        use_2cvs: bool = False,
+        define_anchors_later: bool = False
     ) -> preparer.Seekr_input:
     """
     Create a toy model input.
@@ -66,6 +69,40 @@ def create_toy_model_input(
     md_settings.systemwide_settings.positions\
         = [[[0.0, -0.7, 0.0]]]
     seekr_input.settings_list = [md_settings]
+
+    state_point1 = base.State_point()
+    state_point1.name = "stateA"
+    if use_2cvs:
+        state_point1.value = [0.0, -0.7]
+    else:
+        state_point1.value = [-0.7]
+    state_point1.end_state = True
+    state_point2 = base.State_point()
+    state_point2.name = "stateB"
+    if use_2cvs:
+        state_point2.value = [0.0, 0.7]
+    else:
+        state_point2.value = [0.7]
+    state_point2.end_state = True
+    state_points = [state_point1, state_point2]
+    
+    anchor_scheme \
+        = anchor_scheme_preparer.Anchors_as_voronoi_cells_anchor_scheme()
+    anchor_scheme.voronoi_cells = []
+    for i, (value, position) in enumerate(zip(values_list, positions_list)):
+        #input_anchor = preparer.Anchor_input()
+        #input_anchor.value = value
+        #input_anchor.positions = [position]
+        #input_anchor.positions = ""
+        voronoi_cell = anchor_scheme_preparer.Voronoi_cell()
+        voronoi_cell.value = value
+        voronoi_cell.positions = [position]
+        anchor_scheme.voronoi_cells.append(voronoi_cell)
+
+    seekr_input.partitions = [preparer.Partition_input()]
+    if not define_anchors_later:
+        seekr_input.partitions[0].state_points = state_points
+        seekr_input.partitions[0].anchor_scheme = anchor_scheme
 
     stage1 = md_preparer.Input_stage_md()
     stage1.name = "equilibration"
@@ -118,31 +155,41 @@ def create_toy_model_input(
     stage2_dcd_reporter.enforce_periodic_box = False
     stage2.reporters = [stage2_dcd_reporter] #[stage2_state_reporter, stage2_dcd_reporter]
 
-    stage3 = md_preparer.Input_stage_md()
-    stage3.name = "MMVT"
-    stage3.run_minimization = False
-    stage3.checkpoint_interval = 5000
-    stage3.ensemble = base.NVT_ensemble()
-    stage3.sampling_method = sampling_preparer.MMVT_md_input()
-    stage3.completion_criteria = compl_crit_struct.Number_of_steps_completion_criteria()
-    stage3.completion_criteria.number_of_steps = 2000000
-    stage3_state_reporter = reporters_preparer.State_reporter_input()
-    stage3_state_reporter.to_stdout = True
-    stage3_state_reporter.interval = 5000
-    stage3_dcd_reporter = reporters_preparer.DCD_reporter_input()
-    stage3_dcd_reporter.interval = 5000
-    stage3_dcd_reporter.enforce_periodic_box = False
-    stage3.reporters = [stage3_state_reporter, stage3_dcd_reporter]
+    if define_anchors_later:
+        stage3 = reassign_anchors_logistic_stage.Input_stage_reassign_anchors()
+        stage3.name = "Assign anchors"
+        stage3.input_set_name = "main"
+        stage3.output_set_name = "reassigned"
+        stage3.new_anchor_scheme = anchor_scheme
+        stage3.new_state_points = state_points
 
-    seekr_input.stages = [stage1, stage2, stage3]
-    seekr_input.partitions = [preparer.Partition_input()]
+    stage4 = md_preparer.Input_stage_md()
+    stage4.name = "MMVT"
+    stage4.run_minimization = False
+    stage4.checkpoint_interval = 5000
+    stage4.ensemble = base.NVT_ensemble()
+    stage4.sampling_method = sampling_preparer.MMVT_md_input()
+    stage4.completion_criteria = compl_crit_struct.Number_of_steps_completion_criteria()
+    stage4.completion_criteria.number_of_steps = 2000000
+    stage4_state_reporter = reporters_preparer.State_reporter_input()
+    stage4_state_reporter.to_stdout = True
+    stage4_state_reporter.interval = 5000
+    stage4_dcd_reporter = reporters_preparer.DCD_reporter_input()
+    stage4_dcd_reporter.interval = 5000
+    stage4_dcd_reporter.enforce_periodic_box = False
+    stage4.reporters = [stage4_state_reporter, stage4_dcd_reporter]
+
+    if define_anchors_later:
+        seekr_input.stages = [stage1, stage2, stage3, stage4]
+    else:
+        seekr_input.stages = [stage1, stage2, stage4]
+
     external_cv_input = external_cv.External_cv_input()
     external_cv_input.name = "progress_coordinate"
     external_cv_input.expression = "y1"
     external_cv_input.group_names = ["particle0"]
     external_cv_input.min_value = -1.0
     external_cv_input.max_value = 1.0
-    
     
     if use_2cvs:
         external_cv_input2 = external_cv.External_cv_input()
@@ -155,35 +202,6 @@ def create_toy_model_input(
         
     else:
         seekr_input.partitions[0].cvs = [external_cv_input]
-    
-    state_point1 = preparer.State_point()
-    state_point1.name = "stateA"
-    if use_2cvs:
-        state_point1.value = [0.0, -0.7]
-    else:
-        state_point1.value = [-0.7]
-    state_point1.end_state = True
-    state_point2 = preparer.State_point()
-    state_point2.name = "stateB"
-    if use_2cvs:
-        state_point2.value = [0.0, 0.7]
-    else:
-        state_point2.value = [0.7]
-    state_point2.end_state = True
-    seekr_input.partitions[0].state_points = [state_point1, state_point2]
-    
-    seekr_input.partitions[0].anchor_scheme \
-        = anchor_scheme_preparer.Anchors_as_voronoi_cells_anchor_scheme()
-    seekr_input.partitions[0].anchor_scheme.voronoi_cells = []
-    for i, (value, position) in enumerate(zip(values_list, positions_list)):
-        #input_anchor = preparer.Anchor_input()
-        #input_anchor.value = value
-        #input_anchor.positions = [position]
-        #input_anchor.positions = ""
-        voronoi_cell = anchor_scheme_preparer.Voronoi_cell()
-        voronoi_cell.value = value
-        voronoi_cell.positions = [position]
-        seekr_input.partitions[0].anchor_scheme.voronoi_cells.append(voronoi_cell)
 
     seekr_input.toy_settings = preparer.Toy_settings_input()
     seekr_input.toy_settings.potential_energy_expression \
@@ -274,6 +292,9 @@ def create_host_guest_example_input(
     single_group = engines_structures.Selection()
     single_group.name = "single_index"
     single_group.atom_indices = single_group_index
+
+    # TODO: these need to be written to files, and this systemwide_settings 
+    #  attribute should be a list of filenames.
     md_settings.systemwide_settings.selections\
         = [receptor_selection_md, ligand_selection_md, ligand_noh_selection_md, 
            solute_selection_md, o5_group, single_group]
@@ -446,11 +467,11 @@ def create_host_guest_example_input(
         distance_cv_input.group2_name = "guest"
         seekr_input.partitions[0].cvs = [distance_cv_input]
     
-    bound_state_point = preparer.State_point()
+    bound_state_point = base.State_point()
     bound_state_point.name = "bound"
     bound_state_point.value = [0.05]
     bound_state_point.end_state = True
-    bulk_state_point = preparer.State_point()
+    bulk_state_point = base.State_point()
     bulk_state_point.name = "bulk"
     bulk_state_point.value = [1.35]
     bulk_state_point.end_state = True
@@ -499,6 +520,11 @@ if __name__ == "__main__":
         "-2", "--two_cvs", dest="two_cvs", default=False, 
         help="Toggle 2-CVs mode: whether to use two CVs.", 
         action="store_true")
+    argparser.add_argument(
+        "-l", "--define_anchors_later", dest="define_anchors_later", default=False, 
+        help="In toy mode, define anchors later via a reassign anchors stage.", 
+        action="store_true"
+    )
     argspace = argparser.parse_args()
     args = vars(argspace)
     #json_filename = args["input_file"]
@@ -507,6 +533,7 @@ if __name__ == "__main__":
     use_sda = args["sda"]
     use_smd = args["smd"]
     use_2cvs = args["two_cvs"]
+    define_anchors_later = args["define_anchors_later"]
 
     if use_rmsd_cv:
         bd = False
@@ -522,9 +549,12 @@ if __name__ == "__main__":
             cvs_suffix = "2cvs_"
         else:
             cvs_suffix = ""
+        if define_anchors_later:
+            cvs_suffix += "defineAnchorsLater_"
         root_dir = "~/tmp/seekr3_test_toy_" + cvs_suffix + sampling_suffix
         json_filename = "toy_input_" + cvs_suffix + sampling_suffix + ".json"
-        seekr_input = create_toy_model_input(root_dir, use_smd, use_2cvs=use_2cvs)
+        seekr_input = create_toy_model_input(root_dir, use_smd, use_2cvs=use_2cvs,
+                                             define_anchors_later=define_anchors_later)
     else:
         assert not use_2cvs, "2-CV mode not implemented for real molecular system."
         if bd:

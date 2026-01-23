@@ -44,9 +44,7 @@ def filled_and_unfilled_anchors(
         if "molecular_dynamics" not in anchor.scale_types:
             continue
         found_outputs_for_anchor = False
-        stage_parameter = anchor.stage_parameters[stage_index]
-        assert stage_parameter is not None, \
-            f"Stage parameter for stage {stage_index} is None."
+        stage_parameter = anchor.get_stage_parameters_by_index(stage_index)
         assert "directory" in stage_parameter, \
             f"Stage parameter for stage {stage_index} does not contain "\
             +"a directory."
@@ -191,13 +189,10 @@ def get_calculation_directory_md(
     Return the calculation directory for a given MD stage index.
     """
     stage_list_index = stage_index + 1
-    assert len(anchor_or_systemwide.stage_parameters) > stage_list_index\
-        and stage_index >= 0, "Stage index provided is out of range."
-    assert anchor_or_systemwide.stage_parameters[stage_list_index] is not None
     if isinstance(anchor_or_systemwide, structures.Anchor):
         if "molecular_dynamics" not in anchor_or_systemwide.scale_types:
             raise NotImplementedError("MD not running in this anchor/systemwide.")
-    stage_directory = anchor_or_systemwide.stage_parameters[stage_list_index]["directory"]
+    stage_directory = anchor_or_systemwide.get_stage_parameters_by_index(stage_list_index)["directory"]
     full_directory = os.path.join(root_directory, anchor_or_systemwide.directory, 
                                   stage_directory)
     return full_directory
@@ -211,13 +206,10 @@ def get_current_md_step(
     """
     Return the current step for a given stage index.
     """
-    assert len(anchor_or_systemwide.stage_parameters) > stage_index, "Stage index "\
-        "provided is out of range."
-    assert anchor_or_systemwide.stage_parameters[stage_index] is not None
     if isinstance(anchor_or_systemwide, structures.Anchor):
         if "molecular_dynamics" not in anchor_or_systemwide.scale_types:
             raise NotImplementedError("BD current step not yet implemented.")
-    stage_directory = anchor_or_systemwide.stage_parameters[stage_index]["directory"]
+    stage_directory = anchor_or_systemwide.get_stage_parameters_by_index(stage_index)["directory"]
     full_directory = os.path.join(root_directory, anchor_or_systemwide.directory, 
                                   stage_directory)
     checkpoint_info_basename = engines_runner.get_checkpoint_information_basename(
@@ -241,8 +233,7 @@ def get_restart_checkpoint_filename(
     """
     Return the restart checkpoint filename for a given stage index.
     """
-    stage_directory = anchor_or_systemwide\
-        .stage_parameters[stage_index]["directory"]
+    stage_directory = anchor_or_systemwide.get_stage_parameters_by_index(stage_index)["directory"]
     full_directory = os.path.join(
         root_directory, anchor_or_systemwide.directory, stage_directory)
     restart_checkpoint_basename = engines_runner\

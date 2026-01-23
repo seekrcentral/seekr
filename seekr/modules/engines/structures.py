@@ -8,6 +8,7 @@ import os
 import re
 import json
 import typing
+import logging
 from shutil import copyfile
 
 from attrs import define, field, validators, Factory
@@ -31,6 +32,25 @@ class Selection:
                 validators.instance_of(int),
                 validators.ge(0)],
                 iterable_validator=validators.instance_of(list),))
+    
+    def save(
+            self, 
+            directory: str,
+            scale_name: str
+            ) -> None:
+        """
+        Save the selection to a file.
+        """
+        converter: cattrs.Converter = cattrs.Converter()
+        cvs_dict: dict = converter.unstructure(self)
+        cvs_dict_noindent: dict = base.wrap_noindent_integers(cvs_dict)
+        json_dump: str = json.dumps(cvs_dict_noindent, indent=4, 
+                                    cls=base.NoIndentListEncoder)
+        
+        filename = os.path.join(directory, self.name +  "_" + scale_name + ".json")
+        with open(filename, "w") as file:
+            file.write(json_dump)
+        return
     
 @define
 class Ion:
@@ -183,6 +203,8 @@ class Cuda_platform_settings:
             validators.instance_of(str),
             validators.in_(["single", "mixed", "double"])])
 
+# TODO: Add OpenCL platform settings class
+
 Platform_settings = typing.Union[Cuda_platform_settings]
 
 @define
@@ -222,8 +244,10 @@ class Amber_parameters_topology:
         prmtop_basename = os.path.basename(self.prmtop_filename)
         anchor_prmtop_full_path = os.path.join(dest_directory,
                                             prmtop_basename)
-        copyfile(os.path.expanduser(self.prmtop_filename), 
-                 anchor_prmtop_full_path)
+        full_prmtop_filename = os.path.expanduser(self.prmtop_filename)
+        logging.info(f"Copying Amber prmtop file: {full_prmtop_filename} "
+                        f"to anchor directory: {anchor_prmtop_full_path}.")
+        copyfile(full_prmtop_filename, anchor_prmtop_full_path)
         new_md_parameters_topology.prmtop_filename = prmtop_basename
         return
     
@@ -260,12 +284,18 @@ class Gromacs_parameters_topology:
         top_basename = os.path.basename(self.top_filename)
         anchor_top_full_path = os.path.join(dest_directory,
                                             top_basename)
-        copyfile(os.path.expanduser(self.top_filename), anchor_top_full_path)
+        full_top_filename = os.path.expanduser(self.top_filename)
+        logging.info(f"Copying Gromacs top file: {full_top_filename} "
+                        f"to anchor directory: {anchor_top_full_path}.")
+        copyfile(full_top_filename, anchor_top_full_path)
         new_md_parameters_topology.top_filename = top_basename
         gro_basename = os.path.basename(self.gro_filename)
         anchor_gro_full_path = os.path.join(dest_directory,
                                             gro_basename)
-        copyfile(os.path.expanduser(self.gro_filename), anchor_gro_full_path)
+        full_gro_filename = os.path.expanduser(self.gro_filename)
+        logging.info(f"Copying Gromacs gro file: {full_gro_filename} "
+                        f"to anchor directory: {anchor_gro_full_path}.")
+        copyfile(full_gro_filename, anchor_gro_full_path)
         new_md_parameters_topology.gro_filename = gro_basename
         return
 
@@ -306,14 +336,20 @@ class Charmm_parameters_topology:
         psf_basename = os.path.basename(self.psf_filename)
         anchor_psf_full_path = os.path.join(dest_directory,
                                             psf_basename)
-        copyfile(os.path.expanduser(self.psf_filename), anchor_psf_full_path)
+        full_psf_filename = os.path.expanduser(self.psf_filename)
+        logging.info(f"Copying Charmm psf file: {full_psf_filename} "
+                        f"to anchor directory: {anchor_psf_full_path}.")
+        copyfile(full_psf_filename, anchor_psf_full_path)
         new_md_parameters_topology.psf_filename = psf_basename
         new_md_parameters_topology.param_filename_list = []
         for param_filename in self.param_filename_list:
             param_basename = os.path.basename(param_filename)
             anchor_param_full_path = os.path.join(dest_directory,
                                                 param_basename)
-            copyfile(os.path.expanduser(param_filename), anchor_param_full_path)
+            full_param_filename = os.path.expanduser(param_filename)
+            logging.info(f"Copying Charmm parameter file: {full_param_filename} "
+                            f"to anchor directory: {anchor_param_full_path}.")
+            copyfile(full_param_filename, anchor_param_full_path)
             new_md_parameters_topology.param_filename_list.append(param_basename)
         return
     
@@ -360,8 +396,10 @@ class Forcefield_parameters:
             forcefield_basename = os.path.basename(forcefield_filename)
             anchor_forcefield_full_path = os.path.join(
                 dest_directory, forcefield_basename)
-            copyfile(os.path.expanduser(forcefield_filename), 
-                     anchor_forcefield_full_path)
+            full_forcefield_filename = os.path.expanduser(forcefield_filename)
+            logging.info(f"Copying OpenMM forcefield file: {full_forcefield_filename} "
+                            f"to anchor directory: {anchor_forcefield_full_path}.")
+            copyfile(full_forcefield_filename, anchor_forcefield_full_path)
             new_md_parameters_topology.built_in_forcefield_filenames.append(
                 forcefield_basename)
 
@@ -370,8 +408,10 @@ class Forcefield_parameters:
             forcefield_basename = os.path.basename(forcefield_filename)
             anchor_forcefield_full_path = os.path.join(dest_directory,
                                                     forcefield_basename)
-            copyfile(os.path.expanduser(forcefield_filename), 
-                     anchor_forcefield_full_path)
+            full_forcefield_filename = os.path.expanduser(forcefield_filename)
+            logging.info(f"Copying OpenMM forcefield file: {full_forcefield_filename} "
+                            f"to anchor directory: {anchor_forcefield_full_path}.")
+            copyfile(full_forcefield_filename, anchor_forcefield_full_path)
             new_md_parameters_topology.custom_forcefield_filenames.append(
                 forcefield_basename)
 
@@ -380,6 +420,7 @@ class Forcefield_parameters:
 @define
 class Openmm_system:
     type: typing.Literal["OpenMM_system"] = "OpenMM_system"
+    # TODO: add topology file? Make it optional?
     system_filename: str = field(default="",
                                 validator=validators.instance_of(str))
     
@@ -397,19 +438,21 @@ class Openmm_system:
             self,
             dest_directory: str,
             new_md_parameters_topology: "Parameters_topology") -> None:
-          """
-          Copy the files for the initial 'stage' from this Anchor_input
-          to the actual anchor.
-          """
-          assert self.type == new_md_parameters_topology.type, "Type mismatch."
-          assert self.system_filename != "", "system_filename must be defined."
-          system_basename = os.path.basename(self.system_filename)
-          anchor_system_full_path = os.path.join(dest_directory,
-                                              system_basename)
-          copyfile(os.path.expanduser(self.system_filename), 
-                   anchor_system_full_path)
-          new_md_parameters_topology.system_filename = system_basename
-          return
+        """
+        Copy the files for the initial 'stage' from this Anchor_input
+        to the actual anchor.
+        """
+        assert self.type == new_md_parameters_topology.type, "Type mismatch."
+        assert self.system_filename != "", "system_filename must be defined."
+        system_basename = os.path.basename(self.system_filename)
+        anchor_system_full_path = os.path.join(dest_directory,
+                                            system_basename)
+        full_system_filename = os.path.expanduser(self.system_filename)
+        logging.info(f"Copying OpenMM system file: {full_system_filename} "
+                        f"to anchor directory: {anchor_system_full_path}.")
+        copyfile(full_system_filename, anchor_system_full_path)
+        new_md_parameters_topology.system_filename = system_basename
+        return
 
 Parameters_topology = typing.Union[
     Amber_parameters_topology, Gromacs_parameters_topology, 
@@ -424,7 +467,7 @@ class MD_systemwide_settings:
     # within MD simulations
     directory: str = field(default=base.SYSTEMWIDE_DIRECTORY, 
                            validator=validators.instance_of(str))
-    stage_parameters: list[dict | None] = field(default=Factory(list),)
+    stage_parameters: list[dict] = field(default=Factory(list),)
     md_parameters_topology: Parameters_topology | None = None
     selections: list[Selection] = field(
         default=Factory(list),
@@ -448,6 +491,18 @@ class MD_systemwide_settings:
         base.make_tree(root_directory, systemwide_dict)
         return
 
+    def get_stage_parameters_by_index(
+            self,
+            stage_index: int
+            ) -> dict:
+        """
+        Get the stage parameters for a given stage index.
+        """
+        for stage_parameters in self.stage_parameters:
+            if stage_parameters["index"] == stage_index:
+                return stage_parameters
+        raise Exception(f"Stage parameters with index {stage_index} not found.")
+    
     def get_positions_full_paths(
             self,
             root_directory: str,
@@ -458,17 +513,12 @@ class MD_systemwide_settings:
         Construct the full path to the PDB/TXT for this systemwide and a 
         given stage.
         """
-        assert len(self.stage_parameters) > input_stage_index, \
-            "Stage index provided is out of range."
-        # NOTE: this assert prevents mypy error that Nonetype is 
-        # not indexable.
-        assert self.stage_parameters[input_stage_index] is not None
-        positions_base_noext = self\
-            .stage_parameters[input_stage_index]["positions"]
+        positions_base_noext = self.get_stage_parameters_by_index(
+            input_stage_index)["positions"]
         assert isinstance(positions_base_noext, str), \
             "Positions must be a filename str."
-        input_stage_dir = self\
-            .stage_parameters[input_stage_index]["directory"]
+        input_stage_dir = self.get_stage_parameters_by_index(
+            input_stage_index)["directory"]
         if swarm_id is None:
             glob_base = [f"{positions_base_noext}*.pdb", 
                          f"{positions_base_noext}*.txt"]
@@ -516,7 +566,7 @@ class MD_systemwide_settings:
             if selection.name == name:
                 return selection.atom_indices
         raise Exception(f"Selection with name {name} not found.")
-    
+
     def get_stage_output_directory(
             self,
             stage_index: int
@@ -525,5 +575,15 @@ class MD_systemwide_settings:
         Get the output directory for this anchor for a given stage index.
         """
         stage_output_directory \
-            = self.stage_parameters[stage_index]["directory"]
+            = self.get_stage_parameters_by_index(stage_index)["directory"]
         return stage_output_directory
+
+    def save_selections(
+            self,
+            directory: str,
+            ) -> None:
+        """
+        Save the selections to files.
+        """
+        for selection in self.selections:
+            selection.save(directory, scale_name="mdScale")

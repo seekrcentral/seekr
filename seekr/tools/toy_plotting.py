@@ -159,17 +159,12 @@ class Toy_plot():
             anchor_systemwide_objects = [self.model.anchors[i] for i in anchor_indices]
 
         for anchor_index, anchor_or_systemwide in enumerate(anchor_systemwide_objects):
-            if anchor_or_systemwide.stage_parameters[stage_id] is None:
-                pdb_path = os.path.join(
-                    rootdir, systemwide_object.directory, 
-                    systemwide_object.stage_parameters[stage_id]["directory"], "toy.pdb")
-            else:
-                pdb_path = os.path.join(
-                    rootdir, anchor_or_systemwide.directory, 
-                    anchor_or_systemwide.stage_parameters[stage_id]["directory"], "toy.pdb")
+            pdb_path = os.path.join(
+                rootdir, anchor_or_systemwide.directory, 
+                anchor_or_systemwide.get_stage_parameters_by_index(stage_id)["directory"], "toy.pdb")
             swarm_dcds_glob = os.path.join(
                 rootdir, anchor_or_systemwide.directory, 
-                anchor_or_systemwide.stage_parameters[stage_id]["directory"], 
+                anchor_or_systemwide.get_stage_parameters_by_index(stage_id)["directory"], 
                 "*1.swarm_*.reporter_*.dcd")
             swarm_dcds = glob.glob(swarm_dcds_glob)
             swarm_ids = []
@@ -187,7 +182,7 @@ class Toy_plot():
                 dcd_file_glob = "*.swarm_{}.reporter_*.dcd".format(swarm_id)
                 dcd_glob = os.path.join(
                     rootdir, anchor_or_systemwide.directory, 
-                    anchor_or_systemwide.stage_parameters[stage_id]["directory"], 
+                    anchor_or_systemwide.get_stage_parameters_by_index(stage_id)["directory"], 
                     dcd_file_glob)
                 dcd_files = glob.glob(dcd_glob)
                 if len(dcd_files) == 0:

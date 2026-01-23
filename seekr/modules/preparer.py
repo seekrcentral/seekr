@@ -79,26 +79,6 @@ class Toy_settings_input:
         return
 
 @define
-class State_point:
-    """
-    An object that can be put into the input file to indicate the location
-    of a state within a CV or Combo. The name of the anchor containing this
-    point will be changed, and end_state will be set to True.
-    """
-    name: str = field(default="",
-                        validator=validators.instance_of(str))
-    value: list[float | None] = field(default=Factory(list),)
-                                #validator=validators.deep_iterable(
-                                #    member_validator=validators.instance_of(float),
-                                #    iterable_validator=validators.instance_of(list),
-                                #))
-    # whether to set the end_anchor attribute to True in an Anchor
-    end_state: bool = field(default=True,
-                            validator=validators.instance_of(bool))
-    bulk_state: bool = field(default=False,
-                            validator=validators.instance_of(bool))
-
-@define
 class Partition_input:
     """
     Partition information concerns how the system is divided into
@@ -111,7 +91,7 @@ class Partition_input:
                             #        cv_preparer.CV_input),
                             #    iterable_validator=validators.instance_of(list),
                             #))
-    state_points: list[State_point] = field(default=Factory(list),)
+    state_points: list[base.State_point] = field(default=Factory(list),)
                             #validator=validators.deep_iterable(
                             #    member_validator=validators.instance_of(
                             #        State_point),
@@ -225,8 +205,9 @@ class Seekr_input:
         
         # Assign stage information
         model.stages = []
-        settings_by_scale: dict[str, typing.Any] = {}
+        settings_by_scale: dict[str, typing.Any] = {"logistic": None}
         systemwide_stage_input_by_scale: dict[str, bool] = {}
+        systemwide_stage_output_by_scale: dict[str, bool] = {}
         for settings in self.settings_list:
             systemwide_stage_input_by_scale[settings.scale_type] \
                 = settings.start_from_systemwide(model.using_toy())
@@ -234,15 +215,23 @@ class Seekr_input:
 
         #last_md_stage_index = 0
         last_stage_index_by_scale: dict[str, int] = defaultdict(int)
+        systemwide_stage_output = True
         for i, stage_input in enumerate(self.stages):
             scale_type = stage_input.get_scale_type()
             settings = settings_by_scale[scale_type]
+            if scale_type == "logistic":
+                # Leave systemwide_stage_input alone - equal to last stage's
+                # Should this be obtained from the logistic stage settings?
+                systemwide_stage_input_by_scale["logistic"] = systemwide_stage_output
+            
             stage, systemwide_stage_input_by_scale[scale_type] \
                 = stage_input.make_model_stage(
-                    i+1, systemwide_stage_input_by_scale[scale_type], 
-                    settings)
+                    i+1, systemwide_stage_input_by_scale[scale_type], settings)
+            systemwide_stage_output = systemwide_stage_input_by_scale[scale_type]
             stage.input_stage_index = last_stage_index_by_scale[scale_type]
             last_stage_index_by_scale[scale_type] = stage.index
+            # Logistic scales will, by default, apply to the previous stage.
+            last_stage_index_by_scale["logistic"] = stage.index
             model.stages.append(stage)
 
         if self.random_seed is not None:
@@ -418,7 +407,7 @@ def create_cvs(
 def make_state_points(
         seekr_input: Seekr_input,
         num_model_cvs: int
-        ) -> list[State_point]:
+        ) -> list[base.State_point]:
     """
     Create the State_point objects for the Model from the input partitions.
     This is necessary because partitions will, in general, have a different
@@ -426,7 +415,7 @@ def make_state_points(
     attribute needs to be filled out with None values for the CVs that are
     in other partitions.
     """
-    state_points: list[State_point] = []
+    state_points: list[base.State_point] = []
     for partition in seekr_input.partitions:
         start_cv_index = partition.cvs[0]._index
         for input_state_point in partition.state_points:
@@ -443,7 +432,7 @@ def make_state_points(
                 counter += 1
             for _ in range(counter, num_model_cvs):
                 new_value.append(None)
-            state_point = State_point(
+            state_point = base.State_point(
                 name=input_state_point.name,
                 value=new_value,
                 end_state=input_state_point.end_state)
@@ -471,19 +460,20 @@ def create_anchors(
     anchor_index = 0
     milestone_index = 0
     for partition in seekr_input.partitions:
-        partition_anchors, partition_anchor_connections, milestone_index\
-            = partition.make_anchors(
-                anchor_index, milestone_index, connection_flag_dict, 
-                associated_input_anchor)
-        anchors += partition_anchors
-        anchor_index += len(partition_anchors)
-        anchor_connections += partition_anchor_connections
+        if partition.anchor_scheme is not None:
+            partition_anchors, partition_anchor_connections, milestone_index\
+                = partition.make_anchors(
+                    anchor_index, milestone_index, connection_flag_dict, 
+                    associated_input_anchor)
+            anchors += partition_anchors
+            anchor_index += len(partition_anchors)
+            anchor_connections += partition_anchor_connections
 
     return anchors, connection_flag_dict, associated_input_anchor, \
         anchor_connections, milestone_index
 
 def assign_all_state_points(
-        state_points: list[State_point], 
+        state_points: list[base.State_point], 
         model: structures.Seekr_model
         ) -> None:
     """
@@ -524,9 +514,10 @@ def prepare_model_cvs_and_anchors(
     model.collective_variables = cvs
     anchors, connection_flag_dict, associated_input_anchor, \
         anchor_connections, milestone_index = create_anchors(seekr_input)
+    
     for anchor in anchors:
         model.anchors.append(anchor)
-
+    
     # TODO: more thoroughly test make_state_points, because once
     #  it incorrectly assigned the name of a Voronoi anchor in a 2D
     #  tesselation.
@@ -883,52 +874,66 @@ def resolve_modifications_and_filetree(
     # Add all stages to the model anchors or systemwide
     allowed_inputs = ["anchors", "systemwide", None]
     allowed_outputs = ["anchors", "systemwide", None]
+    # NOTE: This is the name of the anchor set when a anchor_stage is activated. 
+    #  This value can be changed by a logistic stage
+    on_set_name = "main"
     for stage in model.stages:
         assert stage.input_from in allowed_inputs, \
-            f"The input_from may not be {stage.input_from}."
+            f"The input_from may not be {stage.input_from} for stage {stage.name}."
         assert stage.output_to in allowed_outputs, \
-            f"The output_to may not be {stage.output_to}."
+            f"The output_to may not be {stage.output_to} for stage {stage.name}."
         
         did_anchor_stage = False
         did_systemwide_stage = False
-        # TODO: This needs to be resolved another way - using "stage connector"?
-        if (stage.input_from == "anchors") \
-                and stage.type == "md_stage":
-            # NOTE: mypy error is handled with "md_stage" type check above
-            stage.add_stage_parameters_to_anchors(model)
-            did_anchor_stage = True
-        elif (stage.input_from == "systemwide") \
-                and stage.type == "md_stage":
-            stage.add_stage_parameters_to_systemwide_settings(model)
-            did_systemwide_stage = True
+                # TODO: This needs to be resolved another way - using "stage connector"?
+        if stage.scale_type == "molecular_dynamics":
+            if stage.input_from == "anchors":
+                # NOTE: mypy error is handled with "md_stage" type check above
+                stage.add_stage_parameters_to_anchors(model)
+                did_anchor_stage = True
+                
+            elif stage.input_from == "systemwide":
+                stage.add_stage_parameters_to_systemwide_settings(model)
+                did_systemwide_stage = True
 
-        if (stage.output_to == "anchors") \
-                and stage.type == "md_stage" and not did_anchor_stage:
-            # NOTE: mypy error is handled with "md_stage" type check above
-            stage.add_stage_parameters_to_anchors(model)
-            did_anchor_stage = True
-        elif (stage.output_to == "systemwide") \
-                and stage.type == "md_stage" and not did_systemwide_stage:
-            stage.add_stage_parameters_to_systemwide_settings(model)
-            did_systemwide_stage = True
-        
+            if stage.output_to == "anchors" and not did_anchor_stage:
+                # NOTE: mypy error is handled with "md_stage" type check above
+                stage.add_stage_parameters_to_anchors(model)
+                did_anchor_stage = True
+                
+            elif stage.output_to == "systemwide" and not did_systemwide_stage:
+                stage.add_stage_parameters_to_systemwide_settings(model)
+                did_systemwide_stage = True
+
+            if not did_anchor_stage:
+                stage.add_stage_parameters_to_anchors(model, do_none=True)
+            if not did_systemwide_stage:
+                stage.add_stage_parameters_to_systemwide_settings(model, do_none=True)
+
+        #elif stage.scale_type == "logistic":
+        else:
+            pass
+            
         # Add Nones wherever a stage wasn't added somewhere
-        if not did_anchor_stage and stage.type == "md_stage":
-            stage.add_stage_parameters_to_anchors(model, do_none=True)
-        if not did_systemwide_stage and stage.type == "md_stage":
-            stage.add_stage_parameters_to_systemwide_settings(model, do_none=True)
+        
+
+        if stage.is_logistic_stage():
+            on_set_name = stage.output_set_name
+        else:
+            stage.set_name = on_set_name
+        # TODO: if stage.type = "logistic_stage", then change on_set_name, possibly.
     
     for old_index in index_reference:
         new_index = index_reference[old_index]
         if new_index < len(anchors):
             input_anchor = associated_input_anchor[old_index]
-            anchors[new_index].generate_filetree(model, root_directory)
+            anchors[new_index].generate_filetree(model, root_directory, "main")
             if (new_anchors_with_starting_pdbs_to_keep is not None) \
                     and (new_index in new_anchors_with_starting_pdbs_to_keep):
                 logging.info(f"Keeping starting structure for anchor: {new_index}")
             else:
                 input_anchor.copy_initial_files(anchors[new_index], root_directory, 
-                                                model.using_toy())
+                                                "main", model.using_toy())
     return
 
 def resolve_connections(
@@ -1015,7 +1020,7 @@ def resolve_connections(
         new_index = index_reference[old_index]
         if new_index < len(anchors):
             anchors[new_index].index = new_index
-            anchors[new_index].directory = f"anchor_{new_index}"
+            anchors[new_index].directory = f"anchor_{new_index:04d}"
             if anchors[new_index].name.startswith("anchor_"):
                 anchors[new_index].name = anchors[new_index].directory
             

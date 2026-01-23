@@ -51,6 +51,8 @@ def prepare(
         preparer.prepare_model_cvs_and_anchors(
             model, seekr_input, force_overwrite)
     else:
+        # TODO: decide whether to create an empty partition if not are passed,
+        # or make do with no partitions
         raise Exception("Partition must be defined in input file, "\
                         "empty partitions are not yet implemented.")
     
@@ -59,9 +61,14 @@ def prepare(
         assert model.get_engine_by_scale_type(settings.scale_type) is not None, \
             f"Engine for scale type {settings.scale_type} is not defined."
         settings.copy_initial_files(model, directory, using_toy=model.using_toy())
-        scale_preparer.generate_files(model, directory, settings.scale_type)
-        
+        scale_preparer.generate_files(model, directory, base.PREPARE_SET_NAME, 
+                                      settings.scale_type)
     model.save(file_path)
+    # Add function to save any cvs, selections, or anchor sets that are defined
+    #  in the prepare stage
+    model.save_cvs(directory, base.PREPARE_SET_NAME)
+    model.save_selections(directory, base.PREPARE_SET_NAME)
+    model.save_anchor_set(directory, base.PREPARE_SET_NAME)
     os.chdir(curdir)
     return model, file_path
 

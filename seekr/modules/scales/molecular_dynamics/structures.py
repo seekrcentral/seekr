@@ -44,8 +44,6 @@ class Scale_md:
         Check if the anchor has the necessary files for this scale.
         """
         for stage_parameter in anchor.stage_parameters:
-            if stage_parameter is None:
-                continue
             stage_directory = stage_parameter["directory"]
             stage_directory = os.path.join(
                 root_directory, self.directory, stage_directory)
@@ -64,16 +62,17 @@ class Scale_md:
     def generate_filetree_anchor(
             self, 
             anchor: "Anchor",
-            root_directory: str
+            root_directory: str,
+            anchor_set_name: str = base.PREPARE_SET_NAME
             ) -> None:
         anchor_dict: dict[str, dict] = {anchor.directory: {}}
         for stage_parameter in anchor.stage_parameters:
-            if stage_parameter is None:
-                continue
             stage_directory = stage_parameter["directory"]
             anchor_dict[anchor.directory][stage_directory] = {}
-
-        base.make_tree(root_directory, anchor_dict)
+        
+        anchor_set_dict: dict[str, dict] = {anchor_set_name: anchor_dict}
+        anchor_sets_dict: dict[str, dict] = {base.ANCHOR_SETS_DIR: anchor_set_dict}
+        base.make_tree(root_directory, anchor_sets_dict)
 
 @define
 class Stage_md:
@@ -99,6 +98,11 @@ class Stage_md:
         default=Factory(sampling_methods_structures.Conventional_md_sampling_method))
     completion_criteria: compl_crit_struct.Base_completion_criteria = field(
         default=Factory(compl_crit_struct.Number_of_steps_completion_criteria))
+    # Lists that are the bases of filenames that will be used to populate the cvs, selections,
+    # and anchor_sets for this stage.
+    set_name: str | None = field(
+        default=base.PREPARE_SET_NAME, 
+        validator=validators.optional(validators.instance_of(str)))
     restraints: list[restraints_structures.Base_restraint] = field(default=Factory(list),)
     reporters: list[reporters_structures.Base_reporter] = field(default=Factory(list),)
     # The index of a previous stage (initial stage = 0) which provides input to
@@ -121,15 +125,11 @@ class Stage_md:
     def add_stage_parameters_to_anchors(
             self, 
             model: "Seekr_model",
-            do_none: bool = False
             ) -> None:
         """
         Add the stage directory to all anchors in the model.
         """
         for anchor in model.anchors:
-            if do_none:
-                anchor.stage_parameters.append(None)
-                continue
             directory_name: str = self.get_directory_name()
             stage_parameter: dict[str, int | str] = {}
             stage_parameter["index"] = self.index
@@ -140,8 +140,7 @@ class Stage_md:
     
     def add_stage_parameters_to_systemwide_settings(
             self, 
-            model: "Seekr_model",
-            do_none: bool = False
+            model: "Seekr_model"
             ) -> None:
         """
         Add the stage parameters to the systemwide settings.
@@ -151,9 +150,6 @@ class Stage_md:
             "MD engine settings not provided."
         assert md_engine.systemwide_settings is not None, "MD engine systemwide "\
             "settings not provided, yet MD stage is provided."
-        if do_none:
-            md_engine.systemwide_settings.stage_parameters.append(None)
-            return
         directory_name: str = self.get_directory_name()
         stage_parameter: dict[str, int | str] = {}
         stage_parameter["index"] = self.index
@@ -177,8 +173,6 @@ class Stage_md:
             if anchor_index is not None and anchor.index != anchor_index:
                 continue
             for stage_parameter in anchor.stage_parameters:
-                if stage_parameter is None:
-                    continue
                 stage_directory = stage_parameter["directory"]
                 if stage_directory == my_directory:
                     for stage_output_glob in stage_output_globs:
@@ -190,8 +184,6 @@ class Stage_md:
         md_engine = model.get_engine_by_scale_type("molecular_dynamics")
         assert md_engine.systemwide_settings is not None
         for stage_parameter in md_engine.systemwide_settings.stage_parameters:
-            if stage_parameter is None:
-                continue
             stage_directory = stage_parameter["directory"]
             if stage_directory == my_directory:
                 for stage_output_glob in stage_output_globs:
@@ -220,6 +212,12 @@ class Stage_md:
         if os.path.exists(full_directory):
             rmtree(full_directory)
         return
+    
+    def is_logistic_stage(self) -> bool:
+        """
+        Returns false since this is a molecular dynamics stage.
+        """
+        return False
 
 def struct_md_sampling_method(
         obj: typing.Dict[str, typing.Any],

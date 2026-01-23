@@ -53,12 +53,15 @@ class Scale_bd:
     def generate_filetree_anchor(
             self, 
             anchor: "seekr.modules.structures.Anchor",
-            root_directory: str
+            root_directory: str,
+            anchor_set_name: str = base.PREPARE_SET_NAME
             ) -> None:
         # If anchor.bd is True, while anchor.md is False, then this
         # must be the b-surface directory
         b_surface_dict: dict[str, dict] = {anchor.directory: {}}
-        base.make_tree(root_directory, b_surface_dict)
+        anchor_set_dict: dict[str, dict] = {anchor_set_name: b_surface_dict}
+        anchor_sets_dict: dict[str, dict] = {base.ANCHOR_SETS_DIR: anchor_set_dict}
+        base.make_tree(root_directory, anchor_sets_dict)
 
 @define
 class Stage_bd:
@@ -80,6 +83,11 @@ class Stage_bd:
     completion_criteria: compl_crit_struct.Number_of_trajectories_completion_criteria\
          = field(default=Factory(
              compl_crit_struct.Number_of_trajectories_completion_criteria))
+    # Lists that are the bases of filenames that will be used to populate the cvs, selections,
+    # and anchor_sets for this stage.
+    set_name: str | None = field(
+        default=base.PREPARE_SET_NAME, 
+        validator=validators.optional(validators.instance_of(str)))
     # TODO: implement restraints in BD?
     #restraints: list[restraint_structures.Restraint] = field(default=Factory(list),)
     input_stage_index: int = field(default=0,
@@ -124,3 +132,9 @@ def register_unstructure_hooks(
     converter.register_unstructure_hook(sampling_methods_structures.Base_bd_sampling_method,
                                         unstruct_bd_sampling_method)
     return
+
+def is_logistic_stage(self) -> bool:
+        """
+        Returns false since this is a brownian dynamics stage.
+        """
+        return False

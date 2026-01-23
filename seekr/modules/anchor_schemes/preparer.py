@@ -212,6 +212,7 @@ class Voronoi_cell:
             self, 
             anchor: structures.Anchor, 
             root_directory: str,
+            anchor_set_name: str,
             toy_mode: bool
             ) -> None:
         """
@@ -220,7 +221,8 @@ class Voronoi_cell:
         """
         if anchor.stage_parameters[0] is not None:
             anchor_initial_directory: str = os.path.join(
-                root_directory, anchor.directory, anchor.stage_parameters[0]["directory"])
+                root_directory, base.ANCHOR_SETS_DIR, anchor_set_name, anchor.directory, 
+                anchor.stage_parameters[0]["directory"])
             anchor.stage_parameters[0]["positions"] = engines_preparer.POSITIONS_BASENAME
             if toy_mode:
                 # MYPY: Similar to the systemwide case, mypy is not happy because
@@ -250,7 +252,7 @@ class Voronoi_cell:
                             f"{engines_preparer.POSITIONS_BASENAME}.swarm_{frame_id}.pdb")
                         mdtraj_obj[frame_id].save(output_pdb_full_path)
 
-class Base_anchor_scheme:
+class Base_anchor_scheme(typing.Protocol):
     """
     Base class for all anchor schemes.
     """
@@ -291,7 +293,7 @@ class Anchors_as_voronoi_cells_anchor_scheme(Base_anchor_scheme):
         for alpha, voronoi_cell in enumerate(self.voronoi_cells):
             anchor: structures.Anchor = structures.Anchor()
             anchor.index = starting_anchor_index + alpha
-            anchor.directory = f"anchor_{anchor.index}"
+            anchor.directory = f"anchor_{anchor.index:04d}"
             if voronoi_cell.name == "":
                 anchor.name = anchor.directory
             else:
