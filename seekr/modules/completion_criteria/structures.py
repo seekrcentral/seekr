@@ -54,7 +54,7 @@ class Number_of_steps_completion_criteria(Base_completion_criteria):
     
     def get_max_sim_len(self) -> int:
         """
-        Return the minimum simulation length for this completion criteria.
+        Return the maximum simulation length for this completion criteria.
         """
         return self.number_of_steps
     
@@ -88,13 +88,13 @@ class Anchors_filled_completion_criteria(Base_completion_criteria):
     
     def get_max_sim_len(self) -> int:
         """
-        Return the minimum simulation length for this completion criteria.
+        Return the maximum simulation length for this completion criteria.
         """
         return self.max_number_of_steps
     
     def get_evaluation_interval(self) -> int:
         return self.eval_interval
-    
+
 @define
 class Number_of_trajectories_completion_criteria(Base_completion_criteria):
     """
@@ -118,7 +118,7 @@ class Number_of_trajectories_completion_criteria(Base_completion_criteria):
     
     def get_max_sim_len(self) -> int:
         """
-        Return the minimum simulation length for this completion criteria.
+        Return the maximum simulation length for this completion criteria.
         """
         return self.max_number_of_steps
 
@@ -154,7 +154,7 @@ class Number_of_encounters_completion_criteria(Base_completion_criteria):
     
     def get_max_sim_len(self) -> int:
         """
-        Return the minimum simulation length for this completion criteria.
+        Return the maximum simulation length for this completion criteria.
         """
         return MAX_BD_STEPS
     

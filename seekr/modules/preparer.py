@@ -905,10 +905,13 @@ def resolve_modifications_and_filetree(
                 stage.add_stage_parameters_to_systemwide_settings(model)
                 did_systemwide_stage = True
 
-            if not did_anchor_stage:
-                stage.add_stage_parameters_to_anchors(model, do_none=True)
-            if not did_systemwide_stage:
-                stage.add_stage_parameters_to_systemwide_settings(model, do_none=True)
+            # TODO: remove these? This was originally when a None was added to 
+            # the anchor's list of stage_parameters. Confirm how we are handling
+            # stage_parameters now.
+            #if not did_anchor_stage:
+            #    stage.add_stage_parameters_to_anchors(model, do_none=True)
+            #if not did_systemwide_stage:
+            #    stage.add_stage_parameters_to_systemwide_settings(model, do_none=True)
 
         #elif stage.scale_type == "logistic":
         else:

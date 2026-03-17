@@ -6,7 +6,7 @@ Structures for reporters in seekr simulations.
 
 import typing
 
-from attrs import define, field, validators
+from attrs import define, field, validators, Factory
 
 class Base_reporter(typing.Protocol):
     """
@@ -20,12 +20,15 @@ class Base_reporter(typing.Protocol):
         """
         raise NotImplementedError("Subclasses must implement this method.")
 
+# TODO: replace with positions interval reporter? Just assign the OpenMM
+#  reporter based on .extension attribute?
+
 @define
-class DCD_reporter(Base_reporter):
+class Position_reporter(Base_reporter):
     """
-    A DCD reporter for SEEKR.
+    A position reporter for SEEKR - either a PDB or DCD file.
     """
-    type: typing.Literal["dcd"] = "dcd"
+    type: typing.Literal["position"] = "position"
     interval: int = field(
         default=1000,
         validator=[validators.instance_of(int),
@@ -42,42 +45,20 @@ class DCD_reporter(Base_reporter):
     make_topology: bool = field(
         default=True, 
         validator=validators.instance_of(bool))
+    extension: str = field(
+        default="dcd",
+        validator=validators.instance_of(str))
     
     def get_reporter_extension(self) -> str:
         """
         Get the file extension for the reporter.
         """
-        return "dcd"
-    
-@define
-class PDB_reporter(Base_reporter):
-    """
-    A PDB reporter for SEEKR.
-    """
-    type: typing.Literal["pdb"] = "pdb"
-    interval: int = field(
-        default=1000,
-        validator=[validators.instance_of(int),
-                   validators.gt(0)])
-    enforce_periodic_box: bool = field(
-        default=True,
-        validator=validators.instance_of(bool))
-    atom_subset: typing.Optional[typing.List[int]] = field(
-        default=None,
-        validator=validators.optional(
-            validators.deep_iterable(
-                member_validator=validators.instance_of(int),
-                iterable_validator=validators.instance_of(list))))
-    def get_reporter_extension(self) -> str:
-        """
-        Get the file extension for the reporter.
-        """
-        return "pdb"
+        return self.extension
     
 @define
 class State_reporter(Base_reporter):
     """
-    A state reporter for SEEKR.
+    A state reporter for SEEKR - energy, temperature, volume, etc. info.
     """
     type: typing.Literal["state"] = "state"
     to_stdout: bool = field(default=True,
@@ -112,3 +93,72 @@ class State_reporter(Base_reporter):
         """
         return "dat"
     
+@define
+class CV_value_reporter(Base_reporter):
+    """
+    A CV value reporter for SEEKR can write sampled positions of a simulation
+    that correspond to a region of CV space.
+    """
+    type: typing.Literal["cv_value"] = "cv_value"
+    cv_name: str = field(default="main",
+                         validator=validators.instance_of(str))
+    cv_values: list[float] = field(default=Factory(list),
+                                  validator=validators.instance_of(list))
+    interval: int = field(
+        default=1000,
+        validator=[validators.instance_of(int),
+                   validators.gt(0)])
+    enforce_periodic_box: bool = field(
+        default=True,
+        validator=validators.instance_of(bool))
+    atom_subset: typing.Optional[typing.List[int]] = field(
+        default=None,
+        validator=validators.optional(
+            validators.deep_iterable(
+                member_validator=validators.instance_of(int),
+                iterable_validator=validators.instance_of(list))))
+    make_topology: bool = field(
+        default=True, 
+        validator=validators.instance_of(bool))
+    extension: str = field(
+        default="dcd",
+        validator=validators.instance_of(str))
+    
+    def get_reporter_extension(self) -> str:
+        """
+        Get the file extension for the reporter.
+        """
+        return self.extension
+    
+@define
+class Anchor_reporter(Base_reporter):
+    """
+    An anchor reporter writes the positions of a simulation that exist within
+    an anchor.
+    """
+    type: typing.Literal["anchor"] = "anchor"
+    interval: int = field(
+        default=1000,
+        validator=[validators.instance_of(int),
+                   validators.gt(0)])
+    enforce_periodic_box: bool = field(
+        default=True,
+        validator=validators.instance_of(bool))
+    atom_subset: typing.Optional[typing.List[int]] = field(
+        default=None,
+        validator=validators.optional(
+            validators.deep_iterable(
+                member_validator=validators.instance_of(int),
+                iterable_validator=validators.instance_of(list))))
+    make_topology: bool = field(
+        default=True, 
+        validator=validators.instance_of(bool))
+    extension: str = field(
+        default="dcd",
+        validator=validators.instance_of(str))
+    
+    def get_reporter_extension(self) -> str:
+        """
+        Get the file extension for the reporter.
+        """
+        return self.extension

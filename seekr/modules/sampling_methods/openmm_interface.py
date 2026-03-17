@@ -1077,7 +1077,7 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
         assert anchor is not None
         # Check to make sure no encounter on first step.
         integrator.beginIfBlock("step_count = 0")
-        integrator.beginIfBlock(f"energy1 > 0")
+        integrator.beginIfBlock("energy1 > 0")
         integrator.addComputeGlobal("encounter_this_step", "1")
         integrator.addComputeGlobal("first_step_encounter", "1")
         integrator.endBlock()

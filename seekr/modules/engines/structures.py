@@ -352,7 +352,9 @@ class Charmm_parameters_topology:
             copyfile(full_param_filename, anchor_param_full_path)
             new_md_parameters_topology.param_filename_list.append(param_basename)
         return
-    
+   
+# TODO: remove support for this - users can create their own systems from an
+#  OpenMM FF if they want to and save it as a system XML.
 @define
 class Forcefield_parameters:
     type: typing.Literal["OpenMM_forcefield"] = "OpenMM_forcefield"

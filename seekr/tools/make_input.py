@@ -28,7 +28,8 @@ import seekr.modules.scales.molecular_dynamics.preparer as md_preparer
 import seekr.modules.scales.brownian_dynamics.preparer as bd_preparer
 import seekr.modules.scales.logistic.preparer as logistic_preparer
 import seekr.modules.anchor_schemes.preparer as anchor_scheme_preparer
-import seekr.modules.scales.logistic.reassign_anchors_logistic_stage as reassign_anchors_logistic_stage
+import seekr.modules.scales.logistic.reassign_anchors_logistic_stage \
+    as reassign_anchors_logistic_stage
 
 TOOLS_DIRECTORY = os.path.dirname(__file__)
 DATA_DIRECTORY = os.path.abspath(os.path.join(TOOLS_DIRECTORY, "..", "data"))
@@ -146,9 +147,14 @@ def create_toy_model_input(
     stage2.run_minimization = False
     stage2.checkpoint_interval = 10
     stage2.ensemble = base.NVT_ensemble()
-    stage2.completion_criteria = compl_crit_struct.Anchors_filled_completion_criteria()
-    stage2.completion_criteria.exclude = [2]
-    stage2.completion_criteria.eval_interval = 10
+    if define_anchors_later:
+        stage2.completion_criteria = compl_crit_struct.Number_of_steps_completion_criteria()
+        stage2.completion_criteria.number_of_steps = 100000
+    else:
+        stage2.completion_criteria = compl_crit_struct.Anchors_filled_completion_criteria()
+        stage2.completion_criteria.exclude = [2]
+        stage2.completion_criteria.eval_interval = 10
+
     stage2_state_reporter = reporters_preparer.State_reporter_input()
     stage2_state_reporter.to_stdout = True
     stage2_state_reporter.interval = 50
