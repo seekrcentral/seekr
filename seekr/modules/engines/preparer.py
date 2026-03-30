@@ -18,10 +18,10 @@ import seekr.modules.engines.structures as engines_structures
 POSITIONS_BASENAME = "positions"
 
 @define
-class MD_systemwide_settings_input:
+class MD_unpartitioned_settings_input:
     # To be used for a common set of parameters for all anchors
     # within MD simulations
-    directory: str = field(default=base.SYSTEMWIDE_DIRECTORY, 
+    directory: str = field(default=base.UNPARTITIONED_DIRECTORY, 
                            validator=validators.instance_of(str))
     md_parameters_topology: engines_structures.Parameters_topology | None = None
     # This can be a position assignment to be automatically placed into an anchor
@@ -33,12 +33,12 @@ class MD_systemwide_settings_input:
             iterable_validator=validators.instance_of(list),
         ))
     
-    def make_systemwide_settings_for_model(
+    def make_unpartitioned_settings_for_model(
             self
-            ) -> engines_structures.MD_systemwide_settings:
-        new_md_systemwide_settings = engines_structures.MD_systemwide_settings()
-        new_md_systemwide_settings.directory = self.directory
-        new_md_systemwide_settings.selections = self.selections
+            ) -> engines_structures.MD_unpartitioned_settings:
+        new_md_unpartitioned_settings = engines_structures.MD_unpartitioned_settings()
+        new_md_unpartitioned_settings.directory = self.directory
+        new_md_unpartitioned_settings.selections = self.selections
         stage_parameters: list[dict | None]
         if self.positions is not None and self.positions != "":
             stage_parameters = \
@@ -46,34 +46,34 @@ class MD_systemwide_settings_input:
                   "positions": self.positions}]
         else:
             stage_parameters = [None]
-        new_md_systemwide_settings.stage_parameters = stage_parameters
-        new_md_systemwide_settings.md_parameters_topology = self.md_parameters_topology
-        return new_md_systemwide_settings
+        new_md_unpartitioned_settings.stage_parameters = stage_parameters
+        new_md_unpartitioned_settings.md_parameters_topology = self.md_parameters_topology
+        return new_md_unpartitioned_settings
 
     def copy_initial_files(
             self, 
             root_directory: str,
-            new_systemwide_settings: engines_structures.MD_systemwide_settings,
+            new_unpartitioned_settings: engines_structures.MD_unpartitioned_settings,
             toy_mode: bool
             ) -> None:
         """
         Copy the files for the initial 'stage' from this Anchor_input
         to the actual anchor.
         """
-        if new_systemwide_settings.stage_parameters[0] is not None:
-            systemwide_initial_directory = os.path.join(
+        if new_unpartitioned_settings.stage_parameters[0] is not None:
+            unpartitioned_initial_directory = os.path.join(
                 root_directory, self.directory, base.INITIAL_DIRECTORY)
             if self.md_parameters_topology is not None \
                     or (self.positions is not None \
                         and self.positions != ""):
-                new_systemwide_settings.generate_filetree(root_directory)
-            new_systemwide_settings.stage_parameters[0]["positions"] = POSITIONS_BASENAME
+                new_unpartitioned_settings.generate_filetree(root_directory)
+            new_unpartitioned_settings.stage_parameters[0]["positions"] = POSITIONS_BASENAME
             if toy_mode:
                 # MYPY: an error happens here because toy input positions take an array,
                 # but non-toy inputs take str (representing the PDB file) - not sure 
                 # how best to resolve it.
                 for frame_id, frame_positions in enumerate(self.positions):
-                    full_positions_path = os.path.join(systemwide_initial_directory,
+                    full_positions_path = os.path.join(unpartitioned_initial_directory,
                                                     f"{POSITIONS_BASENAME}.swarm_{frame_id}.txt")
                     logging.info(f"Writing positions file: {full_positions_path} with "
                                  "positions taken directly from input file.")
@@ -81,19 +81,19 @@ class MD_systemwide_settings_input:
 
             else:
                 if self.md_parameters_topology is not None:
-                    new_systemwide_settings.md_parameters_topology = self.md_parameters_topology
+                    new_unpartitioned_settings.md_parameters_topology = self.md_parameters_topology
                     self.md_parameters_topology.copy_files(
-                        systemwide_initial_directory,
-                        new_systemwide_settings.md_parameters_topology)
+                        unpartitioned_initial_directory,
+                        new_unpartitioned_settings.md_parameters_topology)
 
                 if (self.positions is not None) and (self.positions != ""):
                     assert isinstance(self.positions, str), \
-                        "MD_systemwide_settings.positions must be a string."
+                        "MD_unpartitioned_settings.positions must be a string."
                     mdtraj_obj = mdtraj.load(self.positions)
                     num_frames = mdtraj_obj.n_frames
                     for frame_id in range(num_frames):
                         output_pdb_full_path = os.path.join(
-                            systemwide_initial_directory,
+                            unpartitioned_initial_directory,
                             f"{POSITIONS_BASENAME}.swarm_{frame_id}.pdb")
                         logging.info(f"Writing positions file: {output_pdb_full_path} "
                                      f"by extracting frame from input PDB named: {self.positions}.")

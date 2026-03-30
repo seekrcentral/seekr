@@ -7,7 +7,6 @@ Prepare the restraints inputs for simulations.
 import typing
 from attrs import define, field, validators, Factory
 
-import seekr.modules.engines.structures as engines_structures
 import seekr.modules.restraints.structures as restraints_structures
 import seekr.modules.engines.preparer as engines_preparer
 
@@ -19,7 +18,7 @@ class Base_restraint_input(typing.Protocol):
 
     def make_restraint(
             self, 
-            systemwide_settings: engines_preparer.MD_systemwide_settings_input
+            unpartitioned_settings: engines_preparer.MD_unpartitioned_settings_input
             ) -> restraints_structures.Base_restraint:
         """
         Make the restraint object for the model.
@@ -40,12 +39,12 @@ class Positional_restraint_input(Base_restraint_input):
 
     def make_restraint(
             self, 
-            systemwide_settings: engines_preparer.MD_systemwide_settings_input
+            unpartitioned_settings: engines_preparer.MD_unpartitioned_settings_input
             ) -> restraints_structures.Positional_restraint:
         """
         Make the restraint object for the model.
         """
-        atom_indices = systemwide_settings.get_atom_indices_by_selection_name(
+        atom_indices = unpartitioned_settings.get_atom_indices_by_selection_name(
             self.selection_name)
         restraint = restraints_structures.Positional_restraint()
         restraint.atom_indices = atom_indices
@@ -66,12 +65,12 @@ class Pairwise_restraint_input(Base_restraint_input):
 
     def make_restraint(
             self, 
-            systemwide_settings: engines_preparer.MD_systemwide_settings_input
+            unpartitioned_settings: engines_preparer.MD_unpartitioned_settings_input
             ) -> restraints_structures.Pairwise_restraint:
         """
         Make the restraint object for the model.
         """
-        atom_indices = systemwide_settings.get_atom_indices_by_selection_name(
+        atom_indices = unpartitioned_settings.get_atom_indices_by_selection_name(
             self.selection_name)
         # NOTE: not doing it this way - creates too many number pairs in the model
         #  file.
@@ -104,14 +103,14 @@ class Proximity_restraint_input(Base_restraint_input):
 
     def make_restraint(
             self, 
-            systemwide_settings: engines_preparer.MD_systemwide_settings_input
+            unpartitioned_settings: engines_preparer.MD_unpartitioned_settings_input
             ) -> restraints_structures.Proximity_restraint:
         """
         Make the restraint object for the model.
         """
-        atom_indices1 = systemwide_settings.get_atom_indices_by_selection_name(
+        atom_indices1 = unpartitioned_settings.get_atom_indices_by_selection_name(
             self.selection1_name)
-        atom_indices2 = systemwide_settings.get_atom_indices_by_selection_name(
+        atom_indices2 = unpartitioned_settings.get_atom_indices_by_selection_name(
             self.selection2_name)
         restraint = restraints_structures.Proximity_restraint()
         restraint.atom_indices1 = atom_indices1
@@ -141,16 +140,16 @@ class Cylinder_restraint_input(Base_restraint_input):
 
     def make_restraint(
             self, 
-            systemwide_settings: engines_preparer.MD_systemwide_settings_input
+            unpartitioned_settings: engines_preparer.MD_unpartitioned_settings_input
             ) -> restraints_structures.Cylinder_restraint:
         """
         Make the restraint object for the model.
         """
-        atom_indices1 = systemwide_settings.get_atom_indices_by_selection_name(
+        atom_indices1 = unpartitioned_settings.get_atom_indices_by_selection_name(
             self.selection1_name)
-        atom_indices2 = systemwide_settings.get_atom_indices_by_selection_name(
+        atom_indices2 = unpartitioned_settings.get_atom_indices_by_selection_name(
             self.selection2_name)
-        atom_indices3 = systemwide_settings.get_atom_indices_by_selection_name(
+        atom_indices3 = unpartitioned_settings.get_atom_indices_by_selection_name(
             self.selection3_name)
         restraint = restraints_structures.Cylinder_restraint()
         restraint.atom_indices1 = atom_indices1

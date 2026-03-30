@@ -16,6 +16,7 @@ from scipy.spatial import QhullError
 import mdtraj
 
 import seekr.modules.base as base
+import seekr.modules.anchor_schemes.base as anchor_schemes_base
 import seekr.modules.collective_variables.base as cv_base
 import seekr.modules.structures as structures
 import seekr.modules.engines.structures as engines_structures
@@ -225,7 +226,7 @@ class Voronoi_cell:
                 anchor.stage_parameters[0]["directory"])
             anchor.stage_parameters[0]["positions"] = engines_preparer.POSITIONS_BASENAME
             if toy_mode:
-                # MYPY: Similar to the systemwide case, mypy is not happy because
+                # MYPY: Similar to the unpartitioned case, mypy is not happy because
                 # the toy positions are an array of positions, but non-toy systems
                 # are a filename for a PDB. Not sure how to resolve this.
                 for frame_id, frame_positions in enumerate(self.positions):
@@ -252,14 +253,9 @@ class Voronoi_cell:
                             f"{engines_preparer.POSITIONS_BASENAME}.swarm_{frame_id}.pdb")
                         mdtraj_obj[frame_id].save(output_pdb_full_path)
 
-class Base_anchor_scheme(typing.Protocol):
-    """
-    Base class for all anchor schemes.
-    """
-    pass
-
 @define
-class Anchors_as_voronoi_cells_anchor_scheme(Base_anchor_scheme):
+class Anchors_as_voronoi_cells_anchor_scheme(
+    anchor_schemes_base.Base_anchor_scheme):
     """
     A Voronoi cell-based anchor scheme.
     """
@@ -274,7 +270,7 @@ class Anchors_as_voronoi_cells_anchor_scheme(Base_anchor_scheme):
 
     def make_anchors(
             self, 
-            cvs: list[cv_base.Base_CV_input],
+            cvs: list[cv_base.Base_CV_input]| list[cv_base.Base_CV],
             starting_anchor_index: int,
             starting_milestone_index: int,
             connection_flag_dict: dict[int|str, list[structures.Anchor]], 
@@ -313,11 +309,16 @@ class Anchors_as_voronoi_cells_anchor_scheme(Base_anchor_scheme):
 
             associated_input_anchor[anchor.index] = voronoi_cell
             cv_indices = []
-            for j, cv_input in enumerate(cvs):
-                variable_name = f"value_{cv_input._index}"
+            for j, cv in enumerate(cvs):
+                if hasattr(cv, "_index"):
+                    cv_index = cv._index
+                elif hasattr(cv, "index"):
+                    cv_index = cv.index
+                variable_name = f"value_{cv_index}"
                 variable_value = voronoi_cell.get_variable_value(j)
                 anchor.variables[variable_name] = variable_value
-                cv_indices.append(cv_input._index)
+                
+                cv_indices.append(cv_index)
 
             if len(cvs) == 1:
                 for connection_flag in voronoi_cell.connection_flags:

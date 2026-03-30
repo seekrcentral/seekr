@@ -47,9 +47,9 @@ class Input_stage_bd:
     def make_model_stage(
             self, 
             index: int,
-            systemwide_stage_input: bool,
+            scope: str,
             bd_settings: BD_settings_input
-            ) -> typing.Tuple[scale_bd.Stage_bd, bool]:
+            ) -> scale_bd.Stage_bd:
         """
         Given this input stage object, create the model's Stage object.
         """
@@ -60,12 +60,11 @@ class Input_stage_bd:
         stage.n_steps_per_output = self.n_steps_per_output
         assert self.completion_criteria is not None
         stage.completion_criteria = self.completion_criteria
-        # At present, BD stages will always be systemwide
+        # At present, BD stages will always be unpartitioned
         #stage.input_from = None
         #stage.output_to = None
         # TODO: implement restraints in BD - that will use bd_settings argument
-        return stage, systemwide_stage_input
-
+        return stage
 
 def generate_bd_files(
         model: structures.Seekr_model, 

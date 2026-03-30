@@ -19,7 +19,7 @@ class Base_reporter_input(typing.Protocol):
 
     def make_reporter(
             self,
-            systemwide_settings: engines_preparer.MD_systemwide_settings_input
+            unpartitioned_settings: engines_preparer.MD_unpartitioned_settings_input
         ) -> reporters_structures.Base_reporter:
         """
         Make the reporter object for the model file.
@@ -27,11 +27,11 @@ class Base_reporter_input(typing.Protocol):
         raise NotImplementedError("Subclasses must implement this method.")
 
 @define
-class DCD_reporter_input(Base_reporter_input):
+class Position_reporter_input(Base_reporter_input):
     """
-    Input for DCD reporter.
+    Input for position reporter - DCD or PDB format.
     """
-    type: typing.Literal["dcd"] = "dcd"
+    type: typing.Literal["position"] = "position"
     interval: int = field(default=1000,
                           validator=[validators.instance_of(int),
                                      validators.gt(0)])
@@ -40,60 +40,32 @@ class DCD_reporter_input(Base_reporter_input):
     atom_subset: str | None = field(default=None,
                                      validator=validators.optional(
                                          validators.instance_of(str)))
+    extension: str = field(default="dcd",
+                          validator=validators.instance_of(str))
 
     def make_reporter(
             self,
-            systemwide_settings: engines_preparer.MD_systemwide_settings_input
-        ) -> reporters_structures.DCD_reporter:
+            unpartitioned_settings: engines_preparer.MD_unpartitioned_settings_input
+        ) -> reporters_structures.Position_reporter:
         """
         Make the reporter object for the model file.
         """
-        reporter = reporters_structures.DCD_reporter()
-        if self.atom_subset is None:
-            atom_indices = None
-            reporter.make_topology = False
-        else:
-            atom_indices = systemwide_settings.get_atom_indices_by_selection_name(
+        reporter = reporters_structures.Position_reporter()
+        if self.extension not in ["pdb", "dcd"]:
+            raise ValueError(f"Unsupported extension {self.extension} for position reporter.")
+        if (self.atom_subset is not None) and (self.extension == "dcd"):
+            atom_indices = unpartitioned_settings.get_atom_indices_by_selection_name(
                 self.atom_subset)
             reporter.make_topology = True
-
-        reporter.interval = self.interval
-        reporter.enforce_periodic_box = self.enforce_periodic_box
-        reporter.atom_subset = atom_indices
-        return reporter
-
-@define
-class PDB_reporter_input(Base_reporter_input):
-    """
-    Input for PDB reporter.
-    """
-    type: typing.Literal["pdb"] = "pdb"
-    interval: int = field(default=1000,
-                          validator=[validators.instance_of(int),
-                                     validators.gt(0)])
-    enforce_periodic_box: bool = field(default=True,
-                                       validator=validators.instance_of(bool))
-    atom_subset: str | None = field(default=None,
-                                     validator=validators.optional(
-                                         validators.instance_of(str)))
-    def make_reporter(
-            self,
-            systemwide_settings: engines_preparer.MD_systemwide_settings_input
-        ) -> reporters_structures.PDB_reporter:
-        """
-        Make the reporter object for the model file.
-        """
-        if self.atom_subset is None:
-            atom_indices = None
         else:
-            atom_indices = systemwide_settings.get_atom_indices_by_selection_name(
-                self.atom_subset)
-        reporter = reporters_structures.PDB_reporter()
+            atom_indices = None
+            reporter.make_topology = False
+
         reporter.interval = self.interval
         reporter.enforce_periodic_box = self.enforce_periodic_box
         reporter.atom_subset = atom_indices
         return reporter
-    
+
 @define
 class State_reporter_input(Base_reporter_input):
     """
@@ -108,7 +80,7 @@ class State_reporter_input(Base_reporter_input):
     
     def make_reporter(
             self,
-            systemwide_settings: engines_preparer.MD_systemwide_settings_input
+            unpartitioned_settings: engines_preparer.MD_unpartitioned_settings_input
         ) -> reporters_structures.State_reporter:
         """
         Make the reporter object for the model file.
@@ -135,19 +107,19 @@ class CV_value_reporter_input(Base_reporter_input):
     enforce_periodic_box: bool = field(
         default=True,
         validator=validators.instance_of(bool))
-    atom_subset: typing.Optional[typing.List[int]] = field(
-        default=None,
-        validator=validators.optional(
-            validators.deep_iterable(
-                member_validator=validators.instance_of(int),
-                iterable_validator=validators.instance_of(list))))
     extension: str = field(
         default="dcd",
         validator=validators.instance_of(str))
+    save_interval: int | None = field(
+        default=None,
+        validator=validators.optional(validators.instance_of(int)))
+    mode: str = field(
+        default="save_last_frame",
+        validator=validators.in_(["save_last_frame", "save_first_frame"]))
     
     def make_reporter(
             self,
-            systemwide_settings: engines_preparer.MD_systemwide_settings_input
+            unpartitioned_settings: engines_preparer.MD_unpartitioned_settings_input
         ) -> reporters_structures.CV_value_reporter:
         """
         Make the reporter object for the model file.
@@ -157,14 +129,11 @@ class CV_value_reporter_input(Base_reporter_input):
         reporter.cv_values = self.cv_values
         reporter.interval = self.interval
         reporter.enforce_periodic_box = self.enforce_periodic_box
-        reporter.atom_subset = self.atom_subset
-        if self.extension == "dcd":
-            reporter.make_topology = True
-        elif self.extension == "pdb":
-            reporter.make_topology = False
-        else:
-            raise ValueError(f"Unsupported extension {self.extension} for CV value reporter.")
+        assert self.extension in ["dcd", "pdb"], \
+            f"Unsupported extension {self.extension} for CV value reporter."
         reporter.extension = self.extension
+        reporter.save_interval = self.save_interval
+        reporter.mode = self.mode
         return reporter
 
 @define
@@ -193,7 +162,7 @@ class Anchor_reporter_input(Base_reporter_input):
     
     def make_reporter(
             self,
-            systemwide_settings: engines_preparer.MD_systemwide_settings_input
+            unpartitioned_settings: engines_preparer.MD_unpartitioned_settings_input
         ) -> reporters_structures.CV_value_reporter:
         """
         Make the reporter object for the model file.

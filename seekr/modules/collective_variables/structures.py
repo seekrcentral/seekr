@@ -8,11 +8,13 @@ This module mainly defines types common to collective variables, as
 well as some useful functions.
 """
 
+import json
 import typing
 
+import cattrs
 import mdtraj
 
-import seekr.modules.base as base
+import seekr.modules.collective_variables.base as cv_base
 import seekr.modules.collective_variables.distance_cv as distance_cv
 import seekr.modules.collective_variables.external_cv as external_cv
 import seekr.modules.collective_variables.rmsd_cv as rmsd_cv
@@ -91,3 +93,34 @@ def check_mdtraj_within_boundary(
         return False
         
     return True
+
+def struct_collective_variable(
+        obj: typing.Dict[str, typing.Any],
+        _: typing.Type[cv_base.Base_CV]
+        ) -> cv_base.Base_CV:
+    typ = obj.pop("type")
+    return cattrs.structure(obj, cvs[typ])
+
+def unstruct_collective_variable(
+        obj: cv_base.Base_CV
+        ) -> typing.Dict[str, typing.Any]:
+    """
+    Unstructure a completion criteria object to a dictionary.
+    """
+    d = cattrs.unstructure(obj)
+    d["type"] = obj.type
+    return d
+
+def load_cv_from_file(
+        filename: str
+        ) -> cv_base.Base_CV:
+    """
+    Load a collective variable from a file.
+    """
+    converter: cattrs.Converter = cattrs.Converter()
+    with open(filename, "r") as file:
+        cv_dict = json.load(file)
+    converter.register_structure_hook(cv_base.Base_CV,
+                                      struct_collective_variable)
+    cv = converter.structure(cv_dict, cv_base.Base_CV)
+    return cv

@@ -179,6 +179,7 @@ class Base_md_openmm_interface:
             openmm_cv_object = openmm.CustomCVForce(expression)
             for i, openmm_cv in enumerate(self._openmm_cv_list):
                 cv_name = cv_names[i]
+                print("cv_name:", cv_name, "openmm_cv:", openmm_cv)
                 openmm_cv_object.addCollectiveVariable(cv_name, openmm_cv)
             
             self._openmm_cv_object = openmm_cv_object
@@ -309,6 +310,13 @@ class Base_md_openmm_interface:
         Perform an evaluation once at an early point in the simulation.
         """
         pass
+    
+    def get_cv_values(
+            self,
+            ) -> list | None:
+        cv_values = self._openmm_cv_object.getCollectiveVariableValues(
+            self._simulation_obj.context)
+        return cv_values
 
     def run(
             self,
@@ -326,6 +334,7 @@ class Base_md_openmm_interface:
                 completion_criteria_openmm_interface\
                     .Completion_criteria_openmm_interface,
             do_initial_benchmark: bool = True,
+            needs_cv_values: bool = False
             ) -> int:
         """
         Run the simulation.
@@ -365,7 +374,7 @@ class Base_md_openmm_interface:
                 steps_to_take = steps_until_eval
                 make_eval = True
             if num_steps == 0:
-                if completion_openmm_interface.needs_cv_values():
+                if needs_cv_values:
                     self.create_openmm_cv_list()
                     self.create_openmm_cv_object()
                 if do_initial_benchmark:
@@ -399,9 +408,10 @@ class Base_md_openmm_interface:
                 if make_eval:
                     stopping = self.perform_eval(restart_index, swarm_id)
                     # NOTE: an logging update is printed every checkpoint. Is this right?
-                    if completion_openmm_interface.needs_cv_values():
-                        cv_values = self._openmm_cv_object.getCollectiveVariableValues(
-                            self._simulation_obj.context)
+                    if needs_cv_values:
+                        #cv_values = self._openmm_cv_object.getCollectiveVariableValues(
+                        #    self._simulation_obj.context)
+                        cv_values = self.get_cv_values()
                         
                     criteria_satisfied = completion_openmm_interface.criteria_satisfied(
                         current_step=on_step, print_update=False, cv_values=cv_values, 
@@ -454,8 +464,10 @@ class Base_md_openmm_interface:
                 found_anchor = True
                 current_anchor_index = alpha
 
-        assert (current_anchor_index is not None) and (current_anchor_index >= 0), \
-            "No anchor was found for the current simulation step."
+        # NOTE: the system might be in no anchors if there are no anchors
+        #  in the model.
+        #assert (current_anchor_index is not None) and (current_anchor_index >= 0), \
+        #    "No anchor was found for the current simulation step."
         return current_anchor_index
                 
     def save_to_current_anchor(
@@ -722,6 +734,13 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
         self._simulation_obj.context.reinitialize(preserveState=True)
         return
     
+    def get_cv_values(
+            self
+            ) -> list | None:
+        cv_values = self._metadynamics_obj.getCollectiveVariables(
+            self._simulation_obj)
+        return cv_values
+
     def perform_eval(
             self, 
             _restart_index: int, 
@@ -739,8 +758,9 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
         #for i, cv in enumerate(self._openmm_cv_list):
         #    cv_value = cv.getCollectiveVariableValues(self._simulation_obj.context)
         #    cv_values.append(cv_value[0])
-        cv_values = self._metadynamics_obj.getCollectiveVariables(self._simulation_obj)
-        
+        #cv_values = self._metadynamics_obj.getCollectiveVariables(self._simulation_obj)
+        cv_values = self.get_cv_values()
+
         current_anchor_index = self.find_current_anchor_index(cv_values)
         #print("Evaluation performed.")
         #print("current anchor index:", current_anchor_index)
@@ -852,7 +872,8 @@ class Steered_md_openmm_interface(Base_md_openmm_interface):
         #cv_values: list[float] = []
         assert self._simulation_obj is not None
         assert self._openmm_cv_list is not None
-        cv_values = self._openmm_cv_object.getCollectiveVariableValues(self._simulation_obj.context)
+        #cv_values = self._openmm_cv_object.getCollectiveVariableValues(self._simulation_obj.context)
+        cv_values = self.get_cv_values()
         current_anchor_index = self.find_current_anchor_index(cv_values)
         if current_anchor_index is None:
             #self.save_to_closest_anchor(cv_values, SMD_NAME)
@@ -950,7 +971,8 @@ class Steered_md_openmm_interface(Base_md_openmm_interface):
         #cv_values_dummy: list[float] = []
         assert self._simulation_obj is not None
         assert self._openmm_cv_list is not None
-        cv_values = self._openmm_cv_object.getCollectiveVariableValues(self._simulation_obj.context)
+        #cv_values = self._openmm_cv_object.getCollectiveVariableValues(self._simulation_obj.context)
+        cv_values = self.get_cv_values()
         if self._windows_list_zipped is None:
             self.assign_new_windows(cv_values)
 

@@ -8,13 +8,11 @@ import os
 
 import seekr.modules.base as base
 import seekr.modules.engines.structures as engines_structures
-import seekr.modules.structures as structures
 import seekr.modules.completion_criteria.structures as compl_crit_struct
 import seekr.modules.engines.openmm.preparer as openmm_preparer
 import seekr.modules.engines.browndye.preparer as browndye_preparer
 import seekr.modules.sampling_methods.preparer as sampling_preparer
 import seekr.modules.engines.preparer as engines_preparer
-import seekr.modules.restraints.preparer as restraints_preparer
 import seekr.modules.reporters.preparer as reporters_preparer
 import seekr.modules.collective_variables.distance_cv as distance_cv
 import seekr.modules.scales.molecular_dynamics.preparer as md_preparer
@@ -28,62 +26,64 @@ DATA_DIRECTORY = os.path.abspath(os.path.join(TEST_DIRECTORY, "..", "data"))
 HOSTGUEST_DIRECTORY = os.path.join(DATA_DIRECTORY, "hostguest_files")
 
 def assign_amber_params(
-        anchor_or_systemwide: engines_structures.MD_systemwide_settings, 
+        anchor_or_unpartitioned: engines_structures.MD_unpartitioned_settings, 
         prmtop_filename: str, 
         pdb_filename: str
         ) -> None:
-    anchor_or_systemwide.md_parameters_topology\
+    anchor_or_unpartitioned.md_parameters_topology\
         = engines_structures.Amber_parameters_topology()
-    anchor_or_systemwide.md_parameters_topology.prmtop_filename \
+    anchor_or_unpartitioned.md_parameters_topology.prmtop_filename \
         = prmtop_filename
-    anchor_or_systemwide.positions = pdb_filename
+    anchor_or_unpartitioned.positions = pdb_filename
     return
 
 def assign_forcefield_params(
-        anchor_or_systemwide: engines_structures.MD_systemwide_settings, 
+        anchor_or_unpartitioned: engines_structures.MD_unpartitioned_settings, 
         built_in_ff_list: list[str], 
         custom_ff_list: list[str], 
         pdb_filename: str
         ) -> None:
-    anchor_or_systemwide.md_parameters_topology\
+    anchor_or_unpartitioned.md_parameters_topology\
         = engines_structures.Forcefield_parameters()
-    anchor_or_systemwide.md_parameters_topology.built_in_forcefield_filenames \
+    anchor_or_unpartitioned.md_parameters_topology.built_in_forcefield_filenames \
         = built_in_ff_list
-    anchor_or_systemwide.md_parameters_topology.custom_forcefield_filenames \
+    anchor_or_unpartitioned.md_parameters_topology.custom_forcefield_filenames \
         = custom_ff_list
-    anchor_or_systemwide.positions = pdb_filename = pdb_filename
+    anchor_or_unpartitioned.positions = pdb_filename = pdb_filename
     return
 
 def assign_system_params(
-        anchor_or_systemwide: engines_structures.MD_systemwide_settings, 
+        anchor_or_unpartitioned: engines_structures.MD_unpartitioned_settings, 
         system_filename: str, 
         pdb_filename: str
         ) -> None:
-    anchor_or_systemwide.md_parameters_topology\
+    anchor_or_unpartitioned.md_parameters_topology\
         = engines_structures.Openmm_system()
-    anchor_or_systemwide.md_parameters_topology.system_filename \
+    anchor_or_unpartitioned.md_parameters_topology.system_filename \
         = system_filename
-    anchor_or_systemwide.positions = pdb_filename = pdb_filename
+    anchor_or_unpartitioned.positions = pdb_filename = pdb_filename
     return
 
 def assign_charmm_params(
-        anchor_or_systemwide: engines_structures.MD_systemwide_settings, 
+        anchor_or_unpartitioned: engines_structures.MD_unpartitioned_settings, 
         psf_filename: str, 
         charmm_ff_filenames: list[str], 
         pdb_filename: str
         ) -> None:
-    anchor_or_systemwide.md_parameters_topology\
+    anchor_or_unpartitioned.md_parameters_topology\
         = engines_structures.Charmm_parameters_topology()
-    anchor_or_systemwide.md_parameters_topology.psf_filename = psf_filename
-    anchor_or_systemwide.md_parameters_topology.param_filename_list = charmm_ff_filenames
-    anchor_or_systemwide.positions = pdb_filename = pdb_filename
+    anchor_or_unpartitioned.md_parameters_topology.psf_filename \
+        = psf_filename
+    anchor_or_unpartitioned.md_parameters_topology.param_filename_list \
+        = charmm_ff_filenames
+    anchor_or_unpartitioned.positions = pdb_filename
     return
 
 def create_host_guest_example_input(
         root_dir: str, 
         bd: bool = True, 
         ff: str = "amber",
-        start_from_systemwide: bool = False,
+        start_from_unpartitioned: bool = False,
         parameters_to_all_anchors: bool = False
         ) -> preparer.Seekr_input:
     """
@@ -111,7 +111,8 @@ def create_host_guest_example_input(
     pdb_full_filenames = []
     for pdb_filename in pdb_filenames:
         if pdb_filename:
-            pdb_full_filenames.append(os.path.join(HOSTGUEST_DIRECTORY, pdb_filename))
+            pdb_full_filenames.append(
+                os.path.join(HOSTGUEST_DIRECTORY, pdb_filename))
         else:
             pdb_full_filenames.append("")
 
@@ -127,28 +128,28 @@ def create_host_guest_example_input(
     seekr_input.temperature = 298.15
     seekr_input.random_seed = 111
     md_settings = openmm_preparer.Openmm_settings_input()
-    md_settings.systemwide_settings \
-        = engines_preparer.MD_systemwide_settings_input()
+    md_settings.unpartitioned_settings \
+        = engines_preparer.MD_unpartitioned_settings_input()
     if ff == "amber":
-        md_settings.systemwide_settings.md_parameters_topology\
+        md_settings.unpartitioned_settings.md_parameters_topology\
             = engines_structures.Amber_parameters_topology()
-        md_settings.systemwide_settings.md_parameters_topology\
+        md_settings.unpartitioned_settings.md_parameters_topology\
             .prmtop_filename = amber_prmtop_filename
         # To test starting from a single position
-        md_settings.systemwide_settings.positions\
+        md_settings.unpartitioned_settings.positions\
             = os.path.join(HOSTGUEST_DIRECTORY, "hostguest_at0.5.pdb")
     else:
         raise Exception(f"ff option not implemented: {ff}.")
-    if start_from_systemwide:
+    if start_from_unpartitioned:
         if ff == "amber":
-            assign_amber_params(seekr_input.md_settings.systemwide_settings, 
+            assign_amber_params(seekr_input.md_settings.unpartitioned_settings, 
                                 amber_prmtop_filename, pdb_filename)
         elif ff == "forcefield":
-            assign_forcefield_params(seekr_input.md_settings.systemwide_settings, 
+            assign_forcefield_params(seekr_input.md_settings.unpartitioned_settings, 
                                      forcefield_built_in_ff_list, forcefield_custom_ff_list, 
                                      pdb_filename)
         elif ff == "system":
-            assign_system_params(seekr_input.md_settings.systemwide_settings, 
+            assign_system_params(seekr_input.md_settings.unpartitioned_settings, 
                                  system_filename, pdb_filename)
         else:
             raise Exception(f"ff option not implemented: {ff}.")
@@ -162,7 +163,7 @@ def create_host_guest_example_input(
     solute_selection_md = engines_structures.Selection()
     solute_selection_md.name = "solute"
     solute_selection_md.atom_indices = receptor_indices_md + ligand_indices_md
-    md_settings.systemwide_settings.selections\
+    md_settings.unpartitioned_settings.selections\
         = [receptor_selection_md, ligand_selection_md, solute_selection_md]
     seekr_input.settings_list = [md_settings]
     if bd:

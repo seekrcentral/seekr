@@ -13,6 +13,7 @@ import seekr.modules.base as base
 import seekr.modules.structures as structures
 import seekr.modules.scales.runner as scales_runner
 
+# Max number of times to check for remaining instructions this stage
 MAX_ITER = 999
 
 def extract_stage_index(
@@ -63,6 +64,10 @@ def run(
     assert stage_index is not None, \
         "Stage argument must match a name or index of a stage in the model."
     stage = model.stages[stage_index]
+    if stage.scale_type != "logistic":
+        model.load_cvs(stage.set_name)
+        model.load_selections(stage.set_name)
+        model.load_anchor_set(stage.set_name)
     anchor_index_instruction = extract_anchor_index(model, anchor_arg)
     if stage.input_from == "anchors":
         # anchor_index only needs to be defined if the stage uses anchors.
@@ -100,8 +105,8 @@ def run(
     os.chdir(curdir)
     if ran_nothing:
         log_string = "Nothing was run because all criteria are satisfied. "\
-            "If this is unexpected, make sure that all relevant systemwide or "\
-            "anchors have assigned starting coordinates (ex: PDB file)."
+            "If this is unexpected, make sure that all relevant unpartitioned "\
+            "or anchors have assigned starting coordinates (ex: PDB file)."
         synopsis_filename = model.get_synopsis_filename(model.directory)
         base.configure_file_and_stdout_logger(synopsis_filename, False)
         logging.warning(log_string)

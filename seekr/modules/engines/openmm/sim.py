@@ -430,7 +430,7 @@ class Sim_openmm:
             model: structures.Seekr_model,
             anchor_index: int | None,
             ensemble: base.Ensemble,
-            sampling_engine_interface: sampling_openmm_interface.Sampling_md_openmm_interface,
+            sampling_method_interface: sampling_openmm_interface.Sampling_md_openmm_interface,
             completion_criteria_interface: completion_openmm_interface\
                 .Completion_criteria_openmm_interface,
             restart: bool
@@ -441,12 +441,12 @@ class Sim_openmm:
         md_engine = model.get_engine_by_scale_type("molecular_dynamics")
         assert md_engine.type == "openmm"
         assert md_engine.integrator_settings is not None
-        anchor: structures.Anchor | engines_structures.MD_systemwide_settings
+        anchor: structures.Anchor | engines_structures.MD_unpartitioned_settings
         if anchor_index is None:
-            assert not sampling_engine_interface.sampling_method.needs_to_be_in_anchor(), \
-                "This sampling method must be run within an anchor, not systemwide."
-            assert md_engine.systemwide_settings is not None
-            anchor = md_engine.systemwide_settings
+            assert not sampling_method_interface.sampling_method.needs_to_be_in_anchor(), \
+                "This sampling method must be run within an anchor, not unpartitioned."
+            assert md_engine.unpartitioned_settings is not None
+            anchor = md_engine.unpartitioned_settings
         else:
             anchor = model.anchors[anchor_index]
         integrator_settings = md_engine.integrator_settings
@@ -465,14 +465,14 @@ class Sim_openmm:
             integrator.addGlobalVariable("a", np.exp(-friction*timestep))
             integrator.addGlobalVariable("b", np.sqrt(1-np.exp(-2*friction*timestep)))
             integrator.addGlobalVariable("thermal_energy", kB*temperature)
-            sampling_engine_interface.add_global_variables_integrator(
+            sampling_method_interface.add_global_variables_integrator(
                 integrator=integrator, anchor=anchor)
             integrator.addPerDofVariable("x1", 0)
             integrator.addPerDofVariable("old_x", 0)
             integrator.addPerDofVariable("old_v", 0)
-            sampling_engine_interface.add_per_DOF_variables_integrator(
+            sampling_method_interface.add_per_DOF_variables_integrator(
                 integrator=integrator)
-            sampling_engine_interface.pre_integration_instructions(
+            sampling_method_interface.pre_integration_instructions(
                 integrator=integrator)
             integrator.addComputePerDof("old_x", "x")
             integrator.addUpdateContextState()
@@ -485,7 +485,7 @@ class Sim_openmm:
             integrator.addComputePerDof("x1", "x")
             integrator.addConstrainPositions()
             integrator.addComputePerDof("v", "v + (x-x1)/dt")
-            sampling_engine_interface.post_integration_instructions(
+            sampling_method_interface.post_integration_instructions(
                 integrator=integrator, anchor=anchor)
             #completion_criteria_interface.post_integration_instructions(
             #    integrator=integrator)
@@ -504,13 +504,13 @@ class Sim_openmm:
             integrator.addGlobalVariable("vscale", 0.0)
             integrator.addGlobalVariable("fscale", 0.0)
             integrator.addGlobalVariable("noisescale", 0.0)
-            sampling_engine_interface.add_global_variables_integrator(
+            sampling_method_interface.add_global_variables_integrator(
                 integrator=integrator, anchor=anchor, is_restart=restart)
             integrator.addPerDofVariable("old_x", 0)
             integrator.addPerDofVariable("old_v", 0)
-            sampling_engine_interface.add_per_DOF_variables_integrator(
+            sampling_method_interface.add_per_DOF_variables_integrator(
                 integrator=integrator)
-            sampling_engine_interface.pre_integration_instructions(
+            sampling_method_interface.pre_integration_instructions(
                 integrator=integrator)
             integrator.addComputeGlobal("vscale", "exp(-dt*friction_coeff)")
             integrator.addComputeGlobal("fscale", "(1-vscale)/friction_coeff")
@@ -525,7 +525,7 @@ class Sim_openmm:
             integrator.addComputePerDof("old_v", "v")
             integrator.addConstrainPositions()
             integrator.addComputePerDof("v", "(x-old_x)/dt")
-            sampling_engine_interface.post_integration_instructions(
+            sampling_method_interface.post_integration_instructions(
                 integrator=integrator, anchor=anchor)
             random_seed = integrator_settings.random_seed + self.random_seed    
             integrator.setRandomNumberSeed(random_seed)
@@ -541,13 +541,13 @@ class Sim_openmm:
             integrator.addGlobalVariable("friction_coeff", friction)
             integrator.addGlobalVariable("fscale", 0.0)
             integrator.addGlobalVariable("noiseAmplitude", 0.0)
-            sampling_engine_interface.add_global_variables_integrator(
+            sampling_method_interface.add_global_variables_integrator(
                 integrator=integrator, anchor=anchor)
             integrator.addPerDofVariable("old_x", 0)
             integrator.addPerDofVariable("old_v", 0)
-            sampling_engine_interface.add_per_DOF_variables_integrator(
+            sampling_method_interface.add_per_DOF_variables_integrator(
                 integrator=integrator)
-            sampling_engine_interface.pre_integration_instructions(
+            sampling_method_interface.pre_integration_instructions(
                 integrator=integrator)
             integrator.addUpdateContextState()
             integrator.addComputeGlobal("fscale", "dt/friction_coeff")
@@ -566,13 +566,13 @@ class Sim_openmm:
                 assert ensemble.type in ["NVE"], \
                     "Ensemble type not allowed or recognized for Verlet "\
                     f"integrator: {ensemble.type}"
-            sampling_engine_interface.add_global_variables_integrator(
+            sampling_method_interface.add_global_variables_integrator(
                 integrator=integrator, anchor=anchor)
             integrator.addPerDofVariable("old_x", 0)
             integrator.addPerDofVariable("old_v", 0)
-            sampling_engine_interface.add_per_DOF_variables_integrator(
+            sampling_method_interface.add_per_DOF_variables_integrator(
                 integrator=integrator)
-            sampling_engine_interface.pre_integration_instructions(
+            sampling_method_interface.pre_integration_instructions(
                 integrator=integrator)
             integrator.addUpdateContextState()
             integrator.addComputePerDof("old_x", "x")
@@ -581,7 +581,7 @@ class Sim_openmm:
             integrator.addComputePerDof("x", "x+dt*v")
             integrator.addConstrainPositions()
             integrator.addComputePerDof("v", "(x-old_x)/dt")
-            sampling_engine_interface.post_integration_instructions(
+            sampling_method_interface.post_integration_instructions(
                 integrator=integrator, anchor=anchor)
 
         else:
@@ -733,7 +733,7 @@ def create_sim_openmm(
         md_parameters_topology: engines_structures.Parameters_topology,
         running_directory: str,
         ensemble: base.Ensemble,
-        sampling_engine_interface: sampling_openmm_interface.Sampling_md_openmm_interface,
+        sampling_method_interface: sampling_openmm_interface.Sampling_md_openmm_interface,
         completion_criteria_interface: completion_openmm_interface.Completion_criteria_openmm_interface,
         restraints_interfaces: list[restraints_openmm_interface.Base_restraint_openmm_interface],
         swarm_id: int,
@@ -761,7 +761,7 @@ def create_sim_openmm(
     # TODO: replace with adding integrator from sampling method
     # A sampling method of None will be conventional MD.
     sim_openmm.add_integrator(
-        model, anchor_index, ensemble, sampling_engine_interface,
+        model, anchor_index, ensemble, sampling_method_interface,
         completion_criteria_interface, restart)
     if ensemble is not None:
         sim_openmm.add_barostat(model, ensemble)

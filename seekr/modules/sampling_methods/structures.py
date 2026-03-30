@@ -19,12 +19,6 @@ class Base_md_sampling_method:
     """
     type: typing.Literal["base"] = "base"
 
-    def input_from_systemwide_settings_output_to_anchors(self) -> bool:
-        raise NotImplementedError("Subclasses must implement this method.")
-    
-    def input_from_anchors_output_to_systemwide_settings(self) -> bool:
-        raise NotImplementedError("Subclasses must implement this method.")
-    
     def needs_to_be_in_anchor(self) -> bool:
         raise NotImplementedError("Subclasses must implement this method.")
     
@@ -54,12 +48,6 @@ class Conventional_md_sampling_method(Base_md_sampling_method):
     """
     type: typing.Literal["conventional"] = "conventional"
 
-    def input_from_systemwide_settings_output_to_anchors(self) -> bool:
-        return False
-    
-    def input_from_anchors_output_to_systemwide_settings(self) -> bool:
-        return False
-    
     def needs_to_be_in_anchor(self) -> bool:
         return False
     
@@ -115,12 +103,6 @@ class Metadynamics_md_sampling_method(Base_md_sampling_method):
     write_biases: bool = field(default=False,
                                 validator=validators.instance_of(bool))
     
-    def input_from_systemwide_settings_output_to_anchors(self) -> bool:
-        return True
-    
-    def input_from_anchors_output_to_systemwide_settings(self) -> bool:
-        return False
-    
     def needs_to_be_in_anchor(self) -> bool:
         return False
     
@@ -169,12 +151,6 @@ class Steered_md_sampling_method(Base_md_sampling_method):
                             validator=[validators.instance_of(float),
                                        validators.ge(0)])
     
-    def input_from_systemwide_settings_output_to_anchors(self) -> bool:
-        return True
-    
-    def input_from_anchors_output_to_systemwide_settings(self) -> bool:
-        return False
-    
     def needs_to_be_in_anchor(self) -> bool:
         return False
     
@@ -216,12 +192,6 @@ class MMVT_md_sampling_method(Base_md_sampling_method):
     """
     type: typing.Literal["mmvt"] = "mmvt"
 
-    def input_from_systemwide_settings_output_to_anchors(self) -> bool:
-        return False
-    
-    def input_from_anchors_output_to_systemwide_settings(self) -> bool:
-        return False
-    
     def needs_to_be_in_anchor(self) -> bool:
         return True
     

@@ -57,32 +57,32 @@ class Runner_openmm():
         assert md_engine is not None
         assert md_engine.type == "openmm", \
             "This model was not prepared for OpenMM."
-        assert md_engine.systemwide_settings is not None, \
-            "No systemwide settings are set in the model."
-        anchor_systemwide: structures.Anchor | engines_structures.MD_systemwide_settings
+        assert md_engine.unpartitioned_settings is not None, \
+            "No unpartitioned settings are set in the model."
+        anchor_unpartitioned: structures.Anchor | engines_structures.MD_unpartitioned_settings
         if self.anchor_index is None:
             anchor = None
-            anchor_systemwide = md_engine.systemwide_settings
+            anchor_unpartitioned = md_engine.unpartitioned_settings
             self.md_parameters_topology \
-                = md_engine.systemwide_settings.md_parameters_topology
+                = md_engine.unpartitioned_settings.md_parameters_topology
             # TODO: handle the situation where the md_parameters_topology changes across stages
-            assert md_engine.systemwide_settings.stage_parameters[0] is not None, \
-                "Systemwide lacks an initial stage set of parameters."
+            assert md_engine.unpartitioned_settings.stage_parameters[0] is not None, \
+                "Unpartitioned lacks an initial stage set of parameters."
             md_parameters_half_directory = os.path.join(
-                    md_engine.systemwide_settings.directory, 
-                    md_engine.systemwide_settings.stage_parameters[0]["directory"])
+                    md_engine.unpartitioned_settings.directory, 
+                    md_engine.unpartitioned_settings.stage_parameters[0]["directory"])
         else:
             anchor = self.model.anchors[self.anchor_index]
-            anchor_systemwide = anchor
+            anchor_unpartitioned = anchor
             anchor_md_parameters_topology \
                 = anchor.scale_parameters_topology.get("molecular_dynamics")
             if anchor_md_parameters_topology is None:
-                assert md_engine.systemwide_settings.stage_parameters[0] is not None, \
-                    "Systemwide lacks an initial stage set of parameters."
+                assert md_engine.unpartitioned_settings.stage_parameters[0] is not None, \
+                    "Unpartitioned lacks an initial stage set of parameters."
                 md_parameters_half_directory = os.path.join(
-                    md_engine.systemwide_settings.directory, 
-                    md_engine.systemwide_settings.stage_parameters[0]["directory"])
-                self.md_parameters_topology = md_engine.systemwide_settings\
+                    md_engine.unpartitioned_settings.directory, 
+                    md_engine.unpartitioned_settings.stage_parameters[0]["directory"])
+                self.md_parameters_topology = md_engine.unpartitioned_settings\
                     .md_parameters_topology
             else:
                 assert anchor.stage_parameters[0] is not None, \
@@ -96,9 +96,9 @@ class Runner_openmm():
         self.md_parameters_directory = os.path.join(
             self.model.directory, md_parameters_half_directory)
         stage_output = self.model.stages[self.stage_output_index]
-        anchor_systemwide_dir = anchor_systemwide.directory
+        anchor_unpartitioned_dir = anchor_unpartitioned.directory
         # MYPY: ignore mypy error here - the dictionary is having trouble with typing
-        stage_output_directory = anchor_systemwide.get_stage_output_directory(
+        stage_output_directory = anchor_unpartitioned.get_stage_output_directory(
             self.stage_output_index + 1)
         assert stage_output.type == "md_stage"
         self.ensemble = stage_output.ensemble
@@ -107,7 +107,7 @@ class Runner_openmm():
         self.output_positions_basename = sampling_method.get_final_pdb_output_basename(
             toy_mode=self.model.using_toy(),
             frame_number=swarm_id)
-        self.sampling_engine_interface = sampling_openmm_interface\
+        self.sampling_method_interface = sampling_openmm_interface\
             .assign_sampling_method_interface(
                 self.stage_output_index, sampling_method, md_engine,
                 self.model.plugins)
@@ -115,7 +115,7 @@ class Runner_openmm():
         completion_criteria = stage_output.completion_criteria
         self.completion_criteria_interface = completion_openmm_interface\
             .assign_completion_interface(
-                completion_criteria, self.model, stage_output, anchor_systemwide)
+                completion_criteria, self.model, stage_output, anchor_unpartitioned)
         # Restraints interfaces.
         self.restraints_interfaces = []
         for restraint in stage_output.restraints:
@@ -126,13 +126,14 @@ class Runner_openmm():
         # Reporters interfaces.
         self.reporters_interfaces = []
         for reporter in stage_output.reporters:
-            self.reporters_interfaces.append(
-                reporters_openmm_interface.assign_reporter_interface(
-                    reporter, md_engine, self.model.plugins)
-            )
+            reporter_interface \
+                = reporters_openmm_interface.assign_reporter_interface(
+                    reporter, md_engine, self.model.plugins,
+                    self.model.collective_variables, swarm_id=swarm_id)
+            self.reporters_interfaces.append(reporter_interface)
         # TODO: check in loaded modules from model JSON to see if any of these
         #  modules contain a "assign_interface" function, and run them.
-        assert self.sampling_engine_interface is not None, \
+        assert self.sampling_method_interface is not None, \
             "The sampling method type is not recognized by the "\
             "openmm_interface module or any loaded module: "\
             f"type: {sampling_method.type}, "\
@@ -144,11 +145,11 @@ class Runner_openmm():
             f"engine: {md_engine.type}."
         
         input_stage_index = stage_output.input_stage_index
-        if stage_output.input_from == "systemwide":
+        if stage_output.input_from == "unpartitioned":
             input_stage_parameter \
-                = md_engine.systemwide_settings\
+                = md_engine.unpartitioned_settings\
                     .stage_parameters[input_stage_index]
-            input_positions_filenames = md_engine.systemwide_settings\
+            input_positions_filenames = md_engine.unpartitioned_settings\
                 .get_positions_full_paths(self.model.directory, input_stage_index, swarm_id)
         elif stage_output.input_from == "anchors":
             assert anchor is not None
@@ -162,9 +163,9 @@ class Runner_openmm():
         # MYPY: ignore mypy error here - the dictionary is having trouble with typing
         input_stage_directory = input_stage_parameter["directory"]
         self.input_directory = os.path.join(
-            self.model.directory, anchor_systemwide_dir, input_stage_directory)
+            self.model.directory, anchor_unpartitioned_dir, input_stage_directory)
         self.running_directory = os.path.join(
-            self.model.directory, anchor_systemwide_dir, stage_output_directory)
+            self.model.directory, anchor_unpartitioned_dir, stage_output_directory)
         self.basename = stage_output.sampling_method.get_output_positions_basename_noext()
         assert len(input_positions_filenames) == 1, \
             "Ambiguity detected in input positions files: "\
@@ -173,8 +174,8 @@ class Runner_openmm():
 
         glob_ = stage_output.sampling_method.get_output_positions_glob_list(swarm_id=swarm_id)
         
-        if stage_output.input_from == "systemwide":
-            if stage_output.output_to == "systemwide":
+        if stage_output.input_from == "unpartitioned":
+            if stage_output.output_to == "unpartitioned":
                 output_files_glob_dir = os.path.join(
                     self.running_directory)
 
@@ -187,11 +188,11 @@ class Runner_openmm():
             else:
                 raise Exception("Invalid output_to")
         elif stage_output.input_from == "anchors":
-            if stage_output.output_to == "systemwide":
-                systemwide_dir_glob = os.path.join(
-                    self.model.directory, "systemwide", stage_output_directory)
+            if stage_output.output_to == "unpartitioned":
+                unpartitioned_dir_glob = os.path.join(
+                    self.model.directory, "unpartitioned", stage_output_directory)
                 output_files_glob_dir = os.path.join(
-                    systemwide_dir_glob)
+                    unpartitioned_dir_glob)
 
             elif stage_output.output_to == "anchors":
                 output_files_glob_dir = os.path.join(
@@ -243,7 +244,7 @@ class Runner_openmm():
             if force_overwrite:
                 if anchor is None:
                     preparer.cleanse_outputs_stage(
-                        self.model, md_engine.systemwide_settings, 
+                        self.model, md_engine.unpartitioned_settings, 
                         self.stage_output_index, swarm_id)
                 else:
                     preparer.cleanse_outputs_stage(
@@ -263,9 +264,9 @@ class Runner_openmm():
         self.sim_openmm = sim_openmm_obj
         system = self.sim_openmm.system
         simulation = self.sim_openmm.simulation
-        assert self.sampling_engine_interface is not None
-        self.sampling_engine_interface.assign_system_openmm(system)
-        self.sampling_engine_interface.assign_sim_openmm(simulation)
+        assert self.sampling_method_interface is not None
+        self.sampling_method_interface.assign_system_openmm(system)
+        self.sampling_method_interface.assign_sim_openmm(simulation)
         output_stage = self.model.stages[self.stage_output_index]
         assert output_stage.type == "md_stage"
         assert self.completion_criteria_interface is not None
@@ -295,12 +296,13 @@ class Runner_openmm():
         
         self.min_steps = output_stage.completion_criteria.get_min_sim_len()
         self.max_steps = output_stage.completion_criteria.get_max_sim_len()
-        self.sampling_engine_interface.pre_simulation_preparations(
+        self.sampling_method_interface.pre_simulation_preparations(
             model=self.model,
             directory=self.running_directory,)
         for i, reporter_interface in enumerate(self.reporters_interfaces):
             reporter_ext = reporter_interface.get_reporter_extension()
             reporter_filename = reporter_basename + f".reporter_{i}." + reporter_ext
+            reporter_interface.add_sampling_method_interface(self.sampling_method_interface)
             reporter_interface.add_reporter_to_simulation(
                 simulation=simulation, filename=reporter_filename, 
                 toy_mode=self.model.using_toy())
@@ -308,7 +310,7 @@ class Runner_openmm():
             self.running_directory, "LOCK")
         steps_between_evals_compl_crit = output_stage.completion_criteria\
             .get_evaluation_interval()
-        steps_between_evals_sampling = self.sampling_engine_interface\
+        steps_between_evals_sampling = self.sampling_method_interface\
             .get_evaluation_interval()
         if steps_between_evals_compl_crit  == 0:
             if steps_between_evals_sampling == 0:
@@ -325,7 +327,7 @@ class Runner_openmm():
                     "the same, or set one of them to 0."
                 steps_between_evals = steps_between_evals_compl_crit
         start_time = time.time()
-        num_steps = self.sampling_engine_interface.run(
+        num_steps = self.sampling_method_interface.run(
             steps_between_checkpoints=self.restart_checkpoint_interval,
             steps_between_evals=steps_between_evals,
             start_step=self.start_step, min_steps=self.min_steps,
@@ -381,7 +383,7 @@ def run_simulation(
     runner = Runner_openmm(model, stage_index, anchor_index)
     restart_index = runner.prepare(restart, force_overwrite, swarm_id)
     #assert runner.md_parameters_topology is not None
-    assert runner.sampling_engine_interface is not None
+    assert runner.sampling_method_interface is not None
     assert runner.completion_criteria_interface is not None
     sim_openmm_obj = None
     if sim_openmm_obj is None:
@@ -394,7 +396,7 @@ def run_simulation(
             md_parameters_topology=runner.md_parameters_topology, 
             running_directory=runner.running_directory,
             ensemble=runner.get_ensemble(),
-            sampling_engine_interface=runner.sampling_engine_interface,
+            sampling_method_interface=runner.sampling_method_interface,
             completion_criteria_interface=runner.completion_criteria_interface, 
             restraints_interfaces=runner.restraints_interfaces,
             swarm_id=swarm_id,

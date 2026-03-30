@@ -62,7 +62,7 @@ class Openmm_settings_input:
                               validator=[validators.instance_of(str),
                                          validators.in_(
                                              ["cuda", "opencl", "cpu", "reference"])])
-    systemwide_settings: engines_preparer.MD_systemwide_settings_input | None = None
+    unpartitioned_settings: engines_preparer.MD_unpartitioned_settings_input | None = None
 
     def make_model_scale(
             self
@@ -113,35 +113,35 @@ class Openmm_settings_input:
             raise Exception("CPU platform not yet implemented.")
         elif self.platform_type == "reference":
             openmm_engine.platform_settings = None
-        assert self.systemwide_settings is not None
-        openmm_engine.systemwide_settings \
-            = self.systemwide_settings.make_systemwide_settings_for_model()
+        assert self.unpartitioned_settings is not None
+        openmm_engine.unpartitioned_settings \
+            = self.unpartitioned_settings.make_unpartitioned_settings_for_model()
         return openmm_engine
     
-    def start_from_systemwide(
+    def start_from_unpartitioned(
             self,
             using_toy: bool
         ) -> bool:
         """
-        Whether this engine uses systemwide settings to start from.
-        This depends on whether this settings object has systemwide_settings
+        Whether this engine uses unpartitioned settings to start from.
+        This depends on whether this settings object has unpartitioned_settings
         defined.
         """
-        if self.systemwide_settings is not None:
-            if self.systemwide_settings.positions is None:
+        if self.unpartitioned_settings is not None:
+            if self.unpartitioned_settings.positions is None:
                 # Then the first stage is started from the anchors
-                systemwide_stage_input = False
+                unpartitioned_stage_input = False
             else:
                 if not using_toy:
-                    assert self.systemwide_settings\
+                    assert self.unpartitioned_settings\
                         .md_parameters_topology is not None, \
-                        "If starting from a systemwide position, the topology file "\
-                        "must be specified systemwide unless using toy mode."
-                systemwide_stage_input = True
+                        "If starting from an unpartitioned position, the topology file "\
+                        "must be specified unpartitioned unless using toy mode."
+                unpartitioned_stage_input = True
         else:
             # This is actually possible, if everything is defined in the anchors
-            systemwide_stage_input = False
-        return systemwide_stage_input
+            unpartitioned_stage_input = False
+        return unpartitioned_stage_input
     
     def copy_initial_files(
             self,
@@ -150,12 +150,12 @@ class Openmm_settings_input:
             using_toy: bool
         ) -> None:
         """
-        Copy the MD files into the systemwide directory.
+        Copy the MD files into the unpartitioned directory.
         """
         engine: openmm_structures.Openmm_md_engine \
             = model.get_engine_by_scale_type("molecular_dynamics")
         assert engine.type == "openmm", \
             f"Engine for molecular_dynamics must be openmm, not {engine.type}."
-        self.systemwide_settings.copy_initial_files(
-            directory, engine.systemwide_settings, using_toy)
+        self.unpartitioned_settings.copy_initial_files(
+            directory, engine.unpartitioned_settings, using_toy)
     

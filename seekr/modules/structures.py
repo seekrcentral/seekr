@@ -19,6 +19,7 @@ import numpy as np
 
 import seekr.modules.base as base
 import seekr.modules.collective_variables.base as cv_base
+import seekr.modules.collective_variables.structures as cv_structures
 import seekr.modules.engines.structures as engines_structures
 import seekr.modules.completion_criteria.structures as compl_crit_struct
 import seekr.modules.restraints.structures as restraints_structures
@@ -30,9 +31,9 @@ import seekr.modules.scales.structures as scales_structures
 
 BD_engine = typing.Union[browndye_structures.Browndye_bd_engine,
                          sda_structures.SDA_bd_engine]
-BD_systemwide_settings = typing.Union[
-    browndye_structures.Browndye_systemwide_settings,
-    sda_structures.SDA_systemwide_settings]
+BD_unpartitioned_settings = typing.Union[
+    browndye_structures.Browndye_unpartitioned_settings,
+    sda_structures.SDA_unpartitioned_settings]
 MD_engine = typing.Union[openmm_structures.Openmm_md_engine]
 Engine = typing.Union[BD_engine, MD_engine]
 
@@ -43,9 +44,11 @@ restraints: typing.Dict[str, typing.Type[restraints_structures.Base_restraint]] 
            "cylinder": restraints_structures.Cylinder_restraint}
 
 reporters: typing.Dict[str, typing.Type[reporters_structures.Base_reporter]] \
-        = {"dcd": reporters_structures.DCD_reporter,
-           "pdb": reporters_structures.PDB_reporter,
-           "state": reporters_structures.State_reporter,}
+        = {"position": reporters_structures.Position_reporter,
+           "state": reporters_structures.State_reporter,
+           "cv_value": reporters_structures.CV_value_reporter,
+           # "anchors": reporters_structures.Anchors_reporter,
+           }
 
 completion_criteria: typing.Dict[
     str, typing.Type[compl_crit_struct.Base_completion_criteria]] \
@@ -409,6 +412,18 @@ class Anchor:
             file.write(json_dump)
         return
 
+def load_anchor_from_file(
+        filename: str
+        ) -> Anchor:
+    """
+    Load an anchor from a file.
+    """
+    with open(filename, "r") as file:
+        anchor_dict = json.load(file)
+    converter: cattrs.Converter = cattrs.Converter()
+    anchor = converter.structure(anchor_dict, Anchor)
+    return anchor
+
 @define
 class Seekr_model:
     warning: str = DONT_MODIFY_WARNING
@@ -586,14 +601,16 @@ class Seekr_model:
         """
         # Empty the cvs, selections, and anchor sets before saving
         tmp_collective_variables = self.collective_variables
-        self.collective_variables = []
+        # This causes a type error
+        #self.collective_variables = ["SAVED TO EXTERNAL FILE(S)"]
         tmp_selections = {}
         for engine in self.engines:
-            if hasattr(engine.systemwide_settings, "selections"):
-                tmp_selections[engine.scale_type] = engine.systemwide_settings.selections
-                engine.systemwide_settings.selections = []
+            if hasattr(engine.unpartitioned_settings, "selections"):
+                tmp_selections[engine.scale_type] = engine.unpartitioned_settings.selections
+                engine.unpartitioned_settings.selections = []
         tmp_anchor_set = self.anchors
-        self.anchors = []
+        # This causes a type error
+        #self.anchors = ["SAVED TO EXTERNAL FILE(S)"]
         tmp_num_anchors = self.num_anchors
         tmp_num_milestones = self.num_milestones
         self.num_anchors = 0
@@ -607,7 +624,7 @@ class Seekr_model:
         converter.register_unstructure_hook(compl_crit_struct.Base_completion_criteria,
                                             unstruct_completion_criteria)
         converter.register_unstructure_hook(cv_base.Base_CV,
-                                            unstruct_collective_variable)
+                                            cv_structures.unstruct_collective_variable)
         scales_structures.register_unstructure_hooks(converter)
         seekr_model_dict: dict = converter.unstructure(self)
         seekr_model_dict_noindent: dict = base.wrap_noindent_integers(seekr_model_dict)
@@ -620,7 +637,7 @@ class Seekr_model:
         self.collective_variables = tmp_collective_variables
         for engine in self.engines:
             if engine.scale_type in tmp_selections:
-                engine.systemwide_settings.selections = tmp_selections[engine.scale_type]
+                engine.unpartitioned_settings.selections = tmp_selections[engine.scale_type]
         self.anchors = tmp_anchor_set
         self.num_anchors = tmp_num_anchors
         self.num_milestones = tmp_num_milestones
@@ -735,6 +752,57 @@ class Seekr_model:
                 md_engine.set_device_index(cuda_device_index)
         return
     
+    def load_cvs(
+            self, 
+            set_name: str
+            ) -> None:
+        """
+        Load any collective variables that need to be loaded during prepare.
+        """
+        cv_directory = os.path.join(self.directory, "collective_variable_sets")
+        this_cv_set_directory = os.path.join(
+            cv_directory, set_name)
+        this_cv_set_glob = os.path.join(this_cv_set_directory, "*.json")
+        cv_files = glob.glob(this_cv_set_glob)
+        self.collective_variables = []
+        for cv_file in cv_files:
+            self.collective_variables.append(
+                cv_structures.load_cv_from_file(cv_file))
+        return
+    
+    def load_selections(
+            self, 
+            set_name: str
+            ) -> None:
+        """
+        Load any selections that need to be loaded during prepare.
+        """
+        selections_directory = os.path.join(self.directory, "selection_sets")
+        this_selections_set_directory = os.path.join(
+            selections_directory, set_name)
+        for engine in self.engines:
+            engine.load_selections(
+                this_selections_set_directory)
+        return
+    
+    def load_anchor_set(
+            self, 
+            set_name: str
+            ) -> None:
+        """
+        Load any anchor sets that need to be loaded during prepare.
+        """
+        anchor_sets_directory = os.path.join(self.directory, "anchor_sets")
+        this_anchor_set_directory = os.path.join(
+            anchor_sets_directory, set_name)
+        this_anchor_set_glob = os.path.join(this_anchor_set_directory, "anchor_*.json")
+        anchor_files = glob.glob(this_anchor_set_glob)
+        self.anchors = []
+        for anchor_file in anchor_files:
+            self.anchors.append(
+                load_anchor_from_file(anchor_file))
+        return
+    
 def load_model(
         filename: str
         ) -> Seekr_model:
@@ -797,7 +865,7 @@ def load_model(
     converter.register_structure_hook(compl_crit_struct.Base_completion_criteria,
                                         struct_completion_criteria)
     converter.register_structure_hook(cv_base.Base_CV,
-                                        struct_collective_variable)
+                                        cv_structures.struct_collective_variable)
     
     scales_structures.register_structure_hooks(converter)
     model: Seekr_model = converter.structure(json_string, Seekr_model)
@@ -913,23 +981,6 @@ def struct_completion_criteria(
 
 def unstruct_completion_criteria(
         obj: compl_crit_struct.Base_completion_criteria
-        ) -> typing.Dict[str, typing.Any]:
-    """
-    Unstructure a completion criteria object to a dictionary.
-    """
-    d = cattrs.unstructure(obj)
-    d["type"] = obj.type
-    return d
-
-def struct_collective_variable(
-        obj: typing.Dict[str, typing.Any],
-        _: typing.Type[cv_base.Base_CV]
-        ) -> cv_base.Base_CV:
-    typ = obj.pop("type")
-    return cattrs.structure(obj, cvs[typ])
-
-def unstruct_collective_variable(
-        obj: cv_base.Base_CV
         ) -> typing.Dict[str, typing.Any]:
     """
     Unstructure a completion criteria object to a dictionary.

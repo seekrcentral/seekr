@@ -67,20 +67,20 @@ def filled_and_unfilled_anchors(
 def is_finished_md(
         model: structures.Seekr_model,
         stage: md_structures.Stage_md,
-        anchor_or_systemwide: engines_structures.MD_systemwide_settings | structures.Anchor,
+        anchor_or_unpartitioned: engines_structures.MD_unpartitioned_settings | structures.Anchor,
         current_step: int,
         swarm_id: int = 0,
     ) -> bool:
     """
     Check if the simulation is finished.
     """
-    ending, _ = is_finished_md_with_message(model, stage, anchor_or_systemwide, current_step)
+    ending, _ = is_finished_md_with_message(model, stage, anchor_or_unpartitioned, current_step)
     return ending
 
 def is_finished_md_with_message(
         model: structures.Seekr_model,
         stage: md_structures.Stage_md,
-        anchor_or_systemwide: engines_structures.MD_systemwide_settings | structures.Anchor,
+        anchor_or_unpartitioned: engines_structures.MD_unpartitioned_settings | structures.Anchor,
         current_step: int,
         swarm_id: int = 0,
         use_json: bool = True
@@ -118,7 +118,7 @@ def is_finished_md_with_message(
         if unfilled_only_contains_excluded:
             if use_json:
                 message = {
-                    "completion_criteria": completion_criteria.type,
+                "completion_criteria": completion_criteria.type,
                     "attained": True,
                     "num_filled_anchors": len(filled_anchor_indices),
                     "total_number_of_anchors": total_number_of_anchors,
@@ -173,7 +173,7 @@ def is_finished_md_with_message(
                 plugin_name+".modules.scales.molecular_dynamics.runner")
             found, completed, message = plugin_module_scales_md_runner\
                 .is_finished_md_with_message(
-                    model, stage, anchor_or_systemwide, current_step, swarm_id)
+                    model, stage, anchor_or_unpartitioned, current_step, swarm_id)
             if found:
                 return completed, message
 
@@ -181,7 +181,7 @@ def is_finished_md_with_message(
         "Completion criteria not found: " + completion_criteria.type
 
 def get_calculation_directory_md(
-        anchor_or_systemwide: engines_structures.MD_systemwide_settings \
+        anchor_or_unpartitioned: engines_structures.MD_unpartitioned_settings \
             | structures.Anchor, 
         stage_index: int, 
         root_directory: str):
@@ -189,16 +189,16 @@ def get_calculation_directory_md(
     Return the calculation directory for a given MD stage index.
     """
     stage_list_index = stage_index + 1
-    if isinstance(anchor_or_systemwide, structures.Anchor):
-        if "molecular_dynamics" not in anchor_or_systemwide.scale_types:
-            raise NotImplementedError("MD not running in this anchor/systemwide.")
-    stage_directory = anchor_or_systemwide.get_stage_parameters_by_index(stage_list_index)["directory"]
-    full_directory = os.path.join(root_directory, anchor_or_systemwide.directory, 
+    if isinstance(anchor_or_unpartitioned, structures.Anchor):
+        if "molecular_dynamics" not in anchor_or_unpartitioned.scale_types:
+            raise NotImplementedError("MD not running in this anchor/unpartitioned.")
+    stage_directory = anchor_or_unpartitioned.get_stage_parameters_by_index(stage_list_index)["directory"]
+    full_directory = os.path.join(root_directory, anchor_or_unpartitioned.directory, 
                                   stage_directory)
     return full_directory
 
 def get_current_md_step(
-        anchor_or_systemwide: engines_structures.MD_systemwide_settings \
+        anchor_or_unpartitioned: engines_structures.MD_unpartitioned_settings \
             | structures.Anchor, 
         stage_index: int, 
         swarm_id: int,
@@ -206,12 +206,14 @@ def get_current_md_step(
     """
     Return the current step for a given stage index.
     """
-    if isinstance(anchor_or_systemwide, structures.Anchor):
-        if "molecular_dynamics" not in anchor_or_systemwide.scale_types:
+    if isinstance(anchor_or_unpartitioned, structures.Anchor):
+        if "molecular_dynamics" not in anchor_or_unpartitioned.scale_types:
             raise NotImplementedError("BD current step not yet implemented.")
-    stage_directory = anchor_or_systemwide.get_stage_parameters_by_index(stage_index)["directory"]
-    full_directory = os.path.join(root_directory, anchor_or_systemwide.directory, 
-                                  stage_directory)
+    stage_directory = anchor_or_unpartitioned.get_stage_parameters_by_index(
+        stage_index)["directory"]
+    full_directory = os.path.join(
+        root_directory, anchor_or_unpartitioned.directory, 
+        stage_directory)
     checkpoint_info_basename = engines_runner.get_checkpoint_information_basename(
         swarm_id)
     checkpoint_information_filename = os.path.join(
@@ -225,7 +227,7 @@ def get_current_md_step(
     return current_step
 
 def get_restart_checkpoint_filename(
-        anchor_or_systemwide: engines_structures.MD_systemwide_settings \
+        anchor_or_unpartitioned: engines_structures.MD_unpartitioned_settings \
             | structures.Anchor, 
         stage_index: int, 
         swarm_id: int,
@@ -233,16 +235,17 @@ def get_restart_checkpoint_filename(
     """
     Return the restart checkpoint filename for a given stage index.
     """
-    stage_directory = anchor_or_systemwide.get_stage_parameters_by_index(stage_index)["directory"]
+    stage_directory = anchor_or_unpartitioned.get_stage_parameters_by_index(
+        stage_index)["directory"]
     full_directory = os.path.join(
-        root_directory, anchor_or_systemwide.directory, stage_directory)
+        root_directory, anchor_or_unpartitioned.directory, stage_directory)
     restart_checkpoint_basename = engines_runner\
         .get_restart_checkpoint_basename(swarm_id)
     restart_checkpoint_filename = os.path.join(
         full_directory, restart_checkpoint_basename)
     return restart_checkpoint_filename
 
-def construct_anchor_or_systemwide_index_list(
+def construct_anchor_or_unpartitioned_index_list(
         model: structures.Seekr_model,
         stage_md: md_structures.Stage_md,
         anchor_index: str
@@ -250,9 +253,9 @@ def construct_anchor_or_systemwide_index_list(
     """
     
     """
-    anchor_or_systemwide_index_list: list[int | None] = []
-    if stage_md.input_from == "systemwide":
-        anchor_or_systemwide_index_list.append(None)
+    anchor_or_unpartitioned_index_list: list[int | None] = []
+    if stage_md.input_from == "unpartitioned":
+        anchor_or_unpartitioned_index_list.append(None)
     elif stage_md.input_from == "anchors":
         for alpha, anchor in enumerate(model.anchors):
             if "molecular_dynamics" not in anchor.scale_types:
@@ -264,8 +267,8 @@ def construct_anchor_or_systemwide_index_list(
                     return []
                 if alpha != anchor_index_int:
                     continue
-            anchor_or_systemwide_index_list.append(alpha)
-    return anchor_or_systemwide_index_list
+            anchor_or_unpartitioned_index_list.append(alpha)
+    return anchor_or_unpartitioned_index_list
 
 def choose_next_simulation_md(
         model: structures.Seekr_model, 
@@ -283,28 +286,28 @@ def choose_next_simulation_md(
         md_engine.platform_settings.device_index = \
             device_index
     
-    anchor_or_systemwide_index_list = construct_anchor_or_systemwide_index_list(
+    anchor_or_unpartitioned_index_list = construct_anchor_or_unpartitioned_index_list(
         model, stage_md, anchor_index)
     run_instructions_unsorted: list[typing.NamedTuple] = []
-    anchor_or_systemwide: engines_structures.MD_systemwide_settings \
+    anchor_or_unpartitioned: engines_structures.MD_unpartitioned_settings \
         | structures.Anchor
-    for anchor_or_systemwide_index in anchor_or_systemwide_index_list:
-        if anchor_or_systemwide_index is None:
-            assert md_engine.systemwide_settings is not None
-            anchor_or_systemwide = md_engine.systemwide_settings
-            partition_name = "systemwide"
+    for anchor_or_unpartitioned_index in anchor_or_unpartitioned_index_list:
+        if anchor_or_unpartitioned_index is None:
+            assert md_engine.unpartitioned_settings is not None
+            anchor_or_unpartitioned = md_engine.unpartitioned_settings
+            partition_name = "unpartitioned"
         else:
-            anchor_or_systemwide = model.anchors[anchor_or_systemwide_index]
-            partition_name = f"anchor {anchor_or_systemwide_index}"
-        assert anchor_or_systemwide is not None
+            anchor_or_unpartitioned = model.anchors[anchor_or_unpartitioned_index]
+            partition_name = f"anchor {anchor_or_unpartitioned_index}"
+        assert anchor_or_unpartitioned is not None
         # TODO: it's not enough to get at how many swarms, one needs to find the
         # index of the valid swarm ids
-        #num_swarm_ids = anchor_or_systemwide.get_starting_structure_num_swarms(
+        #num_swarm_ids = anchor_or_unpartitioned.get_starting_structure_num_swarms(
         #    model.directory, stage_md.input_stage_index)
-        swarm_ids = anchor_or_systemwide.get_starting_structure_swarm_ids(
+        swarm_ids = anchor_or_unpartitioned.get_starting_structure_swarm_ids(
             model.directory, stage_md.input_stage_index)
         calculation_dir = get_calculation_directory_md(
-            anchor_or_systemwide, stage_md.index-1, model.directory)
+            anchor_or_unpartitioned, stage_md.index-1, model.directory)
         log_filename = os.path.join(calculation_dir, "run.log")
         base.configure_file_and_stdout_logger(
             log_filename, overwrite=force_overwrite)
@@ -313,11 +316,11 @@ def choose_next_simulation_md(
             if (swarm_id_wanted is not None) and (swarm_id != swarm_id_wanted):
                 continue
             swarm_string = f" swarm {swarm_id}"
-            current_step = get_current_md_step(anchor_or_systemwide,
+            current_step = get_current_md_step(anchor_or_unpartitioned,
                 stage_md.index, swarm_id, model.directory)
             restart_checkpoint_filename \
                 = get_restart_checkpoint_filename(
-                    anchor_or_systemwide, stage_md.index, swarm_id, model.directory)
+                    anchor_or_unpartitioned, stage_md.index, swarm_id, model.directory)
             if (not os.path.exists(restart_checkpoint_filename)) \
                     or force_overwrite:
                 restart = False
@@ -327,7 +330,7 @@ def choose_next_simulation_md(
             
             if not force_overwrite:
                 run_finished, message = is_finished_md_with_message(
-                    model, stage_md, anchor_or_systemwide, current_step, swarm_id,
+                    model, stage_md, anchor_or_unpartitioned, current_step, swarm_id,
                     use_json=use_json)
             else:
                 run_finished = False
@@ -336,7 +339,7 @@ def choose_next_simulation_md(
                 logging.info(f"{partition_name}{swarm_string}: {message}")
             if not run_finished:
                 run_instruction = Run_instruction_md(
-                    current_step, anchor_or_systemwide_index, restart, swarm_id, 
+                    current_step, anchor_or_unpartitioned_index, restart, swarm_id, 
                     message)
                 run_instructions_unsorted.append(run_instruction)
 
@@ -364,19 +367,20 @@ def do_run_instruction_md(
     if force_overwrite and restart:
         restart = False
     if anchor_index is None:
-        anchor_or_systemwide = md_engine.systemwide_settings
-        partition_name = "systemwide"
+        anchor_or_unpartitioned = md_engine.unpartitioned_settings
+        partition_name = "unpartitioned"
     else:
-        anchor_or_systemwide = model.anchors[anchor_index]
+        anchor_or_unpartitioned = model.anchors[anchor_index]
         partition_name = f"anchor {anchor_index}"
     log_string = f"Running {partition_name}, restart: "\
         +f"{restart}{swarm_string}"
     calculation_dir = get_calculation_directory_md(
-        anchor_or_systemwide, stage_index, model.directory)
+        anchor_or_unpartitioned, stage_index, model.directory)
     log_filename = os.path.join(calculation_dir, "run.log")
     base.configure_file_and_stdout_logger(
         log_filename, overwrite=force_overwrite)
     logging.info(log_string)
     engines_runner.run_simulation(
-        model, stage_index, restart, anchor_index=anchor_index, swarm_id=swarm_id, 
-        device_index=device_index, force_overwrite=force_overwrite)
+        model, stage_index, restart, anchor_index=anchor_index, 
+        swarm_id=swarm_id, device_index=device_index, 
+        force_overwrite=force_overwrite)

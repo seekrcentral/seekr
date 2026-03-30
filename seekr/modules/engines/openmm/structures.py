@@ -48,7 +48,7 @@ class Openmm_md_engine:
     # If platform_settings is None, then use Reference platform
     platform_settings: engines_structures.Platform_settings | None = None
     toy_settings: engines_structures.Toy_settings | None = None
-    systemwide_settings: engines_structures.MD_systemwide_settings | None = None
+    unpartitioned_settings: engines_structures.MD_unpartitioned_settings | None = None
 
     def get_pdb_object(
             self, 
@@ -109,9 +109,9 @@ class Openmm_md_engine:
         """
         Get the atom indices for a given selection name.
         """
-        assert self.systemwide_settings is not None, \
-            "systemwide settings not provided."
-        return self.systemwide_settings.get_atom_indices_by_selection_name(name)
+        assert self.unpartitioned_settings is not None, \
+            "unpartitioned settings not provided."
+        return self.unpartitioned_settings.get_atom_indices_by_selection_name(name)
 
     def can_handle_toy(
             self
@@ -152,8 +152,18 @@ class Openmm_md_engine:
         """
         Save the selections to files.
         """
-        if self.systemwide_settings is not None:
-            self.systemwide_settings.save_selections(directory)
+        if self.unpartitioned_settings is not None:
+            self.unpartitioned_settings.save_selections(directory)
+
+    def load_selections(
+            self,
+            directory: str,
+            ) -> None:
+        """
+        Load the selections from a directory.
+        """
+        if self.unpartitioned_settings is not None:
+            self.unpartitioned_settings.load_selections(directory)
 
     def get_selection_names(
             self,
@@ -162,6 +172,6 @@ class Openmm_md_engine:
         Get the names of all selections.
         """
         selection_names = []
-        for selection in self.systemwide_settings.selections:
+        for selection in self.unpartitioned_settings.selections:
             selection_names.append(selection.name)
         return selection_names

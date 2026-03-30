@@ -55,7 +55,7 @@ class Browndye_molecule:
         return
 
 @define
-class Browndye_systemwide_settings:
+class Browndye_unpartitioned_settings:
     # To be used for a common set of parameters for all anchors
     # including bulk anchor, within BD simulations
     molecules: list[Browndye_molecule] = field(default=Factory(list),
@@ -91,7 +91,7 @@ class Browndye_bd_engine:
     results_glob: str = field(default="results*.xml",
                             validator=instance_of(str))
     
-    systemwide_settings: Browndye_systemwide_settings | None = None
+    unpartitioned_settings: Browndye_unpartitioned_settings | None = None
 
     def get_bd_transition_counts(
             self, 
@@ -156,6 +156,16 @@ class Browndye_bd_engine:
         Save the selections to files.
         """
         # Does nothing for now - there are no selections to save for Browndye
+        return
+    
+    def load_selections(
+            self,
+            directory: str,
+            ) -> None:
+        """
+        Load the selections from a directory.
+        """
+        # Does nothing for now - there are no selections to load for Browndye
         return
     
     def get_selection_names(

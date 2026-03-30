@@ -23,7 +23,7 @@ import mdtraj
 XML_ROOT = "seekr_model"
 INITIAL_DIRECTORY = "stage_0_initial"
 MAX_SEEKR_SIMULATION_STEPS = 100000000000 # ~100 us
-SYSTEMWIDE_DIRECTORY = "systemwide"
+UNPARTITIONED_DIRECTORY = "unpartitioned_scope"
 STEP_TOLERANCE = 5
 ANCHOR_SETS_DIR = "anchor_sets"
 CVS_DIR = "collective_variables"

@@ -178,38 +178,38 @@ class SDA_settings_input:
         bd_engine.hydropro_directory = self.hydropro_directory
         bd_engine.apbs_grid_spacing = self.apbs_grid_spacing
         bd_engine.ions = self.ions
-        bd_engine.systemwide_settings = sda_structures.SDA_systemwide_settings()
-        bd_engine.systemwide_settings.molecules = []
-        bd_engine.systemwide_settings.atomic_parameters = []
-        bd_engine.systemwide_settings.atomic_parameters.append(
+        bd_engine.unpartitioned_settings = sda_structures.SDA_unpartitioned_settings()
+        bd_engine.unpartitioned_settings.molecules = []
+        bd_engine.unpartitioned_settings.atomic_parameters = []
+        bd_engine.unpartitioned_settings.atomic_parameters.append(
             sda_structures.SDA_atomic_parameter(
                 type="H*", resname="*", vdw=1.2, test_charge=None))
-        bd_engine.systemwide_settings.atomic_parameters.append(
+        bd_engine.unpartitioned_settings.atomic_parameters.append(
             sda_structures.SDA_atomic_parameter(
                 type="I", resname="*", vdw=1.98, test_charge=None))
-        bd_engine.systemwide_settings.atomic_parameters.append(
+        bd_engine.unpartitioned_settings.atomic_parameters.append(
             sda_structures.SDA_atomic_parameter(
                 type="BR", resname="*", vdw=1.85, test_charge=None))
-        bd_engine.systemwide_settings.atomic_parameters.append(
+        bd_engine.unpartitioned_settings.atomic_parameters.append(
             sda_structures.SDA_atomic_parameter(
                 type="CL", resname="*", vdw=1.75, test_charge=None))
-        bd_engine.systemwide_settings.atomic_parameters.append(
+        bd_engine.unpartitioned_settings.atomic_parameters.append(
             sda_structures.SDA_atomic_parameter(
                 type="F", resname="*", vdw=1.47, test_charge=None))
-        bd_engine.systemwide_settings.atomic_parameters.append(
+        bd_engine.unpartitioned_settings.atomic_parameters.append(
             sda_structures.SDA_atomic_parameter(
                 type="N*", resname="NTR", vdw=None, test_charge=1.0))
-        bd_engine.systemwide_settings.atomic_parameters.append(
+        bd_engine.unpartitioned_settings.atomic_parameters.append(
             sda_structures.SDA_atomic_parameter(
                 type="O*", resname="CTR", vdw=None, test_charge=-0.5))
         return bd_engine
     
-    def start_from_systemwide(
+    def start_from_unpartitioned(
             self,
             using_toy: bool
         ) -> bool:
         """
-        Whether this engine uses systemwide settings to start from.
+        Whether this engine uses unpartitioned settings to start from.
         It does - because BD simulations don't really have anchor-by-anchor
         parameters. Simulations start from the bulk anchor.
         """
@@ -226,8 +226,8 @@ class SDA_settings_input:
         """
         bd_engine: sda_structures.SDA_bd_engine \
             = model.get_engine_by_scale_type("brownian_dynamics")
-        assert bd_engine.systemwide_settings is not None, \
-            "BD systemwide settings must be defined - anchor-by-anchor " \
+        assert bd_engine.unpartitioned_settings is not None, \
+            "BD unpartitioned settings must be defined - anchor-by-anchor " \
             "not yet implemented."
         for anchor in model.anchors:
             if anchor.bulk_anchor:
@@ -248,7 +248,7 @@ class SDA_settings_input:
                     new_bd_molecule.original_indices = original_indices
                     new_bd_molecule.ghost_site_indices = ghost_site_indices
                     new_bd_molecule.ghost_lines = ghost_atom_lines
-                    bd_engine.systemwide_settings.molecules.append(new_bd_molecule)
+                    bd_engine.unpartitioned_settings.molecules.append(new_bd_molecule)
                     
         return
 
@@ -339,9 +339,9 @@ def make_sda_reaction_file(
                 molecule1_name: str = ""
                 molecule2_name: str = ""
                 assert bd_engine is not None, "BD engine must be set to make reaction files"
-                assert bd_engine.systemwide_settings is not None, \
-                    "Systemwide settings must be set to make reaction files"
-                for molecule in bd_engine.systemwide_settings.molecules:
+                assert bd_engine.unpartitioned_settings is not None, \
+                    "Unpartitioned settings must be set to make reaction files"
+                for molecule in bd_engine.unpartitioned_settings.molecules:
                     assert molecule.ghost_site_indices is not None, \
                         "Ghost site indices must be set for all molecules"
                     if this_cv_group1_name in molecule.ghost_site_indices:
@@ -382,7 +382,7 @@ def make_sda_pdb_noh(
         root_directory, anchor.directory)
     curdir = os.getcwd()
     os.chdir(b_surface_directory)
-    for molecule in bd_engine.systemwide_settings.molecules:
+    for molecule in bd_engine.unpartitioned_settings.molecules:
         pqr_filename = os.path.join(b_surface_directory, molecule.pqr_filename)
         pdb_noh_filename = os.path.splitext(pqr_filename)[0] + "_noh.pdb"
         full_structure = parmed.load_file(pqr_filename, skip_bonds=True)
@@ -421,7 +421,7 @@ def run_hydropro(
     curdir = os.getcwd()
     os.chdir(b_surface_directory)
     hydropro_command = f"{hydropro_directory}/hydropro10-lnx.exe"
-    for molecule in bd_engine.systemwide_settings.molecules:
+    for molecule in bd_engine.unpartitioned_settings.molecules:
         molecule.run_hydropro(
             temperature=model.temperature,
             hydropro_command=hydropro_command
@@ -461,7 +461,7 @@ def make_sda_grids(
     os.chdir(b_surface_directory)
     binary_directory = os.path.expanduser(bd_engine.binary_directory)
     aux_directory = os.path.expanduser(bd_engine.aux_directory)
-    for molecule in bd_engine.systemwide_settings.molecules:
+    for molecule in bd_engine.unpartitioned_settings.molecules:
         molecule.compute_grid_dime(bd_engine.apbs_grid_spacing)
         molecule.make_sda_grids(
             temperature=temperature,
@@ -502,7 +502,7 @@ def add_atoms_sda(
     vdws = []
     test_charges = []
     
-    for atom in bd_engine.systemwide_settings.atomic_parameters:
+    for atom in bd_engine.unpartitioned_settings.atomic_parameters:
         if atom.resname is None:
             atom.resname = "*"
         if atom.vdw is not None:
@@ -567,7 +567,7 @@ def make_sda_input(
     sda_input.zmin = model.sda_settings.zmin
     sda_input.zmax = model.sda_settings.zmax
     sda_input.solutes = []
-    for molecule in bd_engine.systemwide_settings.molecules:
+    for molecule in bd_engine.unpartitioned_settings.molecules:
         sda_input.solutes.append(molecule.make_solute_object(bd_engine.apbs_grid_spacing))
     sda_input.total_grids = len(sda_input.solutes)
 
@@ -611,14 +611,14 @@ def generate_bd_files(
     assert isinstance(bd_engine, sda_structures.SDA_bd_engine), \
         "BD engine must be of type 'sda' to use this function."
     hydropro_directory = os.path.expanduser(bd_engine.hydropro_directory)
-    assert bd_engine.systemwide_settings is not None, \
-        "Systemwide settings must be set to generate BD files."
+    assert bd_engine.unpartitioned_settings is not None, \
+        "Unpartitioned settings must be set to generate BD files."
     bd_anchor = make_sda_reaction_file(model, root_directory)
     add_atoms_sda(bd_engine, bd_anchor, root_directory)
     make_sda_pdb_noh(model, bd_anchor, root_directory)
     run_hydropro(model, bd_anchor, root_directory, hydropro_directory)
     make_sda_grids(bd_engine, bd_anchor, root_directory,
                    model.temperature,
-                   bd_engine.systemwide_settings.solvent_dielectric)
+                   bd_engine.unpartitioned_settings.solvent_dielectric)
     make_sda_input(model, bd_anchor, root_directory)
     return

@@ -145,16 +145,16 @@ class Browndye_settings_input:
         bd_engine.binary_directory = self.binary_directory
         bd_engine.apbs_grid_spacing = self.apbs_grid_spacing
         bd_engine.ions = self.ions
-        bd_engine.systemwide_settings = browndye_structures.Browndye_systemwide_settings()
-        bd_engine.systemwide_settings.molecules = []
+        bd_engine.unpartitioned_settings = browndye_structures.Browndye_unpartitioned_settings()
+        bd_engine.unpartitioned_settings.molecules = []
         return bd_engine
     
-    def start_from_systemwide(
+    def start_from_unpartitioned(
             self,
             using_toy: bool
         ) -> bool:
         """
-        Whether this engine uses systemwide settings to start from.
+        Whether this engine uses unpartitioned settings to start from.
         It does - because BD simulations don't really have anchor-by-anchor
         parameters. Simulations start from the bulk anchor.
         """
@@ -172,8 +172,8 @@ class Browndye_settings_input:
         """
         bd_engine: browndye_structures.Browndye_bd_engine \
             = model.get_engine_by_scale_type("brownian_dynamics")
-        assert bd_engine.systemwide_settings is not None, \
-            "BD systemwide settings must be defined - anchor-by-anchor " \
+        assert bd_engine.unpartitioned_settings is not None, \
+            "BD unpartitioned settings must be defined - anchor-by-anchor " \
             "not yet implemented."
         for anchor in model.anchors:
             if anchor.bulk_anchor:
@@ -191,7 +191,8 @@ class Browndye_settings_input:
                         pqr_new_filename)
                     new_bd_molecule.original_indices = original_indices
                     new_bd_molecule.ghost_site_indices = ghost_site_indices
-                    bd_engine.systemwide_settings.molecules.append(new_bd_molecule)
+                    bd_engine.unpartitioned_settings.molecules.append(
+                        new_bd_molecule)
                     
         return
     
@@ -323,9 +324,9 @@ def make_browndye_input_xml(
         bd_ion.conc = model_ion.concentration
         root.system.solvent.ions.append(bd_ion)
     
-    assert bd_engine.systemwide_settings is not None, \
-        "Systemwide settings must be set for BD"
-    for molecule in bd_engine.systemwide_settings.molecules:
+    assert bd_engine.unpartitioned_settings is not None, \
+        "Unpartitioned settings must be set for BD"
+    for molecule in bd_engine.unpartitioned_settings.molecules:
         molecule_group = xml_structures.Group()
         molecule_group.name = molecule.name
         molecule_core = xml_structures.Core()
@@ -454,9 +455,9 @@ def make_browndye_reaction_xml(
             molecule1_name: str = ""
             molecule2_name: str = ""
             assert bd_engine is not None, "BD engine must be set to make reaction files"
-            assert bd_engine.systemwide_settings is not None, \
-                "Systemwide settings must be set to make reaction files"
-            for molecule in bd_engine.systemwide_settings.molecules:
+            assert bd_engine.unpartitioned_settings is not None, \
+                "Unpartitioned settings must be set to make reaction files"
+            for molecule in bd_engine.unpartitioned_settings.molecules:
                 assert molecule.ghost_site_indices is not None, \
                     "Ghost site indices must be set for all molecules"
                 if this_cv_group1_name in molecule.ghost_site_indices:
@@ -532,7 +533,7 @@ def make_browndye_reaction_xml(
                             other_cv_index = other_milestone.get_cv_index_from_variable(other_variable)
                             if cvs[other_cv_index].type == "distance":
                                 other_spherical_milestones_in_this_anchor.append(
-                                    milestone)
+                                    other_milestone)
                                 if other_anchors_bd_cv_index is None:
                                     other_anchors_bd_cv_index = other_cv_index
                                 else:
@@ -582,9 +583,9 @@ def generate_bd_files(
     assert bd_engine is not None
     b_surface_full_path = os.path.join(
         root_directory, bd_engine.b_surface_directory)
-    assert bd_engine.systemwide_settings is not None, \
-        "Systemwide settings must be set to generate BD files."
-    for molecule in bd_engine.systemwide_settings.molecules:
+    assert bd_engine.unpartitioned_settings is not None, \
+        "Unpartitioned settings must be set to generate BD files."
+    for molecule in bd_engine.unpartitioned_settings.molecules:
         molecule.generate_pqrxml_file(b_surface_full_path, bd_engine.binary_directory)
     debye_length, reaction_filename = make_browndye_input_xml(bd_engine,
         temperature=model.temperature, root_directory=root_directory)

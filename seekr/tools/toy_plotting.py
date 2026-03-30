@@ -69,7 +69,7 @@ class Toy_plot():
         if (self.boundaries == None).any():
             if stage.input_from == "anchors":
                 anchor_indices = [i for i in range(model.num_anchors)]
-            elif stage.input_from == "systemwide":
+            elif stage.input_from == "unpartitioned":
                 anchor_indices = None
             _, auto_boundaries = self.load_trajs(stage, anchor_indices)
             self.boundaries = auto_boundaries
@@ -121,7 +121,8 @@ class Toy_plot():
         
         if self.voronoi:
             voronoi_boundaries = [min_x, max_x, min_y, max_y]
-            fig, axs, points = plot_voronoi_tesselation(self.model, voronoi_boundaries)
+            fig, axs, points \
+                = plot_voronoi_tesselation(self.model, voronoi_boundaries)
         else:
             fig, axs = plt.subplots(nrows=1, ncols=1)
         p = axs.pcolor(X, Y, Z, cmap=plt.cm.jet, vmin=Z.min(), 
@@ -151,28 +152,34 @@ class Toy_plot():
         miny = 9e9
         maxy = -9e9
         md_engine = self.model.get_engine_by_scale_type("molecular_dynamics")
-        systemwide_object = md_engine.systemwide_settings
+        unpartitioned_object = md_engine.unpartitioned_settings
         if anchor_indices is None:
-            anchor_systemwide_objects = [md_engine.systemwide_settings]
+            anchor_unpartitioned_objects = [md_engine.unpartitioned_settings]
             
         else:
-            anchor_systemwide_objects = [self.model.anchors[i] for i in anchor_indices]
+            anchor_unpartitioned_objects \
+                = [self.model.anchors[i] for i in anchor_indices]
 
-        for anchor_index, anchor_or_systemwide in enumerate(anchor_systemwide_objects):
+        for anchor_index, anchor_or_unpartitioned in enumerate(
+                anchor_unpartitioned_objects):
             pdb_path = os.path.join(
-                rootdir, anchor_or_systemwide.directory, 
-                anchor_or_systemwide.get_stage_parameters_by_index(stage_id)["directory"], "toy.pdb")
+                rootdir, anchor_or_unpartitioned.directory, 
+                anchor_or_unpartitioned\
+                    .get_stage_parameters_by_index(stage_id)["directory"], 
+                    "toy.pdb")
             swarm_dcds_glob = os.path.join(
-                rootdir, anchor_or_systemwide.directory, 
-                anchor_or_systemwide.get_stage_parameters_by_index(stage_id)["directory"], 
-                "*1.swarm_*.reporter_*.dcd")
+                rootdir, anchor_or_unpartitioned.directory, 
+                anchor_or_unpartitioned\
+                    .get_stage_parameters_by_index(stage_id)["directory"], 
+                    "*1.swarm_*.reporter_*.dcd")
             swarm_dcds = glob.glob(swarm_dcds_glob)
             swarm_ids = []
             for swarm_dcd in swarm_dcds:
                 match = re.search(r"swarm_(\d+)", swarm_dcd)
                 if match:
                     swarm_id = int(match.group(1))
-                    if swarm_id_wanted is not None and swarm_id != swarm_id_wanted:
+                    if swarm_id_wanted is not None \
+                            and swarm_id != swarm_id_wanted:
                         continue
                     swarm_ids.append(swarm_id)
             swarm_ids.sort()
@@ -181,9 +188,10 @@ class Toy_plot():
             for swarm_id in swarm_ids:
                 dcd_file_glob = "*.swarm_{}.reporter_*.dcd".format(swarm_id)
                 dcd_glob = os.path.join(
-                    rootdir, anchor_or_systemwide.directory, 
-                    anchor_or_systemwide.get_stage_parameters_by_index(stage_id)["directory"], 
-                    dcd_file_glob)
+                    rootdir, anchor_or_unpartitioned.directory, 
+                    anchor_or_unpartitioned\
+                        .get_stage_parameters_by_index(stage_id)["directory"], 
+                        dcd_file_glob)
                 dcd_files = glob.glob(dcd_glob)
                 if len(dcd_files) == 0:
                     continue
@@ -253,8 +261,10 @@ class Toy_plot():
                 circle2.center=(walk[-1, 0], walk[-1, 1])
         
         # NOTE: time string taken out, because the md_trajectory_output_interval
-        #  is no longer included in the model. Instead, maybe find the DCD reporter?
-        #time_str = "{:.2f} ps".format((self.stride + index) * self.model.get_md_timestep() * self.model.stages[0].md_trajectory_output_interval)
+        #  is no longer included in the model. Instead, maybe find the DCD 
+        # reporter? time_str = "{:.2f} ps".format((self.stride + index) 
+        # * self.model.get_md_timestep() 
+        # * self.model.stages[0].md_trajectory_output_interval)
         #self.frame_text.set_text(time_str)
         
         return lines
@@ -293,14 +303,18 @@ class Toy_plot():
         Animate the trajectories to view how the system progresses along
         the landscape.
         """
-        positions_list, _ = self.load_trajs(stage, animating_anchor_indices, swarm_id)
+        positions_list, _ \
+            = self.load_trajs(stage, animating_anchor_indices, swarm_id)
         walks = self.traj_walk(positions_list)
         lines = self.make_graphical_objects(len(walks))
         
         #num_frames = self.num_steps // self.stride
-        assert len(self.num_steps_by_anchor.values()) > 0, "No trajectories found in this stage."
+        assert len(self.num_steps_by_anchor.values()) > 0, \
+            "No trajectories found in this stage."
         num_frames = max(self.num_steps_by_anchor.values()) // self.stride
-        ani = animation.FuncAnimation(self.fig, self.update_lines, fargs=(walks, lines), frames=num_frames, interval=60, repeat=False)
+        ani = animation.FuncAnimation(
+            self.fig, self.update_lines, fargs=(walks, lines), 
+            frames=num_frames, interval=60, repeat=False)
         return ani
     
 def draw_linear_milestones(
@@ -368,12 +382,13 @@ def toy_plotting(
     stage_index = run.extract_stage_index(model, stage_arg)
     stage = model.stages[stage_index]
     if animating_anchor_indices is None:
-        if stage.input_from == "systemwide":
+        if stage.input_from == "unpartitioned":
             animating_anchor_indices = None
         elif stage.input_from == "anchors":
             animating_anchor_indices = [i for i in range(model.num_anchors)]
         else:
-            raise Exception(f"Invalid option for stage.input_from: {stage.input_from}.")
+            raise Exception(f"Invalid option for stage.input_from: "\
+                            f"{stage.input_from}.")
     boundaries = np.array([[minx, maxx], [miny, maxy]])
     if len(model.collective_variables) == 1:
         voronoi = False
@@ -389,7 +404,8 @@ def toy_plotting(
         elif model.collective_variables[0].expression == "x1":
             milestone_function_list = ["x=value"]
         else:
-            raise Exception("1D CV functions including both x1 and y1 not yet implemented.")
+            raise Exception("1D CV functions including both x1 and y1 not "\
+                            "yet implemented.")
         draw_linear_milestones(toy_plot, ["value"])
     ani = toy_plot.animate_trajs(stage, animating_anchor_indices, swarm_id)
     plt.show()

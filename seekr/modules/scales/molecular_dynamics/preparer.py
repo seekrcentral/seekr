@@ -10,7 +10,6 @@ from attrs import define, field, validators, Factory
 import cattrs
 
 import seekr.modules.base as base
-import seekr.modules.structures as structures
 import seekr.modules.completion_criteria.structures as compl_crit_struct
 import seekr.modules.scales.molecular_dynamics.structures as scale_md
 import seekr.modules.engines.openmm.preparer as openmm_preparer
@@ -56,53 +55,37 @@ class Input_stage_md:
     def make_model_stage(
             self, 
             index: int,
-            systemwide_stage_input: bool,
+            scope: str,
             md_settings: MD_settings_input
-            ) -> typing.Tuple[scale_md.Stage_md, bool]:
+            ) -> scale_md.Stage_md:
         """
         Given this input stage object, create the model's Stage object.
         """
-        systemwide_settings_input: engines_preparer.MD_systemwide_settings_input \
-            = md_settings.systemwide_settings
+        unpartitioned_settings_input: engines_preparer.MD_unpartitioned_settings_input \
+            = md_settings.unpartitioned_settings
         stage = scale_md.Stage_md()
         stage.index = index
         stage.name = self.name
         stage.run_minimization = self.run_minimization
-        #stage.md_state_output_interval = self.output_interval
-        #stage.md_trajectory_output_interval = self.output_interval
         stage.md_restart_checkpoint_interval = self.checkpoint_interval
         stage.ensemble = self.ensemble
         stage.sampling_method = self.sampling_method.make_model_sampling_method()
         assert self.completion_criteria is not None
         stage.completion_criteria = self.completion_criteria
-        if systemwide_stage_input: # If coming from systemwide settings
+        if scope == "unpartitioned": # If coming from unpartitioned settings
             assert not stage.sampling_method.needs_to_be_in_anchor(), \
                 f"Stage '{stage.name}' with sampling method '{stage.sampling_method.type}' "\
                 "must be run within one or more anchors. A stage that populates anchors "\
                 "must precede this stage."
-            stage.input_from = "systemwide"
-            if stage.sampling_method.input_from_systemwide_settings_output_to_anchors():
-                new_systemwide_stage_input = False
-                stage.output_to = "anchors"
-                # Handle different situations?
-            else:
-                new_systemwide_stage_input = True
-                stage.output_to = "systemwide"
-        else:
-            stage.input_from = "anchors"
-            if stage.sampling_method.input_from_anchors_output_to_systemwide_settings():
-                new_systemwide_stage_input = True
-                stage.output_to = "systemwide"
-            else:
-                new_systemwide_stage_input = False
-                stage.output_to = "anchors"
+            
+        stage.scope = scope
         for restraint_input in self.restraints:
-            restraint = restraint_input.make_restraint(systemwide_settings_input)
+            restraint = restraint_input.make_restraint(unpartitioned_settings_input)
             stage.restraints.append(restraint)
         for reporter_input in self.reporters:
-            reporter = reporter_input.make_reporter(systemwide_settings_input)
+            reporter = reporter_input.make_reporter(unpartitioned_settings_input)
             stage.reporters.append(reporter)
-        return stage, new_systemwide_stage_input
+        return stage
     
 def struct_md_sampling_method_inputs(
         obj: typing.Dict[str, typing.Any],

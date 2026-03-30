@@ -111,18 +111,15 @@ class CV_value_reporter(Base_reporter):
     enforce_periodic_box: bool = field(
         default=True,
         validator=validators.instance_of(bool))
-    atom_subset: typing.Optional[typing.List[int]] = field(
-        default=None,
-        validator=validators.optional(
-            validators.deep_iterable(
-                member_validator=validators.instance_of(int),
-                iterable_validator=validators.instance_of(list))))
-    make_topology: bool = field(
-        default=True, 
-        validator=validators.instance_of(bool))
     extension: str = field(
         default="dcd",
         validator=validators.instance_of(str))
+    save_interval: int | None = field(
+        default=None,
+        validator=validators.optional(validators.instance_of(int)))
+    mode: str = field(
+        default="save_last_frame",
+        validator=validators.in_(["save_last_frame", "save_first_frame"]))
     
     def get_reporter_extension(self) -> str:
         """

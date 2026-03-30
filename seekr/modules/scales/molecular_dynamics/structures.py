@@ -98,8 +98,8 @@ class Stage_md:
         default=Factory(sampling_methods_structures.Conventional_md_sampling_method))
     completion_criteria: compl_crit_struct.Base_completion_criteria = field(
         default=Factory(compl_crit_struct.Number_of_steps_completion_criteria))
-    # Lists that are the bases of filenames that will be used to populate the cvs, selections,
-    # and anchor_sets for this stage.
+    # Lists that are the bases of filenames that will be used to populate the cvs, 
+    # selections, and anchor_sets for this stage.
     set_name: str | None = field(
         default=base.PREPARE_SET_NAME, 
         validator=validators.optional(validators.instance_of(str)))
@@ -110,10 +110,11 @@ class Stage_md:
     input_stage_index: int = field(default=0,
                                       validator=[validators.instance_of(int),
                                                  validators.ge(0)])
-    input_from: str = field(default="systemwide", 
-                            validator=validators.instance_of(str))
-    output_to: str = field(default="anchor", 
-                           validator=validators.instance_of(str))
+    # NOTE: old "systemwide" is now "unpartitioned", old 
+    # "anchors" is now "partitioned"
+    scope: str = field(default="unpartitioned",
+                       validator=validators.in_(
+                           ["unpartitioned", "partitioned"]))
     
     def get_directory_name(self) -> str:
         """
@@ -138,24 +139,24 @@ class Stage_md:
             anchor.stage_parameters.append(stage_parameter)
         return
     
-    def add_stage_parameters_to_systemwide_settings(
+    def add_stage_parameters_to_unpartitioned_settings(
             self, 
             model: "Seekr_model"
             ) -> None:
         """
-        Add the stage parameters to the systemwide settings.
+        Add the stage parameters to the unpartitioned settings.
         """
         md_engine = model.get_engine_by_scale_type("molecular_dynamics")
         assert md_engine is not None, "MD stage provided, but "\
             "MD engine settings not provided."
-        assert md_engine.systemwide_settings is not None, "MD engine systemwide "\
+        assert md_engine.unpartitioned_settings is not None, "MD engine unpartitioned "\
             "settings not provided, yet MD stage is provided."
         directory_name: str = self.get_directory_name()
         stage_parameter: dict[str, int | str] = {}
         stage_parameter["index"] = self.index
         stage_parameter["directory"] = directory_name
         stage_parameter["positions"] = self.sampling_method.get_output_positions_basename_noext()
-        md_engine.systemwide_settings.stage_parameters.append(stage_parameter)
+        md_engine.unpartitioned_settings.stage_parameters.append(stage_parameter)
         return
     
     def has_files(
@@ -182,8 +183,9 @@ class Stage_md:
                         if len(glob.glob(output_files_glob)) > 0:
                             return True
         md_engine = model.get_engine_by_scale_type("molecular_dynamics")
-        assert md_engine.systemwide_settings is not None
-        for stage_parameter in md_engine.systemwide_settings.stage_parameters:
+        assert md_engine.unpartitioned_settings is not None, "MD engine unpartitioned "\
+            "settings not provided, yet MD stage is provided."
+        for stage_parameter in md_engine.unpartitioned_settings.stage_parameters:
             stage_directory = stage_parameter["directory"]
             if stage_directory == my_directory:
                 for stage_output_glob in stage_output_globs:
@@ -198,7 +200,7 @@ class Stage_md:
             model: "Seekr_model"
             ) -> None:
         """
-        Remove entire directory in all anchors and systemwide settings for this stage.
+        Remove entire directory in all anchors and unpartitioned settings for this stage.
         """
         my_directory = self.get_directory_name()
         for anchor in model.anchors:
@@ -206,9 +208,9 @@ class Stage_md:
             if os.path.exists(full_directory):
                 rmtree(full_directory)
         md_engine = model.get_engine_by_scale_type("molecular_dynamics")
-        assert md_engine.systemwide_settings is not None
+        assert md_engine.unpartitioned_settings is not None
         full_directory = os.path.join(
-            model.directory, md_engine.systemwide_settings.directory, my_directory)
+            model.directory, md_engine.unpartitioned_settings.directory, my_directory)
         if os.path.exists(full_directory):
             rmtree(full_directory)
         return

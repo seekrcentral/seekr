@@ -93,8 +93,9 @@ class Stage_bd:
     input_stage_index: int = field(default=0,
                                     validator=[validators.instance_of(int),
                                                validators.ge(0)])
-    input_from: None = None
-    output_to: None = None
+    scope: str = field(default="unpartitioned",
+                       validator=validators.in_(
+                           ["unpartitioned", "partitioned"]))
     
 def struct_bd_sampling_method(
         obj: typing.Dict[str, typing.Any],

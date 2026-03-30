@@ -15,7 +15,6 @@ from scipy import linalg as la
 import PyGT
 
 import seekr.modules.structures as structures
-import seekr.modules.engines.browndye.preparer as browndye_preparer
 
 LOW_FLUX = 1e-19
 FAST_FLUX = 1e6
@@ -49,7 +48,7 @@ MIN_PLOT_NORM = 1e-18
 class MissingStatisticsError(Exception):
     """
     Catch an error in analysis stage where statistics are missing for a 
-    particular anchor or systemwide situation.
+    particular anchor or unpartitioned situation.
     """
     pass
 

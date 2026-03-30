@@ -8,17 +8,17 @@ import os
 import typing
 
 import seekr.modules.base as base
+import seekr.modules.scales.logistic.base as logistic_scale_base
 import seekr.modules.structures as structures
 import seekr.modules.scales.molecular_dynamics.preparer as md_preparer
 import seekr.modules.scales.brownian_dynamics.preparer as bd_preparer
-import seekr.modules.scales.logistic.preparer as logistic_scale_preparer
 import seekr.modules.scales.logistic.reassign_anchors_logistic_stage as reassign_anchors_logistic_stage
 import seekr.modules.engines.openmm.preparer as openmm_preparer
 import seekr.modules.engines.browndye.preparer as browndye_preparer
 import seekr.modules.engines.sda.preparer as sda_preparer
 
 Input_stage = typing.Union[md_preparer.Input_stage_md, bd_preparer.Input_stage_bd,
-                           logistic_scale_preparer.Input_stage_logistic,
+                           logistic_scale_base.Input_stage_logistic,
                            reassign_anchors_logistic_stage.Input_stage_reassign_anchors]
 Engine_settings_input = typing.Union[openmm_preparer.Openmm_settings_input, 
                                      browndye_preparer.Browndye_settings_input,

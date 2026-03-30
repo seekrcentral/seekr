@@ -278,7 +278,7 @@ class Mmvt_analyzer:
 
         """
         assert anchor_index_instruction is not None, \
-            "MMVT may not use 'systemwide' statistics."
+            "MMVT may not use 'unpartitioned' statistics."
         final_message = "" if not use_json else {}
         for alpha, anchor in enumerate(model.anchors):
             if anchor_index_instruction != "any" \

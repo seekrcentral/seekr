@@ -7,6 +7,7 @@ Import base objects from all implemented engines.
 import os
 import re
 import json
+import glob
 import typing
 import logging
 from shutil import copyfile
@@ -51,6 +52,20 @@ class Selection:
         with open(filename, "w") as file:
             file.write(json_dump)
         return
+    
+    def load(
+            self,
+            filename: str
+            ) -> None:
+        """
+        Load the selection from a file.
+        """
+        with open(filename, "r") as file:
+            selection_dict = json.load(file)
+            self.name = selection_dict["name"]
+            self.atom_indices = selection_dict["atom_indices"]
+        return
+
     
 @define
 class Ion:
@@ -464,10 +479,10 @@ Parameters_topology = typing.Union[
 #  better suited for the preparer module. Move these methods to
 #  functions within the preparer module.
 @define
-class MD_systemwide_settings:
+class MD_unpartitioned_settings:
     # To be used for a common set of parameters for all anchors
     # within MD simulations
-    directory: str = field(default=base.SYSTEMWIDE_DIRECTORY, 
+    directory: str = field(default=base.UNPARTITIONED_DIRECTORY, 
                            validator=validators.instance_of(str))
     stage_parameters: list[dict] = field(default=Factory(list),)
     md_parameters_topology: Parameters_topology | None = None
@@ -483,14 +498,14 @@ class MD_systemwide_settings:
             root_directory: str
             ) -> None:
         """
-        Generate the filetree for this systemwide settings object
+        Generate the filetree for this unpartitioned settings object
         """
-        systemwide_dict: dict[str, dict] = {self.directory: {}}
+        unpartitioned_dict: dict[str, dict] = {self.directory: {}}
         for stage_parameter in self.stage_parameters:
             if stage_parameter is not None:
                 stage_directory = stage_parameter["directory"]
-                systemwide_dict[self.directory][stage_directory] = {}
-        base.make_tree(root_directory, systemwide_dict)
+                unpartitioned_dict[self.directory][stage_directory] = {}
+        base.make_tree(root_directory, unpartitioned_dict)
         return
 
     def get_stage_parameters_by_index(
@@ -512,7 +527,7 @@ class MD_systemwide_settings:
             swarm_id: int | None = None
             ) -> list[str]:
         """
-        Construct the full path to the PDB/TXT for this systemwide and a 
+        Construct the full path to the PDB/TXT for this unpartitioned settings object and a 
         given stage.
         """
         positions_base_noext = self.get_stage_parameters_by_index(
@@ -540,7 +555,7 @@ class MD_systemwide_settings:
             ) -> list[int]:
         """
         Return the number of frames within a starting structure
-        for this systemwide. AKA: swarm size.
+        for this unpartitioned settings object. AKA: swarm size.
         """
         pdb_full_paths = self.get_positions_full_paths(
             root_directory, input_stage_index)
@@ -589,3 +604,20 @@ class MD_systemwide_settings:
         """
         for selection in self.selections:
             selection.save(directory, scale_name="mdScale")
+
+    def load_selections(
+            self,
+            directory: str,
+            ) -> None:
+        """
+        Load the selections from a directory.
+        """
+        filename_glob = os.path.join(directory, "*_mdScale.json")
+        selection_files = glob.glob(filename_glob)
+        loaded_selections = []
+        for selection_file in selection_files:
+            new_selection = Selection()
+            new_selection.load(selection_file)
+            loaded_selections.append(new_selection)
+        self.selections = loaded_selections
+            

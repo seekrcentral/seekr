@@ -22,10 +22,10 @@ import importlib
 
 from attrs import define, field, validators, Factory
 import cattrs
-from cattrs import Converter
 import numpy as np
 
 import seekr.modules.base as base
+import seekr.modules.anchor_schemes.base as anchor_schemes_base
 import seekr.modules.collective_variables.base as cv_base
 import seekr.modules.engines.base as engines_base
 import seekr.modules.structures as structures
@@ -43,12 +43,14 @@ restraint_inputs: typing.Dict[str, typing.Type[restraints_preparer.Base_restrain
            "proximity": restraints_preparer.Proximity_restraint_input,
            "cylinder": restraints_preparer.Cylinder_restraint_input,}
 reporter_inputs: typing.Dict[str, typing.Type[reporters_preparer.Base_reporter_input]] \
-        = {"dcd": reporters_preparer.DCD_reporter_input,
-           "pdb": reporters_preparer.PDB_reporter_input,
-           "state": reporters_preparer.State_reporter_input,}
+        = {"position": reporters_preparer.Position_reporter_input,
+           "state": reporters_preparer.State_reporter_input,
+           "cv_value": reporters_preparer.CV_value_reporter_input,
+           #"anchors": reporters_preparer.Anchors_reporter_input
+           }
 compl_crit_inputs: typing.Dict[str, typing.Type[compl_crit_struct.Base_completion_criteria]] \
         = structures.completion_criteria
-anchor_schemes: typing.Dict[str, typing.Type[anchor_schemes_preparer.Base_anchor_scheme]] \
+anchor_schemes: typing.Dict[str, typing.Type[anchor_schemes_base.Base_anchor_scheme]] \
          = {"voronoi_cells": anchor_schemes_preparer.Anchors_as_voronoi_cells_anchor_scheme}
 from seekr.modules.collective_variables.preparer import cv_inputs
 
@@ -105,7 +107,7 @@ class Partition_input:
     #                                Anchor_input),
     #                            iterable_validator=validators.instance_of(list),
     #                        ))
-    anchor_scheme: anchor_schemes_preparer.Base_anchor_scheme | None = field(
+    anchor_scheme: anchor_schemes_base.Base_anchor_scheme | None = field(
         default=None)
     
     def make_anchors(
@@ -138,12 +140,10 @@ class Seekr_input:
                                     validator=validators.optional(
                                         validators.instance_of(int)))
     toy_settings: Toy_settings_input | None = None
-    # TODO: each scale will have its own settings input
     settings_list: list[scales_preparer.Engine_settings_input] = field(
         default=Factory(list),)
-                            
-    #md_settings: typing.Union[MD_settings_input, None] = None
-    #bd_settings: BD_settings_input | None = None
+    initial_scopes: dict[str, str] | None = None
+    
     stages: list[scales_preparer.Input_stage] = field(default=Factory(list),)
                             #validator=validators.deep_iterable(
                             #    member_validator=validators.instance_of(
@@ -206,32 +206,40 @@ class Seekr_input:
         # Assign stage information
         model.stages = []
         settings_by_scale: dict[str, typing.Any] = {"logistic": None}
-        systemwide_stage_input_by_scale: dict[str, bool] = {}
-        systemwide_stage_output_by_scale: dict[str, bool] = {}
         for settings in self.settings_list:
-            systemwide_stage_input_by_scale[settings.scale_type] \
-                = settings.start_from_systemwide(model.using_toy())
             settings_by_scale[settings.scale_type] = settings
 
-        #last_md_stage_index = 0
         last_stage_index_by_scale: dict[str, int] = defaultdict(int)
-        systemwide_stage_output = True
+        current_scopes = {}
+        current_scope = "unpartitioned"
+        if self.initial_scopes is None:
+            self.initial_scopes = {}
+            for scale in settings_by_scale.keys():
+                self.initial_scopes[scale] = "unpartitioned"
+        
+        for scale in settings_by_scale.keys():
+            assert scale in self.initial_scopes, \
+                f"Initial scope for scale '{scale}' not found."
+            assert self.initial_scopes[scale] in ["unpartitioned", "partitioned"], \
+                f"Invalid initial scope '{self.initial_scopes[scale]}' for scale '{scale}'."
+            current_scopes[scale] = self.initial_scopes[scale]
+            
         for i, stage_input in enumerate(self.stages):
             scale_type = stage_input.get_scale_type()
             settings = settings_by_scale[scale_type]
             if scale_type == "logistic":
-                # Leave systemwide_stage_input alone - equal to last stage's
-                # Should this be obtained from the logistic stage settings?
-                systemwide_stage_input_by_scale["logistic"] = systemwide_stage_output
+                stage, new_scope = stage_input.make_model_stage(
+                    i+1, current_scope, settings)
+                # TODO here - need a way to assign the new scope to the correct
+                # scale.
+            else:
+                current_scope = current_scopes[scale_type]
+                stage = stage_input.make_model_stage(i+1, current_scope, settings)
+                # Logistic scales will, by default, apply to the previous stage.
+                last_stage_index_by_scale["logistic"] = stage.index
+                stage.input_stage_index = last_stage_index_by_scale[scale_type]
+                last_stage_index_by_scale[scale_type] = stage.index
             
-            stage, systemwide_stage_input_by_scale[scale_type] \
-                = stage_input.make_model_stage(
-                    i+1, systemwide_stage_input_by_scale[scale_type], settings)
-            systemwide_stage_output = systemwide_stage_input_by_scale[scale_type]
-            stage.input_stage_index = last_stage_index_by_scale[scale_type]
-            last_stage_index_by_scale[scale_type] = stage.index
-            # Logistic scales will, by default, apply to the previous stage.
-            last_stage_index_by_scale["logistic"] = stage.index
             model.stages.append(stage)
 
         if self.random_seed is not None:
@@ -290,8 +298,8 @@ def struct_completion_criteria(
 
 def struct_anchor_schemes(
         obj: typing.Dict[str, typing.Any],
-        _: typing.Type[anchor_schemes_preparer.Base_anchor_scheme]
-        ) -> anchor_schemes_preparer.Base_anchor_scheme:
+        _: typing.Type[anchor_schemes_base.Base_anchor_scheme]
+        ) -> anchor_schemes_base.Base_anchor_scheme:
     typ = obj.pop("type")
     return cattrs.structure(obj, anchor_schemes[typ])
 
@@ -357,7 +365,7 @@ def read_input(input_filename: str) -> Seekr_input:
                     )
            
     # Use a cattrs Converter to define how to structure the dictionary input
-    converter = Converter()
+    converter = cattrs.Converter()
     cattrs.register_structure_hook(base.Positions_type, 
                                       structures.structure_positions_type_union)
     converter.register_structure_hook(base.Positions_type, 
@@ -374,7 +382,7 @@ def read_input(input_filename: str) -> Seekr_input:
                                         struct_completion_criteria)
     converter.register_structure_hook(cv_base.Base_CV_input,
                                         struct_cv_inputs)
-    converter.register_structure_hook(anchor_schemes_preparer.Base_anchor_scheme,
+    converter.register_structure_hook(anchor_schemes_base.Base_anchor_scheme,
                                         struct_anchor_schemes)
     scales_preparer.register_structure_hooks(converter)
     seekr_input = converter.structure(json_string, Seekr_input)
@@ -548,31 +556,31 @@ def prepare_model_cvs_and_anchors(
 
 def cleanse_outputs_all(
         model: "structures.Seekr_model",
-        anchor_or_systemwide: engines_structures.MD_systemwide_settings \
+        anchor_or_unpartitioned: engines_structures.MD_unpartitioned_settings \
             | structures.Anchor
         ) -> None:
     """
-    Delete all simulation outputs from systemwide or anchor.
+    Delete all simulation outputs from unpartitioned_settings or anchor.
     """
     for stage in model.stages:
-        cleanse_outputs_stage(model, anchor_or_systemwide, stage.index-1)
+        cleanse_outputs_stage(model, anchor_or_unpartitioned, stage.index-1)
     return
 
 def cleanse_outputs_stage(
         model: "structures.Seekr_model",
-        anchor_or_systemwide: engines_structures.MD_systemwide_settings \
+        anchor_or_unpartitioned: engines_structures.MD_unpartitioned_settings \
             | structures.Anchor, 
         stage_index: int,
         swarm_id: int
         ) -> None:
     """
-    Delete all simulation outputs from systemwide or anchor.
+    Delete all simulation outputs from unpartitioned_settings or anchor.
     """
     stage = model.stages[stage_index]
     swarm_string = f"*swarm_{swarm_id}"
     # Replace with methods in the scales
     if stage.type == "md_stage":
-        full_directory = os.path.join(model.directory, anchor_or_systemwide.directory, 
+        full_directory = os.path.join(model.directory, anchor_or_unpartitioned.directory, 
                                     stage.get_directory_name())
         if os.path.exists(full_directory):
             file_globs = stage.sampling_method.get_output_positions_glob_list(swarm_id)
@@ -611,7 +619,7 @@ def cleanse_outputs_stage(
                 os.remove(lock_filename)
     elif stage.type == "bd_stage":
         assert model.bd_engine is not None
-        if anchor_or_systemwide.directory == model.bd_engine.b_surface_directory:
+        if anchor_or_unpartitioned.directory == model.bd_engine.b_surface_directory:
             full_directory = os.path.join(model.directory, model.bd_engine.b_surface_directory)
             if os.path.exists(full_directory):
                 output_files_glob = os.path.join(full_directory, model.bd_engine.results_glob)
@@ -635,7 +643,7 @@ def cleanse_outputs_stage(
             require_runner=False, require_openmm_interface=False)
         if plugin_module_str is not None:
             plugin_module_prep = importlib.import_module(plugin_module_str+".preparer")
-            plugin_module_prep.cleanse_outputs_stage(model, anchor_or_systemwide, stage_index)
+            plugin_module_prep.cleanse_outputs_stage(model, anchor_or_unpartitioned, stage_index)
     return
 
 def modify_model(
@@ -730,7 +738,7 @@ def modify_model(
         if milestones_changed:
             old_anchors_with_changed_milestones.append(beta)
             
-    # NOTE: no need to worry about systemwide because there are no values or milestones.
+    # NOTE: no need to worry about unpartitioned_settings because there are no values or milestones.
     warning_msg = ""
     # check whether deleting directories contain simulation files
     deleting_directories_with_files = []
@@ -871,54 +879,28 @@ def resolve_modifications_and_filetree(
             old_model, model, root_directory, force_overwrite)
     else:
         new_anchors_with_starting_pdbs_to_keep = None
-    # Add all stages to the model anchors or systemwide
-    allowed_inputs = ["anchors", "systemwide", None]
-    allowed_outputs = ["anchors", "systemwide", None]
+
     # NOTE: This is the name of the anchor set when a anchor_stage is activated. 
     #  This value can be changed by a logistic stage
     on_set_name = "main"
     for stage in model.stages:
-        assert stage.input_from in allowed_inputs, \
-            f"The input_from may not be {stage.input_from} for stage {stage.name}."
-        assert stage.output_to in allowed_outputs, \
-            f"The output_to may not be {stage.output_to} for stage {stage.name}."
         
-        did_anchor_stage = False
-        did_systemwide_stage = False
-                # TODO: This needs to be resolved another way - using "stage connector"?
+        # TODO: transitions between unpartitioned and partitioned stages
+        #  via a logistic stage.
         if stage.scale_type == "molecular_dynamics":
-            if stage.input_from == "anchors":
+            if stage.scope == "partitioned":
                 # NOTE: mypy error is handled with "md_stage" type check above
                 stage.add_stage_parameters_to_anchors(model)
-                did_anchor_stage = True
                 
-            elif stage.input_from == "systemwide":
-                stage.add_stage_parameters_to_systemwide_settings(model)
-                did_systemwide_stage = True
-
-            if stage.output_to == "anchors" and not did_anchor_stage:
-                # NOTE: mypy error is handled with "md_stage" type check above
-                stage.add_stage_parameters_to_anchors(model)
-                did_anchor_stage = True
+            elif stage.scope == "unpartitioned":
+                stage.add_stage_parameters_to_unpartitioned_settings(model)
                 
-            elif stage.output_to == "systemwide" and not did_systemwide_stage:
-                stage.add_stage_parameters_to_systemwide_settings(model)
-                did_systemwide_stage = True
-
-            # TODO: remove these? This was originally when a None was added to 
-            # the anchor's list of stage_parameters. Confirm how we are handling
-            # stage_parameters now.
-            #if not did_anchor_stage:
-            #    stage.add_stage_parameters_to_anchors(model, do_none=True)
-            #if not did_systemwide_stage:
-            #    stage.add_stage_parameters_to_systemwide_settings(model, do_none=True)
-
+            
         #elif stage.scale_type == "logistic":
         else:
             pass
             
         # Add Nones wherever a stage wasn't added somewhere
-        
 
         if stage.is_logistic_stage():
             on_set_name = stage.output_set_name

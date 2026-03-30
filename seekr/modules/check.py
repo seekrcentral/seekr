@@ -77,7 +77,8 @@ def box_volume_from_6_vector(box_6_vector):
 
 def load_structure_with_parmed(
         model: structures.Seekr_model, 
-        anchor_or_systemwide: structures.Anchor | engines_structures.MD_systemwide_settings,
+        anchor_or_unpartitioned: structures.Anchor \
+            | engines_structures.MD_unpartitioned_settings,
         stage: scale_md.Stage_md,
         swarm_id: int = 0
         ) -> parmed.Structure | None:
@@ -85,7 +86,7 @@ def load_structure_with_parmed(
     Given the simulation inputs, load an anchor's structure for one of
     the checks and return the parmed structure object.
     """
-    input_positions_filenames = anchor_or_systemwide.get_positions_full_paths(
+    input_positions_filenames = anchor_or_unpartitioned.get_positions_full_paths(
         model.directory, stage.input_stage_index, swarm_id)
     if len(input_positions_filenames) == 0:
         return None
@@ -97,7 +98,8 @@ def load_structure_with_parmed(
 
 def load_structure_with_mdtraj(
         model: structures.Seekr_model,
-        anchor_or_systemwide: structures.Anchor | engines_structures.MD_systemwide_settings,
+        anchor_or_unpartitioned: structures.Anchor \
+            | engines_structures.MD_unpartitioned_settings,
         stage: scale_md.Stage_md,
         swarm_id: int = 0,
         mode: str = "pdb"
@@ -107,10 +109,11 @@ def load_structure_with_mdtraj(
     the checks and return the mdtraj Trajectory() object.
     """
     full_directory = os.path.join(
-        model.directory, anchor_or_systemwide.directory,
-        anchor_or_systemwide.stage_parameters[stage.index]["directory"])
-    input_positions_filenames = anchor_or_systemwide.get_positions_full_paths(
-        model.directory, stage.input_stage_index, swarm_id)
+        model.directory, anchor_or_unpartitioned.directory,
+        anchor_or_unpartitioned.stage_parameters[stage.index]["directory"])
+    input_positions_filenames \
+        = anchor_or_unpartitioned.get_positions_full_paths(
+            model.directory, stage.input_stage_index, swarm_id)
     if len(input_positions_filenames) == 0:
         return None
     assert len(input_positions_filenames) == 1, \
@@ -164,7 +167,8 @@ def load_structure_with_mdtraj(
                 #      "anchor: {}.".format(anchor.index))
                 return None
             traj = mdtraj.load(traj_filenames, top=input_positions_filename)
-            raise Exception("TODO: must handle problem where MDtraj won't load correct masses for system XML. Ref code below.")
+            raise Exception("TODO: must handle problem where MDtraj won't load "\
+                            "correct masses for system XML. Ref code below.")
             """
             full_system_filename = os.path.join(
                 building_directory, anchor.forcefield_params.system_filename)
@@ -199,27 +203,30 @@ def load_structure_with_mdtraj(
 def get_first_available_anchor_md_stage_structure(
         model: structures.Seekr_model,
         ) -> typing.Tuple[
-            structures.Anchor | engines_structures.MD_systemwide_settings,
+            structures.Anchor | engines_structures.MD_unpartitioned_settings,
             scale_md.Stage_md]:
     """
-    Get the first anchor and stage for a given model where a structure can be loaded.
+    Get the first anchor and stage for a given model where a structure 
+    can be loaded.
     """
     for stage_id, stage in enumerate(model.stages):
         if stage.type == "md_stage":
-            # First, try systemwide
+            # First, try unpartitioned
             md_engine = model.get_engine_by_scale_type("molecular_dynamics")
-            if md_engine.systemwide_settings.stage_parameters[stage_id] is not None:
-                structure_paths = md_engine.systemwide_settings.get_positions_full_paths(
-                    model.directory, stage.input_stage_index, 0)
+            if md_engine.unpartitioned_settings.stage_parameters[stage_id] \
+                    is not None:
+                structure_paths = md_engine.unpartitioned_settings\
+                    .get_positions_full_paths(
+                        model.directory, stage.input_stage_index, 0)
                 if len(structure_paths) > 0:
-                    return (md_engine.systemwide_settings, stage)
+                    return (md_engine.unpartitioned_settings, stage)
             # if that doesn't work, try anchor
             for anchor in model.anchors:
                 if "molecular_dynamics" in anchor.scale_types:
                     structure_paths = anchor.get_positions_full_paths(
                         model.directory, stage.input_stage_index, 0)
                     if len(structure_paths) > 0:
-                        return (md_engine.systemwide_settings, stage)
+                        return (md_engine.unpartitioned_settings, stage)
                     
     raise Exception("No available anchors or structures found in model.")
 
@@ -245,14 +252,15 @@ def check_pre_sim_MD_and_BD_salt_concentration(
         # No BD to check
         return True
     
-    anchor_or_systemwide, stage = get_first_available_anchor_md_stage_structure(model)
+    anchor_or_unpartitioned, stage \
+        = get_first_available_anchor_md_stage_structure(model)
     md_ionic_strength = 0.0
-    structure = load_structure_with_parmed(model, anchor_or_systemwide, stage)
+    structure = load_structure_with_parmed(model, anchor_or_unpartitioned, stage)
     if structure is None:
         return True
     box_6_vector = structure.get_box()
     assert box_6_vector is not None, "Unable to compute box volume for "\
-        f"structures in anchor {anchor_or_systemwide.index}"
+        f"structures in anchor {anchor_or_unpartitioned.index}"
     box_volume = box_volume_from_6_vector(box_6_vector)
     particle_concentration = 1.0e24 / (AVOGADROS_NUMBER * box_volume)
     for index, atom in enumerate(structure.atoms):
@@ -267,7 +275,7 @@ def check_pre_sim_MD_and_BD_salt_concentration(
                 
             if not found_ion:
                 print("check_pre_sim_MD_and_BD_salt_concentration - Found "\
-                    f"unbonded atom with anchor {anchor_or_systemwide.index}, "\
+                    f"unbonded atom with anchor {anchor_or_unpartitioned.index}, "\
                     +f"index: {index} and name: {atom.name}. "\
                     +"Charge is uncertain. Assuming its contribution to "\
                     "solvent ionic strength is zero.")
@@ -276,7 +284,7 @@ def check_pre_sim_MD_and_BD_salt_concentration(
         print("CHECK FAILURE: BD simulation has significantly different "\
         f"ionic strength of {bd_ionic_strength:.3f} M*e^2 than MD simulation "\
         f"ionic strength of {md_ionic_strength:.3f} M*e^2 for anchor "\
-        f"{anchor_or_systemwide.index}. Please check the ion concentrations in the "\
+        f"{anchor_or_unpartitioned.index}. Please check the ion concentrations in the "\
         "BD simulation settings, and also count the number of ions "\
         "in the MD simulations. Counterions added to neutralize the protein in an "\
         "MD simulation may also trigger this failure. If that is the case, simply "\
@@ -402,8 +410,8 @@ def check_atom_selections_on_same_molecule(
     sites or unclosed loops."""
     warnstr2 = """CHECK FAILURE: the atom index {} for collective variable
     (CV) number {} does not exist in the structure for anchor {}."""
-    anchor_or_systemwide, stage = get_first_available_anchor_md_stage_structure(model)
-    structure = load_structure_with_parmed(model, anchor_or_systemwide, stage)
+    anchor_or_unpartitioned, stage = get_first_available_anchor_md_stage_structure(model)
+    structure = load_structure_with_parmed(model, anchor_or_unpartitioned, stage)
     if structure is None:
         return True
     molecules = []
@@ -435,11 +443,11 @@ def check_atom_selections_on_same_molecule(
                                 cv.index, atom_index, 
                                 structure.atoms[atom_index].name, 
                                 structure.atoms[atom_index].number, 
-                                anchor_or_systemwide.index))
+                                anchor_or_unpartitioned.index))
                             return False
                 if not index_found:
                     print(warnstr2.format(atom_index, cv.index, 
-                                            anchor_or_systemwide.index))
+                                            anchor_or_unpartitioned.index))
                     return False
     return True
 
@@ -463,11 +471,12 @@ def check_atom_selections_MD_BD(
     each molecular structure input file, but PDB and PQR files
     might start their numbering at 1 or another number."""
     if model.using_scale("brownian_dynamics"):
-        # First check to ensure that the selection indices are actually contained
-        #  within the BD pqr files.
+        # First check to ensure that the selection indices are actually 
+        # contained within the BD pqr files.
         bd_engine = model.get_engine_by_scale_type("brownian_dynamics")
         anchor_set_glob = os.path.join(
-            model.directory, base.ANCHOR_SETS_DIR, "*", bd_engine.b_surface_directory)
+            model.directory, base.ANCHOR_SETS_DIR, "*", 
+            bd_engine.b_surface_directory)
         b_surface_dir = glob.glob(anchor_set_glob)
         if len(b_surface_dir) == 0:
             raise Exception("No Browndye b_surface directories found "
@@ -475,7 +484,7 @@ def check_atom_selections_MD_BD(
         b_surface_dir = b_surface_dir[0]
         pqr_paths = []
         pqr_structures = []
-        for bd_molecule in bd_engine.systemwide_settings.molecules:
+        for bd_molecule in bd_engine.unpartitioned_settings.molecules:
             pqr_path = os.path.join(b_surface_dir, bd_molecule.pqr_filename)
             pqr_paths.append(pqr_path)
             pqr_structure = parmed.load_file(pqr_path)
@@ -490,11 +499,14 @@ def check_atom_selections_MD_BD(
         # No BD to check
         return True
     
-    anchor_or_systemwide, stage = get_first_available_anchor_md_stage_structure(model)
-    md_structure = load_structure_with_parmed(model, anchor_or_systemwide, stage)
+    anchor_or_unpartitioned, stage \
+        = get_first_available_anchor_md_stage_structure(model)
+    md_structure = load_structure_with_parmed(
+        model, anchor_or_unpartitioned, stage)
     md_engine = model.get_engine_by_scale_type("molecular_dynamics")
-    for md_selection in md_engine.systemwide_settings.selections:
-        for bd_mol_index, bd_molecule in enumerate(bd_engine.systemwide_settings.molecules):
+    for md_selection in md_engine.unpartitioned_settings.selections:
+        for bd_mol_index, bd_molecule in enumerate(
+                bd_engine.unpartitioned_settings.molecules):
             for bd_site_name, bd_site_indices in bd_molecule.original_indices.items():
                 if md_selection.name == bd_site_name:
                     md_atom_group = md_selection.atom_indices
@@ -554,7 +566,7 @@ def check_pqr_residues(
         pqr_paths = []
         pqr_structures = []
         list_of_residue_lists = []
-        for bd_molecule in bd_engine.systemwide_settings.molecules:
+        for bd_molecule in bd_engine.unpartitioned_settings.molecules:
             pqr_path = os.path.join(b_surface_dir, bd_molecule.pqr_filename)
             pqr_paths.append(pqr_path)
             pqr_structure = parmed.load_file(pqr_path)

@@ -9,6 +9,7 @@ import json
 import argparse
 
 from cattrs import unstructure
+import numpy as np
 
 import seekr.modules.base as base
 import seekr.modules.collective_variables.distance_cv as distance_cv
@@ -26,10 +27,11 @@ import seekr.modules.sampling_methods.preparer as sampling_preparer
 import seekr.modules.preparer as preparer
 import seekr.modules.scales.molecular_dynamics.preparer as md_preparer
 import seekr.modules.scales.brownian_dynamics.preparer as bd_preparer
-import seekr.modules.scales.logistic.preparer as logistic_preparer
 import seekr.modules.anchor_schemes.preparer as anchor_scheme_preparer
 import seekr.modules.scales.logistic.reassign_anchors_logistic_stage \
     as reassign_anchors_logistic_stage
+import seekr.modules.scales.logistic.anchor_starting_structures_from_reporter_logistic_stage \
+    as anchor_starting_structures_from_reporter_logistic_stage
 
 TOOLS_DIRECTORY = os.path.dirname(__file__)
 DATA_DIRECTORY = os.path.abspath(os.path.join(TOOLS_DIRECTORY, "..", "data"))
@@ -60,14 +62,14 @@ def create_toy_model_input(
     seekr_input.random_seed = 111
     md_settings = openmm_preparer.Openmm_settings_input()
     md_settings.platform_type = "reference"
-    md_settings.systemwide_settings\
-        = engines_preparer.MD_systemwide_settings_input()
+    md_settings.unpartitioned_settings\
+        = engines_preparer.MD_unpartitioned_settings_input()
     selection = engines_structures.Selection()
     selection.name = "particle0"
     selection.atom_indices = [0]
-    md_settings.systemwide_settings.selections\
+    md_settings.unpartitioned_settings.selections\
         = [selection]
-    md_settings.systemwide_settings.positions\
+    md_settings.unpartitioned_settings.positions\
         = [[[0.0, -0.7, 0.0]]]
     seekr_input.settings_list = [md_settings]
 
@@ -116,10 +118,11 @@ def create_toy_model_input(
     stage1_state_reporter = reporters_preparer.State_reporter_input()
     stage1_state_reporter.to_stdout = True
     stage1_state_reporter.interval = 100
-    stage1_dcd_reporter = reporters_preparer.DCD_reporter_input()
-    stage1_dcd_reporter.interval = 100
-    stage1_dcd_reporter.enforce_periodic_box = False
-    stage1.reporters = [stage1_state_reporter, stage1_dcd_reporter]
+    stage1_position_reporter = reporters_preparer.Position_reporter_input()
+    stage1_position_reporter.interval = 100
+    stage1_position_reporter.enforce_periodic_box = False
+    stage1_position_reporter.extension = "dcd"
+    stage1.reporters = [stage1_state_reporter, stage1_position_reporter]
 
     stage2 = md_preparer.Input_stage_md()
     if use_smd:
@@ -131,8 +134,20 @@ def create_toy_model_input(
             stage2.sampling_method.cv_names = ["progress_coordinate"]
         stage2.sampling_method.force_constant = 100000.0
         stage2.sampling_method.velocity = 10.0
-        stage2_dcd_reporter = reporters_preparer.DCD_reporter_input()
-        stage2_dcd_reporter.interval = 500
+        if define_anchors_later:
+            assert not use_2cvs, \
+                "Not implemented to define anchors later with 2 CVs."
+            stage2_reporter = reporters_preparer.CV_value_reporter_input()
+            stage2_reporter.cv_name = "progress_coordinate"
+            stage2_reporter.cv_values = np.linspace(
+                values_list[0][0], values_list[-1][0], 100).tolist()
+            stage2_reporter.interval = 10
+            stage2_reporter.extension = "dcd"
+
+        else:
+            stage2_reporter = reporters_preparer.Position_reporter_input()
+            stage2_reporter.interval = 500
+            stage2_reporter.extension = "dcd"
     else:
         stage2.name = "metadynamics"
         stage2.sampling_method = sampling_preparer.Metadynamics_md_input()
@@ -141,9 +156,20 @@ def create_toy_model_input(
             stage2.sampling_method.cv_names = ["progress_coordinate"]
         else:
             stage2.sampling_method.cv_names = ["progress_coordinate"]
-        stage2_dcd_reporter = reporters_preparer.DCD_reporter_input()
-        stage2_dcd_reporter.interval = 50
-    
+        if define_anchors_later:
+            assert not use_2cvs, \
+                "Not implemented to define anchors later with 2 CVs."
+            stage2_reporter = reporters_preparer.CV_value_reporter_input()
+            stage2_reporter.cv_name = "progress_coordinate"
+            stage2_reporter.cv_values = np.linspace(
+                values_list[0][0], values_list[-1][0], 100).tolist()
+            stage2_reporter.interval = 10
+            stage2_reporter.extension = "dcd"
+        else:
+            stage2_reporter = reporters_preparer.Position_reporter_input()
+            stage2_reporter.interval = 50
+            stage2_reporter.extension = "dcd"
+
     stage2.run_minimization = False
     stage2.checkpoint_interval = 10
     stage2.ensemble = base.NVT_ensemble()
@@ -158,8 +184,8 @@ def create_toy_model_input(
     stage2_state_reporter = reporters_preparer.State_reporter_input()
     stage2_state_reporter.to_stdout = True
     stage2_state_reporter.interval = 50
-    stage2_dcd_reporter.enforce_periodic_box = False
-    stage2.reporters = [stage2_dcd_reporter] #[stage2_state_reporter, stage2_dcd_reporter]
+    stage2_reporter.enforce_periodic_box = False
+    stage2.reporters = [stage2_reporter] #[stage2_state_reporter, stage2_position_reporter]
 
     if define_anchors_later:
         stage3 = reassign_anchors_logistic_stage.Input_stage_reassign_anchors()
@@ -168,6 +194,11 @@ def create_toy_model_input(
         stage3.output_set_name = "reassigned"
         stage3.new_anchor_scheme = anchor_scheme
         stage3.new_state_points = state_points
+
+    else:
+        stage3 = anchor_starting_structures_from_reporter_logistic_stage\
+            .Input_stage_anchor_starting_structures_from_reporter()
+        stage3.name = "anchor_structures_from_metaD"
 
     stage4 = md_preparer.Input_stage_md()
     stage4.name = "MMVT"
@@ -180,10 +211,11 @@ def create_toy_model_input(
     stage4_state_reporter = reporters_preparer.State_reporter_input()
     stage4_state_reporter.to_stdout = True
     stage4_state_reporter.interval = 5000
-    stage4_dcd_reporter = reporters_preparer.DCD_reporter_input()
-    stage4_dcd_reporter.interval = 5000
-    stage4_dcd_reporter.enforce_periodic_box = False
-    stage4.reporters = [stage4_state_reporter, stage4_dcd_reporter]
+    stage4_position_reporter = reporters_preparer.Position_reporter_input()
+    stage4_position_reporter.interval = 5000
+    stage4_position_reporter.enforce_periodic_box = False
+    stage4_position_reporter.extension = "dcd"
+    stage4.reporters = [stage4_state_reporter, stage4_position_reporter]
 
     if define_anchors_later:
         seekr_input.stages = [stage1, stage2, stage3, stage4]
@@ -211,7 +243,7 @@ def create_toy_model_input(
 
     seekr_input.toy_settings = preparer.Toy_settings_input()
     seekr_input.toy_settings.potential_energy_expression \
-        = "5*(x1^6+y1^6+exp(-(10*y1)^2)*(1-exp(-(10*x1)^2)))"
+        = "5*(x1^6+y1^6+exp(-(10*y1)^2)*(1-exp(-(10*x1)^2)))+0.5*z1^2"
     seekr_input.toy_settings.num_particles = 1
     seekr_input.toy_settings.masses = [10.0]
 
@@ -267,15 +299,15 @@ def create_host_guest_example_input(
     seekr_input.temperature = 298.15
     seekr_input.random_seed = 111
     md_settings = openmm_preparer.Openmm_settings_input()
-    md_settings.systemwide_settings \
-        = engines_preparer.MD_systemwide_settings_input()
+    md_settings.unpartitioned_settings \
+        = engines_preparer.MD_unpartitioned_settings_input()
     if ff == "amber":
-        md_settings.systemwide_settings.md_parameters_topology\
+        md_settings.unpartitioned_settings.md_parameters_topology\
             = engines_structures.Amber_parameters_topology()
-        md_settings.systemwide_settings.md_parameters_topology\
+        md_settings.unpartitioned_settings.md_parameters_topology\
             .prmtop_filename = amber_prmtop_filename
         # To test starting from a single position
-        md_settings.systemwide_settings.positions\
+        md_settings.unpartitioned_settings.positions\
             = os.path.join(HOSTGUEST_DIRECTORY, "hostguest_at0.5.pdb")
     else:
         raise Exception(f"ff option not implemented: {ff}.")
@@ -299,9 +331,9 @@ def create_host_guest_example_input(
     single_group.name = "single_index"
     single_group.atom_indices = single_group_index
 
-    # TODO: these need to be written to files, and this systemwide_settings 
+    # TODO: these need to be written to files, and this unpartitioned_settings 
     #  attribute should be a list of filenames.
-    md_settings.systemwide_settings.selections\
+    md_settings.unpartitioned_settings.selections\
         = [receptor_selection_md, ligand_selection_md, ligand_noh_selection_md, 
            solute_selection_md, o5_group, single_group]
     seekr_input.settings_list = [md_settings]
@@ -377,10 +409,11 @@ def create_host_guest_example_input(
     stage1_state_reporter = reporters_preparer.State_reporter_input()
     stage1_state_reporter.to_stdout = True
     stage1_state_reporter.interval = 1000
-    stage1_dcd_reporter = reporters_preparer.DCD_reporter_input()
-    stage1_dcd_reporter.interval = 1000
-    stage1_dcd_reporter.atom_subset = None
-    stage1.reporters = [stage1_state_reporter, stage1_dcd_reporter]
+    stage1_position_reporter = reporters_preparer.Position_reporter_input()
+    stage1_position_reporter.interval = 1000
+    stage1_position_reporter.atom_subset = None
+    stage1_position_reporter.extension = "dcd"
+    stage1.reporters = [stage1_state_reporter, stage1_position_reporter]
     
     stage2 = md_preparer.Input_stage_md()
     if use_smd:
@@ -419,10 +452,11 @@ def create_host_guest_example_input(
     stage2_state_reporter = reporters_preparer.State_reporter_input()
     stage2_state_reporter.to_stdout = True
     stage2_state_reporter.interval = 500
-    stage2_dcd_reporter = reporters_preparer.DCD_reporter_input()
-    stage2_dcd_reporter.interval = 500
-    stage2_dcd_reporter.atom_subset = "solute"
-    stage2.reporters = [stage2_state_reporter, stage2_dcd_reporter]
+    stage2_position_reporter = reporters_preparer.Position_reporter_input()
+    stage2_position_reporter.interval = 500
+    stage2_position_reporter.atom_subset = "solute"
+    stage2_position_reporter.extension = "dcd"
+    stage2.reporters = [stage2_state_reporter, stage2_position_reporter]
 
     stage3 = md_preparer.Input_stage_md()
     stage3.name = "MMVT"
@@ -438,10 +472,10 @@ def create_host_guest_example_input(
     stage3_state_reporter = reporters_preparer.State_reporter_input()
     stage3_state_reporter.to_stdout = True
     stage3_state_reporter.interval = 250
-    stage3_dcd_reporter = reporters_preparer.DCD_reporter_input()
-    stage3_dcd_reporter.interval = 250
-    stage3_dcd_reporter.atom_subset = "solute"
-    stage3.reporters = [stage3_state_reporter, stage3_dcd_reporter]
+    stage3_position_reporter = reporters_preparer.Position_reporter_input()
+    stage3_position_reporter.interval = 250
+    stage3_position_reporter.atom_subset = "solute"
+    stage3.reporters = [stage3_state_reporter, stage3_position_reporter]
 
     seekr_input.stages = [stage1, stage2, stage3]
 

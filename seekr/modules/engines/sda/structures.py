@@ -447,7 +447,7 @@ class SDA_atomic_parameter():
                                           validator=optional(instance_of(str)))
 
 @define
-class SDA_systemwide_settings:
+class SDA_unpartitioned_settings:
     # To be used for a common set of parameters for all anchors
     # including bulk anchor, within BD simulations
     molecules: list[SDA_molecule] = field(default=Factory(list),
@@ -484,7 +484,7 @@ class SDA_bd_engine:
                             ))
     b_surface_directory: str = field(default="b_surface",
                                     validator=instance_of(str))
-    systemwide_settings: SDA_systemwide_settings | None = None
+    unpartitioned_settings: SDA_unpartitioned_settings | None = None
     random_seed: int = field(default=0,
                              validator=[instance_of(int), ge(0)])
 
@@ -573,6 +573,16 @@ class SDA_bd_engine:
         Save the selections to files.
         """
         # Does nothing for now - there are no selections to save for SDA
+        return
+    
+    def load_selections(
+            self,
+            directory: str,
+            ) -> None:
+        """
+        Load the selections from a directory.
+        """
+        # Does nothing for now - there are no selections to load for SDA
         return
     
     def get_selection_names(
