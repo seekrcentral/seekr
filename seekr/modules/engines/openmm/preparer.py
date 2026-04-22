@@ -1,7 +1,7 @@
 """
-engines/openmm/input.py
+modules/engines/openmm/preparer.py
 
-Objects and routines for the input stage of an anchor that
+Objects and routines for the prepare stage of a scope that
 uses OpenMM.
 """
 
@@ -54,7 +54,7 @@ class Openmm_settings_input:
                                  converter=base.string_lower,
                                  validator=[validators.instance_of(str),
                                             validators.in_(["langevin", 
-                                                            "langevinMiddle",
+                                                            "langevinmiddle",
                                                             "brownian",
                                                             "verlet",])])
     platform_type: str = field(default="cuda",
@@ -89,7 +89,7 @@ class Openmm_settings_input:
                 engines_structures.Langevin_integrator_settings()
             openmm_engine.integrator_settings.timestep = self.timestep
             openmm_engine.integrator_settings.target_temperature = model_temperature
-        elif self.integrator_type == "langevinMiddle":
+        elif self.integrator_type == "langevinmiddle":
             openmm_engine.integrator_settings = \
                 engines_structures.Langevin_middle_integrator_settings()
             openmm_engine.integrator_settings.timestep = self.timestep
@@ -147,11 +147,15 @@ class Openmm_settings_input:
             self,
             model: structures.Seekr_model,
             directory: str,
+            anchor_set_name: str,
             using_toy: bool
         ) -> None:
         """
         Copy the MD files into the unpartitioned directory.
         """
+        # NOTE: anchor_set_name not needed here, but arg needed for other
+        #  engines, so keeping for consistency. Might be necessary someday
+        #  for copies to anchor sets.
         engine: openmm_structures.Openmm_md_engine \
             = model.get_engine_by_scale_type("molecular_dynamics")
         assert engine.type == "openmm", \

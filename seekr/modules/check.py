@@ -87,7 +87,7 @@ def load_structure_with_parmed(
     the checks and return the parmed structure object.
     """
     input_positions_filenames = anchor_or_unpartitioned.get_positions_full_paths(
-        model.directory, stage.input_stage_index, swarm_id)
+        model.directory, stage.input_stage_index, stage.set_name, swarm_id)
     if len(input_positions_filenames) == 0:
         return None
     assert len(input_positions_filenames) == 1, \
@@ -110,10 +110,10 @@ def load_structure_with_mdtraj(
     """
     full_directory = os.path.join(
         model.directory, anchor_or_unpartitioned.directory,
-        anchor_or_unpartitioned.stage_parameters[stage.index]["directory"])
+        anchor_or_unpartitioned.stage_parameters[stage.name]["directory"])
     input_positions_filenames \
         = anchor_or_unpartitioned.get_positions_full_paths(
-            model.directory, stage.input_stage_index, swarm_id)
+            model.directory, stage.input_stage_index, stage.set_name, swarm_id)
     if len(input_positions_filenames) == 0:
         return None
     assert len(input_positions_filenames) == 1, \
@@ -141,6 +141,8 @@ def load_structure_with_mdtraj(
         
     if model.using_toy():
         pdb_filename = os.path.join(full_directory, "toy.pdb")
+        if not os.path.exists(pdb_filename):
+            return None
         if mode == "pdb":
             traj = mdtraj.load(pdb_filename)
             traj.xyz = np.loadtxt(input_positions_filename, ndmin=2)
@@ -213,7 +215,7 @@ def get_first_available_anchor_md_stage_structure(
         if stage.type == "md_stage":
             # First, try unpartitioned
             md_engine = model.get_engine_by_scale_type("molecular_dynamics")
-            if md_engine.unpartitioned_settings.stage_parameters[stage_id] \
+            if md_engine.unpartitioned_settings.stage_parameters[stage.name] \
                     is not None:
                 structure_paths = md_engine.unpartitioned_settings\
                     .get_positions_full_paths(
@@ -224,7 +226,7 @@ def get_first_available_anchor_md_stage_structure(
             for anchor in model.anchors:
                 if "molecular_dynamics" in anchor.scale_types:
                     structure_paths = anchor.get_positions_full_paths(
-                        model.directory, stage.input_stage_index, 0)
+                        model.directory, stage.input_stage_index, stage.set_name, 0)
                     if len(structure_paths) > 0:
                         return (md_engine.unpartitioned_settings, stage)
                     
@@ -313,7 +315,9 @@ def check_systems_within_Voronoi_cells(
             continue
         
         for stage_id, stage in enumerate(model.stages):
-            stage_parameter = anchor.stage_parameters[stage_id]
+            if stage.name not in anchor.stage_parameters:
+                continue
+            stage_parameter = anchor.stage_parameters[stage.name]
             if not stage.type == "md_stage":
                 continue
 
@@ -324,9 +328,9 @@ def check_systems_within_Voronoi_cells(
 
             full_directory = os.path.join(
                 model.directory, anchor.directory,
-                anchor.stage_parameters[stage_id]["directory"])
+                anchor.stage_parameters[stage.name]["directory"])
             input_positions_filenames = anchor.get_positions_full_paths(
-                model.directory, stage.input_stage_index, 0)
+                model.directory, stage.input_stage_index, stage.set_name, 0)
             if len(input_positions_filenames) == 0:
                 continue
 
@@ -650,6 +654,8 @@ def check_mmvt_in_Voronoi_cell(
     """
     
     for stage in model.stages:
+        if stage.scale_type != "molecular_dynamics":
+            continue
         if stage.sampling_method.type != "mmvt":
             continue
         if model.using_scale("molecular_dynamics") is not None:
@@ -682,9 +688,14 @@ def check_for_stuck_BD(
     Examine BD output to ensure that too many BD trajectories weren't
     stuck.
     """
+    for stage in model.stages:
+        if stage.scale_type == "brownian_dynamics":
+            set_name = stage.set_name
+            break
     if model.using_scale("brownian_dynamics"):
         bd_engine = model.get_engine_by_scale_type("brownian_dynamics")
-        bd_transition_counts = bd_engine.get_bd_transition_counts(model.directory)
+        bd_transition_counts \
+            = bd_engine.get_bd_transition_counts(model.directory, set_name)
         if "stuck" in bd_transition_counts:
             if bd_transition_counts["stuck"] > MAX_BD_STUCK:
                 warnstr = """CHECK FAILURE: A large number of BD

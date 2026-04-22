@@ -28,42 +28,6 @@ Run_instruction_md = namedtuple(
         "message"
     ])
 
-def filled_and_unfilled_anchors(
-        model: structures.Seekr_model,
-        stage: md_structures.Stage_md
-    ) -> tuple[list[int], list[int]]:
-    """
-    Return two lists: one of the indices of anchors that have been filled
-    and one of the indices of anchors that have not been filled.
-    """
-    filled_anchors = []
-    unfilled_anchors = []
-    stage_index = stage.index
-    stage_output_globs: list[str] = stage.sampling_method.get_output_positions_glob_list()
-    for anchor in model.anchors:
-        if "molecular_dynamics" not in anchor.scale_types:
-            continue
-        found_outputs_for_anchor = False
-        stage_parameter = anchor.get_stage_parameters_by_index(stage_index)
-        assert "directory" in stage_parameter, \
-            f"Stage parameter for stage {stage_index} does not contain "\
-            +"a directory."
-        stage_directory = stage_parameter["directory"]
-        for stage_output_glob in stage_output_globs:
-            output_files_glob = os.path.join(
-                model.directory, anchor.directory, stage_directory, 
-                stage_output_glob)
-            if len(glob.glob(output_files_glob)) > 0:
-                found_outputs_for_anchor = True
-        
-        if found_outputs_for_anchor:
-            filled_anchors.append(anchor.index)
-        else:
-            unfilled_anchors.append(anchor.index)
-    
-    return filled_anchors, unfilled_anchors
-
-
 def is_finished_md(
         model: structures.Seekr_model,
         stage: md_structures.Stage_md,
@@ -91,7 +55,105 @@ def is_finished_md_with_message(
     completion_criteria: completion_criteria_structures.MD_completion_criteria = \
         stage.completion_criteria
     message = None
-    if completion_criteria.type == "number_of_steps":
+    if completion_criteria.type == "reporter_progress":
+        # Resolve the JSON file written by the reporter on disk.
+        # Reporter filenames follow the pattern:
+        #   {running_dir}/{basename}1.swarm_{swarm_id}.reporter_{i}.{ext}
+        # so the JSON sidecar is the same path with .json extension.
+        reporter_name = completion_criteria.reporter_name
+        reporter_index = None
+        for i, reporter in enumerate(stage.reporters):
+            if reporter.name == reporter_name:
+                reporter_index = i
+                break
+        if reporter_index is None:
+            message = {"completion_criteria": "reporter_progress",
+                       "attained": False,
+                       "error": f"reporter '{reporter_name}' not found in stage"}
+            return False, message
+        from seekr.modules.engines import runner as _eng_runner
+        from seekr.modules.scales.molecular_dynamics import structures as _md_struct
+        stage_directory = anchor_or_unpartitioned\
+            .get_stage_parameters_by_index(stage.index)["directory"]
+        #running_dir = os.path.join(
+        #    model.directory, anchor_or_unpartitioned.directory, stage_directory)
+        
+        if stage.scope == "unpartitioned":
+            running_dir = os.path.join(
+                model.directory, anchor_or_unpartitioned.directory,
+                stage_directory)
+        elif stage.scope == "partitioned":
+            running_dir = os.path.join(
+                model.directory, "anchor_sets", stage.set_name,
+                anchor_or_unpartitioned.directory,
+                stage_directory)
+
+        checkpoint_info_basename = _eng_runner.get_checkpoint_information_basename(swarm_id)
+        basename = stage.sampling_method.get_output_positions_basename_noext()
+        swarm_string = f".swarm_{swarm_id}"
+        reporter_ext = stage.reporters[reporter_index].get_reporter_extension()
+        reporter_name = stage.reporters[reporter_index].name
+        json_glob = os.path.join(
+            running_dir,
+            f"{basename}*{swarm_string}.{reporter_name}.json")
+        json_files = sorted(glob.glob(json_glob))
+        progress = 0.0
+        if json_files:
+            import json as _json
+            # Peek at format using the latest file.
+            try:
+                with open(json_files[-1], "r") as _f:
+                    sample_data = _json.load(_f)
+            except (OSError, _json.JSONDecodeError):
+                sample_data = {}
+            if sample_data:
+                first_val = next(iter(sample_data.values()))
+                if "filled" in first_val:
+                    # Anchor_reporter format: per-file JSONs — aggregate ALL files.
+                    all_filled: set = set()
+                    all_indices: set = set()
+                    for jf in json_files:
+                        try:
+                            with open(jf, "r") as _f:
+                                data = _json.load(_f)
+                        except (OSError, _json.JSONDecodeError):
+                            continue
+                        for v in data.values():
+                            all_indices.add(int(v["index"]))
+                            if v.get("filled", False):
+                                all_filled.add(int(v["index"]))
+                    if all_indices:
+                        progress = len(all_filled) / len(all_indices)
+                else:
+                    # CV_value_reporter format: latest file is cumulative.
+                    n_bins = len(sample_data)
+                    filled = sum(
+                        1 for v in sample_data.values()
+                        if v.get("frame_index", -1) >= 0)
+                    progress = filled / n_bins if n_bins > 0 else 1.0
+        threshold = completion_criteria.reporter_progress_threshold
+        max_steps = completion_criteria.max_number_of_steps
+        attained = progress >= threshold
+        timed_out = current_step >= max_steps
+        ending = attained or timed_out
+        if use_json:
+            message = {
+                "completion_criteria": "reporter_progress",
+                "attained": attained,
+                "timed_out": timed_out,
+                "progress": round(progress, 4),
+                "threshold": threshold,
+                "current_step": current_step,
+                "maximum_steps": max_steps,
+            }
+        else:
+            message = (
+                f"reporter_progress: {progress:.3f} / {threshold:.3f} "
+                f"(step {current_step})"
+            )
+        return ending, message
+
+    elif completion_criteria.type == "number_of_steps":
         if use_json:
             # Use JSON-style message
             message = {
@@ -104,59 +166,6 @@ def is_finished_md_with_message(
             message = f"steps {current_step} of {completion_criteria.number_of_steps} "\
                 "completed."
         return current_step >= completion_criteria.number_of_steps, message
-
-    elif completion_criteria.type == "anchors_filled":
-        filled_anchor_indices, unfilled_anchor_indices = filled_and_unfilled_anchors(
-            model, stage)
-        total_number_of_anchors = len(filled_anchor_indices) + \
-                len(unfilled_anchor_indices)
-        unfilled_only_contains_excluded = True
-        for anchor_index in unfilled_anchor_indices:
-            if anchor_index not in completion_criteria.exclude:
-                unfilled_only_contains_excluded = False
-                break
-        if unfilled_only_contains_excluded:
-            if use_json:
-                message = {
-                "completion_criteria": completion_criteria.type,
-                    "attained": True,
-                    "num_filled_anchors": len(filled_anchor_indices),
-                    "total_number_of_anchors": total_number_of_anchors,
-                    "current_step": current_step,
-                    "maximum_steps": completion_criteria.get_max_sim_len()
-                }
-            else:
-                message = "anchors filled."
-            return True, message
-            
-        elif current_step >= completion_criteria.get_max_sim_len():
-            if use_json:
-                message = {
-                    "completion_criteria": completion_criteria.type,
-                    "attained": False,
-                    "num_filled_anchors": len(filled_anchor_indices),
-                    "total_number_of_anchors": total_number_of_anchors,
-                    "current_step": current_step,
-                    "maximum_steps": completion_criteria.get_max_sim_len()
-                }
-            else:
-                message = f"Maximum steps exceeded: {current_step} >= "\
-                    f"{completion_criteria.get_max_sim_len()}."
-            return True, message
-        else:
-            if use_json:
-                message = {
-                    "completion_criteria": completion_criteria.type,
-                    "attained": False,
-                    "num_filled_anchors": len(filled_anchor_indices),
-                    "total_number_of_anchors": total_number_of_anchors,
-                    "current_step": current_step,
-                    "maximum_steps": completion_criteria.get_max_sim_len()
-                }
-            else:
-                message = f"{len(filled_anchor_indices)} of "\
-                    f"{total_number_of_anchors} anchors filled."
-            return False, message
     
     else:
         # Run through plugins
@@ -184,7 +193,8 @@ def get_calculation_directory_md(
         anchor_or_unpartitioned: engines_structures.MD_unpartitioned_settings \
             | structures.Anchor, 
         stage_index: int, 
-        root_directory: str):
+        root_directory: str,
+        set_name: str):
     """
     Return the calculation directory for a given MD stage index.
     """
@@ -192,8 +202,14 @@ def get_calculation_directory_md(
     if isinstance(anchor_or_unpartitioned, structures.Anchor):
         if "molecular_dynamics" not in anchor_or_unpartitioned.scale_types:
             raise NotImplementedError("MD not running in this anchor/unpartitioned.")
+        anchor_or_unpartitioned_directory = os.path.join(
+            root_directory, "anchor_sets", set_name, 
+            anchor_or_unpartitioned.directory
+        )
+    else:
+        anchor_or_unpartitioned_directory = anchor_or_unpartitioned.directory
     stage_directory = anchor_or_unpartitioned.get_stage_parameters_by_index(stage_list_index)["directory"]
-    full_directory = os.path.join(root_directory, anchor_or_unpartitioned.directory, 
+    full_directory = os.path.join(root_directory, anchor_or_unpartitioned_directory, 
                                   stage_directory)
     return full_directory
 
@@ -202,7 +218,8 @@ def get_current_md_step(
             | structures.Anchor, 
         stage_index: int, 
         swarm_id: int,
-        root_directory: str) -> int:
+        root_directory: str,
+        set_name: str) -> int:
     """
     Return the current step for a given stage index.
     """
@@ -211,9 +228,14 @@ def get_current_md_step(
             raise NotImplementedError("BD current step not yet implemented.")
     stage_directory = anchor_or_unpartitioned.get_stage_parameters_by_index(
         stage_index)["directory"]
-    full_directory = os.path.join(
-        root_directory, anchor_or_unpartitioned.directory, 
-        stage_directory)
+    if isinstance(anchor_or_unpartitioned, structures.Anchor):
+        full_directory = os.path.join(
+            root_directory, "anchor_sets", set_name, 
+            anchor_or_unpartitioned.directory, stage_directory)
+    else:
+        full_directory = os.path.join(
+            root_directory, anchor_or_unpartitioned.directory, 
+            stage_directory)
     checkpoint_info_basename = engines_runner.get_checkpoint_information_basename(
         swarm_id)
     checkpoint_information_filename = os.path.join(
@@ -231,14 +253,21 @@ def get_restart_checkpoint_filename(
             | structures.Anchor, 
         stage_index: int, 
         swarm_id: int,
-        root_directory: str):
+        root_directory: str,
+        set_name: str):
     """
     Return the restart checkpoint filename for a given stage index.
     """
     stage_directory = anchor_or_unpartitioned.get_stage_parameters_by_index(
         stage_index)["directory"]
-    full_directory = os.path.join(
-        root_directory, anchor_or_unpartitioned.directory, stage_directory)
+    if isinstance(anchor_or_unpartitioned, structures.Anchor):
+        full_directory = os.path.join(
+            root_directory, "anchor_sets", set_name, 
+            anchor_or_unpartitioned.directory, stage_directory)
+    else:
+        full_directory = os.path.join(
+            root_directory, anchor_or_unpartitioned.directory, 
+            stage_directory)
     restart_checkpoint_basename = engines_runner\
         .get_restart_checkpoint_basename(swarm_id)
     restart_checkpoint_filename = os.path.join(
@@ -254,9 +283,9 @@ def construct_anchor_or_unpartitioned_index_list(
     
     """
     anchor_or_unpartitioned_index_list: list[int | None] = []
-    if stage_md.input_from == "unpartitioned":
+    if stage_md.scope == "unpartitioned":
         anchor_or_unpartitioned_index_list.append(None)
-    elif stage_md.input_from == "anchors":
+    elif stage_md.scope == "partitioned":
         for alpha, anchor in enumerate(model.anchors):
             if "molecular_dynamics" not in anchor.scale_types:
                 continue
@@ -305,22 +334,23 @@ def choose_next_simulation_md(
         #num_swarm_ids = anchor_or_unpartitioned.get_starting_structure_num_swarms(
         #    model.directory, stage_md.input_stage_index)
         swarm_ids = anchor_or_unpartitioned.get_starting_structure_swarm_ids(
-            model.directory, stage_md.input_stage_index)
+            model.directory, stage_md.input_stage_index, stage_md.set_name)
         calculation_dir = get_calculation_directory_md(
-            anchor_or_unpartitioned, stage_md.index-1, model.directory)
+            anchor_or_unpartitioned, stage_md.index-1, model.directory,
+            stage_md.set_name)
         log_filename = os.path.join(calculation_dir, "run.log")
         base.configure_file_and_stdout_logger(
             log_filename, overwrite=force_overwrite)
-        #for swarm_id in range(num_swarm_ids):
         for swarm_id in swarm_ids:
             if (swarm_id_wanted is not None) and (swarm_id != swarm_id_wanted):
                 continue
             swarm_string = f" swarm {swarm_id}"
             current_step = get_current_md_step(anchor_or_unpartitioned,
-                stage_md.index, swarm_id, model.directory)
+                stage_md.index, swarm_id, model.directory, stage_md.set_name)
             restart_checkpoint_filename \
                 = get_restart_checkpoint_filename(
-                    anchor_or_unpartitioned, stage_md.index, swarm_id, model.directory)
+                    anchor_or_unpartitioned, stage_md.index, swarm_id, 
+                    model.directory, stage_md.set_name)
             if (not os.path.exists(restart_checkpoint_filename)) \
                     or force_overwrite:
                 restart = False
@@ -374,8 +404,10 @@ def do_run_instruction_md(
         partition_name = f"anchor {anchor_index}"
     log_string = f"Running {partition_name}, restart: "\
         +f"{restart}{swarm_string}"
+    stage = model.stages[stage_index]
     calculation_dir = get_calculation_directory_md(
-        anchor_or_unpartitioned, stage_index, model.directory)
+        anchor_or_unpartitioned, stage_index, model.directory,
+        stage.set_name)
     log_filename = os.path.join(calculation_dir, "run.log")
     base.configure_file_and_stdout_logger(
         log_filename, overwrite=force_overwrite)

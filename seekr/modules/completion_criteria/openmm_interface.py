@@ -16,10 +16,8 @@ import seekr.modules.completion_criteria.structures as completion_criteria_struc
 import seekr.modules.engines.structures as engines_structures
 import seekr.modules.scales.molecular_dynamics.structures as md_structures
 import seekr.modules.scales.molecular_dynamics.runner as md_runner
+import seekr.modules.reporters.openmm_interface as reporters_openmm_interface
 
-# TODO: fill out an object for the anchors-filled completion criteria
-# TODO:  Anchors-filled criteria will not be implemented within the integrator,
-#  but will use evaluations of the CVs between steps.
 @define
 class Base_completion_criteria_openmm_interface:
     """
@@ -60,45 +58,49 @@ class Number_of_steps_completion_criteria_openmm_interface(
     _stage: md_structures.Stage_md
 
 @define
-class Anchors_filled_completion_criteria_openmm_interface(
+class Reporter_progress_completion_criteria_openmm_interface(
         Base_completion_criteria_openmm_interface):
     """
-    Interface for the Anchors-filled completion criteria using
-    the OpenMM engine. Identical to the base class.
+    Interface for the Reporter-progress completion criteria using
+    the OpenMM engine.
     """
-    _completion_criteria: completion_criteria_structures.Anchors_filled_completion_criteria
+    _completion_criteria: completion_criteria_structures.Reporter_progress_completion_criteria
     _model: structures.Seekr_model
     _stage: md_structures.Stage_md
     _anchor_or_unpartitioned: engines_structures.MD_unpartitioned_settings | structures.Anchor
+    _reporter_interface: reporters_openmm_interface.Base_reporter_openmm_interface
 
     def criteria_satisfied(
             self,
             **kwargs: typing.Any
             ) -> bool:
         """
-        Evaluate the current simulation state to see if all anchors are filled.
+        Evaluate the current simulation state to check reporter progress.
+        Queries the reporter interface directly for in-memory progress, then
+        checks against the threshold and max_steps bail-out.
         """
         print_update: bool = kwargs["print_update"]
         current_step: int = kwargs["current_step"]
+        progress = self._reporter_interface.get_progress()
+        threshold = self._completion_criteria.reporter_progress_threshold
+        max_steps = self._completion_criteria.max_number_of_steps
+        ending = (progress >= threshold) or (current_step >= max_steps)
         if print_update:
-            ending, message = md_runner.is_finished_md_with_message(
-                self._model, self._stage, self._anchor_or_unpartitioned, current_step)
-            logging.info(message)
-        else:
-            ending = md_runner.is_finished_md(
-                self._model, self._stage, self._anchor_or_unpartitioned, current_step)
-
+            logging.info(
+                f"reporter_progress: {progress:.3f} / {threshold:.3f} "
+                f"(current_step: {current_step})")
         return ending
 
 Completion_criteria_openmm_interface = typing.Union[
     Number_of_steps_completion_criteria_openmm_interface,
-    Anchors_filled_completion_criteria_openmm_interface]
+    Reporter_progress_completion_criteria_openmm_interface]
 
 def assign_completion_interface(
         completion_criteria: completion_criteria_structures.Base_completion_criteria, 
         model: structures.Seekr_model,
         stage: md_structures.Stage_md,
-        anchor_or_unpartitioned: engines_structures.MD_unpartitioned_settings | structures.Anchor
+        anchor_or_unpartitioned: engines_structures.MD_unpartitioned_settings | structures.Anchor,
+        reporter_interfaces: list | None = None,
         )-> Base_completion_criteria_openmm_interface:
     """
     Given a sampling_method and an md_engine, confirm that the OpenMM
@@ -111,9 +113,18 @@ def assign_completion_interface(
     if completion_criteria.type == "number_of_steps":
         return Number_of_steps_completion_criteria_openmm_interface(
             completion_criteria, model, stage, anchor_or_unpartitioned)
-    elif completion_criteria.type == "anchors_filled":
-        return Anchors_filled_completion_criteria_openmm_interface(
-            completion_criteria, model, stage, anchor_or_unpartitioned)
+    elif completion_criteria.type == "reporter_progress":
+        reporter_interface = None
+        for this_reporter_interface in reporter_interfaces:
+            if this_reporter_interface._reporter.name \
+                    == completion_criteria.reporter_name:
+                reporter_interface = this_reporter_interface
+                break
+        assert reporter_interface is not None, \
+            f"Reporter {completion_criteria.reporter_name} not found."
+        return Reporter_progress_completion_criteria_openmm_interface(
+            completion_criteria, model, stage, anchor_or_unpartitioned,
+            reporter_interface)
     else:
         # Run through plugins
         for plugin_name in model.plugins:

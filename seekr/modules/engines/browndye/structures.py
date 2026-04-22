@@ -95,13 +95,15 @@ class Browndye_bd_engine:
 
     def get_bd_transition_counts(
             self, 
-            root_directory: str
+            root_directory: str,
+            set_name: str
             ) -> dict:
         """
         Get the transition counts from the BD results files.
         """
         output_file_glob = os.path.join(
-            root_directory, self.b_surface_directory, self.results_glob)
+            root_directory, "anchor_sets", set_name, 
+            self.b_surface_directory, self.results_glob)
         output_file_list = glob.glob(output_file_glob)
         output_file_list = base.order_files_numerically(output_file_list)
         bd_transition_counts = {}

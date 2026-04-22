@@ -18,13 +18,13 @@ import parmed
 import seekr.modules.base as base
 import seekr.modules.structures as structures
 import seekr.modules.engines.structures as engines_structures
+import seekr.modules.engines.preparer as engines_preparer
 import seekr.modules.engines.browndye.base as browndye_base
 import seekr.modules.engines.browndye.xml_structures as xml_structures
 import seekr.modules.engines.browndye.structures as browndye_structures
 import seekr.modules.collective_variables.structures as cv_structures
 import seekr.modules.collective_variables.distance_cv as distance_cv
 import seekr.modules.scales.brownian_dynamics.structures as bd_scale
-import seekr.modules.engines.preparer as engines_preparer
 
 @define
 class Browndye_molecule_input:
@@ -350,41 +350,6 @@ def make_browndye_input_xml(
                 
     return debye_length, reaction_filename
 
-def get_spherical_milestones_and_cv_index_in_neighbor_anchor(
-        model: structures.Seekr_model,
-        neighbor_anchor: structures.Anchor,
-        ) -> typing.Tuple[typing.List[structures.Milestone], int]:
-    cvs = model.collective_variables
-    spherical_milestones_in_neighbor_anchor = []
-    this_anchors_bd_cv_index = None
-    for milestone in neighbor_anchor.milestones:
-        found_variable_in_this_milestone = False
-        for variable in milestone.variables:
-            if variable.startswith("me"):
-                cv_index = milestone.get_cv_index_from_variable(variable)
-                if cvs[cv_index].type == "distance":
-                    spherical_milestones_in_neighbor_anchor.append(
-                        milestone)
-                    if this_anchors_bd_cv_index is None:
-                        this_anchors_bd_cv_index = cv_index
-                    else:
-                        assert this_anchors_bd_cv_index == cv_index, \
-                            "BD anchor is attempting to use multiple cvs to "\
-                            "define reaction criteria - not implemented."
-                    if not found_variable_in_this_milestone:
-                        found_variable_in_this_milestone = True
-                    else:
-                        raise AssertionError("Milestone has multiple distance CVs"\
-                                            " - not implemented")
-
-    assert len(spherical_milestones_in_neighbor_anchor) == 2, \
-        "BD anchor must have exactly 2 spherical milestones - "\
-        "other arrangements not yet implemented"
-    # Sort by the average between the positions of the neighboring anchors
-    spherical_milestones_in_neighbor_anchor.sort(
-        key=lambda x: x.variables["avg_value"], reverse=True)
-    return spherical_milestones_in_neighbor_anchor, this_anchors_bd_cv_index
-
 def make_browndye_reaction_xml(
         model: structures.Seekr_model | None,
         abs_reaction_path: str
@@ -411,38 +376,8 @@ def make_browndye_reaction_xml(
     for bulk_anchor in bulk_anchors:
         for neighbor_anchor_index in bulk_anchor.neighbor_anchor_indices:
             neighbor_anchor = model.anchors[neighbor_anchor_index]
-            """ # TODO: remove
-            spherical_milestones_in_neighbor_anchor = []
-            this_anchors_bd_cv_index = None
-            for milestone in neighbor_anchor.milestones:
-                found_variable_in_this_milestone = False
-                for variable in milestone.variables:
-                    if variable.startswith("me"):
-                        cv_index = milestone.get_cv_index_from_variable(variable)
-                        if cvs[cv_index].type == "distance":
-                            spherical_milestones_in_neighbor_anchor.append(
-                                milestone)
-                            if this_anchors_bd_cv_index is None:
-                                this_anchors_bd_cv_index = cv_index
-                            else:
-                                assert this_anchors_bd_cv_index == cv_index, \
-                                    "BD anchor is attempting to use multiple cvs to "\
-                                    "define reaction criteria - not implemented."
-                            if not found_variable_in_this_milestone:
-                                found_variable_in_this_milestone = True
-                            else:
-                                raise AssertionError("Milestone has multiple distance CVs"\
-                                                    " - not implemented")
-
-            assert len(spherical_milestones_in_neighbor_anchor) == 2, \
-                "BD anchor must have exactly 2 spherical milestones - "\
-                "other arrangements not yet implemented"
-            # Sort by the average between the positions of the neighboring anchors
-            spherical_milestones_in_neighbor_anchor.sort(
-                key=lambda x: x.variables["avg_value"], reverse=True)
-            """
             spherical_milestones_in_neighbor_anchor, this_anchors_bd_cv_index \
-                = get_spherical_milestones_and_cv_index_in_neighbor_anchor(
+                = engines_preparer.get_spherical_milestones_and_cv_index_in_neighbor_anchor(
                     model, neighbor_anchor)
             assert this_anchors_bd_cv_index is not None
             this_cv: cv_structures.Collective_variable = cvs[this_anchors_bd_cv_index]

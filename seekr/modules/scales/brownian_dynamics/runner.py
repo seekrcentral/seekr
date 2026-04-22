@@ -28,11 +28,14 @@ Run_instruction_bd = namedtuple(
 
 def get_calculation_directory_bd(
         bd_engine: structures.BD_engine,
-        root_directory: str):
+        root_directory: str,
+        set_name: str):
     """
     Return the calculation directory for a given BD stage index.
     """
-    full_directory = os.path.join(root_directory, bd_engine.b_surface_directory)
+    full_directory = os.path.join(
+        root_directory, "anchor_sets", set_name, 
+        bd_engine.b_surface_directory)
     return full_directory
 
 def is_finished_bd_with_message(
@@ -45,7 +48,8 @@ def is_finished_bd_with_message(
     """
     message = None
     bd_engine = model.get_engine_by_scale_type("brownian_dynamics")
-    bd_transition_counts = bd_engine.get_bd_transition_counts(model.directory)
+    bd_transition_counts = bd_engine.get_bd_transition_counts(
+        model.directory, stage_bd.set_name)
     bulk_indices = model.get_bulk_indices()
     assert len(bulk_indices) > 0
     for bulk_index in bulk_indices:
@@ -154,10 +158,12 @@ def choose_next_simulation_bd(
 
     if force_overwrite:
         for bulk_anchor in bulk_anchors:
-            engines_runner.cleanse_outputs_bd(bulk_anchor, model)
+            engines_runner.cleanse_outputs_bd(
+                bulk_anchor, model, stage_bd.set_name)
 
     run_instructions_unsorted: list[typing.NamedTuple] = []
-    bd_transition_counts = bd_engine.get_bd_transition_counts(model.directory)
+    bd_transition_counts = bd_engine.get_bd_transition_counts(
+        model.directory, stage_bd.set_name)
     
     for bulk_anchor in bulk_anchors:
         # Find the lower and upper milestone indices
@@ -202,9 +208,9 @@ def choose_next_simulation_bd(
                 total_bd_simulation_length = bd_sim_chunk_size
                 run_instruction = Run_instruction_bd(
                     total_bd_simulation_length, b_surface_sims_so_far, 
-                    bulk_index, True, total_b_surface_encounters)
+                    bulk_index, True, total_b_surface_encounters, message)
                 run_instructions_unsorted.append(run_instruction)
-                
+    
     return run_instructions_unsorted
 
 def do_run_instruction_bd(
@@ -228,7 +234,9 @@ def do_run_instruction_bd(
         +f"restart: {restart} trajectories to run: {trajs_to_go_min} "\
         +f"trajectories so far: {trajs_so_far} "\
         +f"number of transitions: {num_transitions}"
-    calculation_dir = get_calculation_directory_bd(bd_engine, model.directory)
+    stage = model.stages[stage_index]
+    calculation_dir = get_calculation_directory_bd(
+        bd_engine, model.directory, stage.set_name)
     log_filename = os.path.join(calculation_dir, "run.log")
     base.configure_file_and_stdout_logger(
         log_filename, overwrite=force_overwrite)

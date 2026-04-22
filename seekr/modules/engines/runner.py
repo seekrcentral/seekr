@@ -56,10 +56,10 @@ def run_simulation(
             force_overwrite)
     elif engine.type == "browndye":
         runner_browndye.run_simulation(
-            model, n_trajectories, restart, force_overwrite)
+            model, n_trajectories, restart, stage.set_name, force_overwrite)
     elif engine.type == "sda":
         runner_sda.run_simulation(
-            model, n_trajectories, restart, force_overwrite)
+            model, n_trajectories, restart, stage.set_name, force_overwrite)
     else:
         # TODO: search plugins for other MD engines
         # Oct 9, 2025 - This is not a priority right now, as we are a long way
@@ -69,20 +69,23 @@ def run_simulation(
     return
     
 def cleanse_outputs_bd(
-        bulk_anchor, 
-        model):
+        bulk_anchor: structures.Anchor, 
+        model: structures.Seekr_model,
+        set_name: str):
     """
     Remove BD simulation output files.
     """
     bd_engine = model.get_engine_by_scale_type("brownian_dynamics")
     found_engine = False
     if bd_engine.type == "browndye":
-        directory = os.path.join(model.directory, bulk_anchor.directory)
+        directory = os.path.join(
+            model.directory, "anchor_sets", set_name, bulk_anchor.directory)
         runner_browndye.cleanse_bd_outputs(directory, bd_engine.results_glob, 
                                            check_mode=False)
         found_engine = True
     elif bd_engine.type == "sda":
-        directory = os.path.join(model.directory, bulk_anchor.directory)
+        directory = os.path.join(
+            model.directory, "anchor_sets", set_name, bulk_anchor.directory)
         runner_sda.cleanse_bd_outputs(directory, sda_base.SDA_RESULTS_GLOB, 
                                       check_mode=False)
         found_engine = True

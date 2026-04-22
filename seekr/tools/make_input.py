@@ -73,6 +73,12 @@ def create_toy_model_input(
         = [[[0.0, -0.7, 0.0]]]
     seekr_input.settings_list = [md_settings]
 
+    seekr_input.initial_scopes = {
+        "molecular_dynamics": "unpartitioned",
+        "brownian_dynamics": "unpartitioned",
+        "logistic": "unpartitioned",
+    }
+
     state_point1 = base.State_point()
     state_point1.name = "stateA"
     if use_2cvs:
@@ -137,6 +143,9 @@ def create_toy_model_input(
         if define_anchors_later:
             assert not use_2cvs, \
                 "Not implemented to define anchors later with 2 CVs."
+            stage2_position_reporter = reporters_preparer.Position_reporter_input()
+            stage2_position_reporter.interval = 50
+            stage2_position_reporter.extension = "dcd"
             stage2_reporter = reporters_preparer.CV_value_reporter_input()
             stage2_reporter.cv_name = "progress_coordinate"
             stage2_reporter.cv_values = np.linspace(
@@ -145,8 +154,12 @@ def create_toy_model_input(
             stage2_reporter.extension = "dcd"
 
         else:
-            stage2_reporter = reporters_preparer.Position_reporter_input()
-            stage2_reporter.interval = 500
+            stage2_position_reporter = reporters_preparer.Position_reporter_input()
+            stage2_position_reporter.interval = 500
+            stage2_position_reporter.extension = "dcd"
+            stage2_reporter = reporters_preparer.Anchor_reporter_input()
+            stage2_reporter.name = "my_anchor_reporter"
+            stage2_reporter.interval = 10
             stage2_reporter.extension = "dcd"
     else:
         stage2.name = "metadynamics"
@@ -159,6 +172,9 @@ def create_toy_model_input(
         if define_anchors_later:
             assert not use_2cvs, \
                 "Not implemented to define anchors later with 2 CVs."
+            stage2_position_reporter = reporters_preparer.Position_reporter_input()
+            stage2_position_reporter.interval = 50
+            stage2_position_reporter.extension = "dcd"
             stage2_reporter = reporters_preparer.CV_value_reporter_input()
             stage2_reporter.cv_name = "progress_coordinate"
             stage2_reporter.cv_values = np.linspace(
@@ -166,8 +182,12 @@ def create_toy_model_input(
             stage2_reporter.interval = 10
             stage2_reporter.extension = "dcd"
         else:
-            stage2_reporter = reporters_preparer.Position_reporter_input()
-            stage2_reporter.interval = 50
+            stage2_position_reporter = reporters_preparer.Position_reporter_input()
+            stage2_position_reporter.interval = 50
+            stage2_position_reporter.extension = "dcd"
+            stage2_reporter = reporters_preparer.Anchor_reporter_input()
+            stage2_reporter.name = "my_anchor_reporter"
+            stage2_reporter.interval = 10
             stage2_reporter.extension = "dcd"
 
     stage2.run_minimization = False
@@ -177,19 +197,20 @@ def create_toy_model_input(
         stage2.completion_criteria = compl_crit_struct.Number_of_steps_completion_criteria()
         stage2.completion_criteria.number_of_steps = 100000
     else:
-        stage2.completion_criteria = compl_crit_struct.Anchors_filled_completion_criteria()
-        stage2.completion_criteria.exclude = [2]
-        stage2.completion_criteria.eval_interval = 10
+        stage2.completion_criteria = compl_crit_struct.Reporter_progress_completion_criteria()
+        stage2.completion_criteria.reporter_name = "my_anchor_reporter"
+        stage2.completion_criteria.interval = 10
 
     stage2_state_reporter = reporters_preparer.State_reporter_input()
     stage2_state_reporter.to_stdout = True
     stage2_state_reporter.interval = 50
+    
     stage2_reporter.enforce_periodic_box = False
-    stage2.reporters = [stage2_reporter] #[stage2_state_reporter, stage2_position_reporter]
+    stage2.reporters = [stage2_reporter, stage2_position_reporter]
 
     if define_anchors_later:
         stage3 = reassign_anchors_logistic_stage.Input_stage_reassign_anchors()
-        stage3.name = "Assign anchors"
+        stage3.name = "Assign_anchors"
         stage3.input_set_name = "main"
         stage3.output_set_name = "reassigned"
         stage3.new_anchor_scheme = anchor_scheme
@@ -199,6 +220,7 @@ def create_toy_model_input(
         stage3 = anchor_starting_structures_from_reporter_logistic_stage\
             .Input_stage_anchor_starting_structures_from_reporter()
         stage3.name = "anchor_structures_from_metaD"
+        stage3.reporter_name = "my_anchor_reporter"
 
     stage4 = md_preparer.Input_stage_md()
     stage4.name = "MMVT"
@@ -207,7 +229,7 @@ def create_toy_model_input(
     stage4.ensemble = base.NVT_ensemble()
     stage4.sampling_method = sampling_preparer.MMVT_md_input()
     stage4.completion_criteria = compl_crit_struct.Number_of_steps_completion_criteria()
-    stage4.completion_criteria.number_of_steps = 2000000
+    stage4.completion_criteria.number_of_steps = 200000
     stage4_state_reporter = reporters_preparer.State_reporter_input()
     stage4_state_reporter.to_stdout = True
     stage4_state_reporter.interval = 5000
@@ -217,11 +239,8 @@ def create_toy_model_input(
     stage4_position_reporter.extension = "dcd"
     stage4.reporters = [stage4_state_reporter, stage4_position_reporter]
 
-    if define_anchors_later:
-        seekr_input.stages = [stage1, stage2, stage3, stage4]
-    else:
-        seekr_input.stages = [stage1, stage2, stage4]
-
+    seekr_input.stages = [stage1, stage2, stage3, stage4]
+    
     external_cv_input = external_cv.External_cv_input()
     external_cv_input.name = "progress_coordinate"
     external_cv_input.expression = "y1"
@@ -338,6 +357,12 @@ def create_host_guest_example_input(
            solute_selection_md, o5_group, single_group]
     seekr_input.settings_list = [md_settings]
 
+    seekr_input.initial_scopes = {
+        "molecular_dynamics": "unpartitioned",
+        "brownian_dynamics": "unpartitioned",
+        "logistic": "unpartitioned",
+    }
+
     if bd:
         ion1 = engines_structures.Ion()
         ion1.name = "Cl-"
@@ -437,8 +462,14 @@ def create_host_guest_example_input(
     stage2.run_minimization = False
     stage2.checkpoint_interval = 1000
     stage2.ensemble = base.NVT_ensemble()
-    stage2.completion_criteria = compl_crit_struct.Anchors_filled_completion_criteria()
-    
+    stage2_reporter = reporters_preparer.Anchor_reporter_input()
+    stage2_reporter.name = "my_anchor_reporter"
+    stage2_reporter.interval = 10
+    stage2_reporter.extension = "dcd"
+    stage2.completion_criteria = compl_crit_struct.Reporter_progress_completion_criteria()
+    stage2.completion_criteria.reporter_name = "my_anchor_reporter"
+    stage2.completion_criteria.interval = 10
+
     proximity_restraint_input = restraints_preparer.Proximity_restraint_input()
     proximity_restraint_input.selection1_name = "host"
     proximity_restraint_input.selection2_name = "guest"
@@ -449,6 +480,7 @@ def create_host_guest_example_input(
     cylinder_restraint_input.selection3_name = "single_index"
     cylinder_restraint_input.radius = 0.4
     stage2.restraints = [proximity_restraint_input, cylinder_restraint_input]
+    
     stage2_state_reporter = reporters_preparer.State_reporter_input()
     stage2_state_reporter.to_stdout = True
     stage2_state_reporter.interval = 500
@@ -456,40 +488,46 @@ def create_host_guest_example_input(
     stage2_position_reporter.interval = 500
     stage2_position_reporter.atom_subset = "solute"
     stage2_position_reporter.extension = "dcd"
-    stage2.reporters = [stage2_state_reporter, stage2_position_reporter]
+    stage2.reporters = [stage2_reporter, stage2_state_reporter, 
+                        stage2_position_reporter]
 
-    stage3 = md_preparer.Input_stage_md()
-    stage3.name = "MMVT"
-    stage3.run_minimization = False
-    stage3.checkpoint_interval = 1000
-    stage3.ensemble = base.NVT_ensemble()
-    stage3.sampling_method = sampling_preparer.MMVT_md_input()
-    stage3.completion_criteria = compl_crit_struct.Number_of_steps_completion_criteria()
-    stage3.completion_criteria.number_of_steps = 100000
+    stage3 = anchor_starting_structures_from_reporter_logistic_stage\
+        .Input_stage_anchor_starting_structures_from_reporter()
+    stage3.name = "anchor_structures_from_metaD"
+    stage3.reporter_name = "my_anchor_reporter"
+    
+    stage4 = md_preparer.Input_stage_md()
+    stage4.name = "MMVT"
+    stage4.run_minimization = False
+    stage4.checkpoint_interval = 1000
+    stage4.ensemble = base.NVT_ensemble()
+    stage4.sampling_method = sampling_preparer.MMVT_md_input()
+    stage4.completion_criteria = compl_crit_struct.Number_of_steps_completion_criteria()
+    stage4.completion_criteria.number_of_steps = 100000
     positional_restraint = restraints_preparer.Positional_restraint_input()
     positional_restraint.selection_name = "host"
-    stage3.restraints = [positional_restraint]
-    stage3_state_reporter = reporters_preparer.State_reporter_input()
-    stage3_state_reporter.to_stdout = True
-    stage3_state_reporter.interval = 250
-    stage3_position_reporter = reporters_preparer.Position_reporter_input()
-    stage3_position_reporter.interval = 250
-    stage3_position_reporter.atom_subset = "solute"
-    stage3.reporters = [stage3_state_reporter, stage3_position_reporter]
+    stage4.restraints = [positional_restraint]
+    stage4_state_reporter = reporters_preparer.State_reporter_input()
+    stage4_state_reporter.to_stdout = True
+    stage4_state_reporter.interval = 250
+    stage4_position_reporter = reporters_preparer.Position_reporter_input()
+    stage4_position_reporter.interval = 250
+    stage4_position_reporter.atom_subset = "solute"
+    stage4.reporters = [stage4_state_reporter, stage4_position_reporter]
 
-    seekr_input.stages = [stage1, stage2, stage3]
+    seekr_input.stages = [stage1, stage2, stage3, stage4]
 
     if bd:
-        stage4 = bd_preparer.Input_stage_bd()
-        stage4.name = "bd"
-        stage4.n_trajectories_per_output = 1000
-        stage4.n_steps_per_output = 100000
-        stage4.sampling_method = sampling_preparer.NAM_bd_input()
-        stage4.completion_criteria = compl_crit_struct.Number_of_trajectories_completion_criteria()
-        stage4.completion_criteria.number_of_trajectories = 10000
-        #stage4.completion_criteria = compl_crit_struct.Number_of_encounters_completion_criteria()
-        #stage4.completion_criteria.number_of_encounters = 1000
-        seekr_input.stages.append(stage4)
+        stage5 = bd_preparer.Input_stage_bd()
+        stage5.name = "bd"
+        stage5.n_trajectories_per_output = 1000
+        stage5.n_steps_per_output = 100000
+        stage5.sampling_method = sampling_preparer.NAM_bd_input()
+        stage5.completion_criteria = compl_crit_struct.Number_of_trajectories_completion_criteria()
+        stage5.completion_criteria.number_of_trajectories = 10000
+        #stage5.completion_criteria = compl_crit_struct.Number_of_encounters_completion_criteria()
+        #stage5.completion_criteria.number_of_encounters = 1000
+        seekr_input.stages.append(stage5)
     
     seekr_input.partitions = [preparer.Partition_input()]
     if use_rmsd_cv:

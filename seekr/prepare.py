@@ -60,7 +60,9 @@ def prepare(
     for settings in seekr_input.settings_list:
         assert model.get_engine_by_scale_type(settings.scale_type) is not None, \
             f"Engine for scale type {settings.scale_type} is not defined."
-        settings.copy_initial_files(model, directory, using_toy=model.using_toy())
+        settings.copy_initial_files(
+            model, directory, anchor_set_name=base.PREPARE_SET_NAME, 
+            using_toy=model.using_toy())
         scale_preparer.generate_files(model, directory, base.PREPARE_SET_NAME, 
                                       settings.scale_type)
     model.save(file_path)

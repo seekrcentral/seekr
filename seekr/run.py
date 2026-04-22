@@ -64,12 +64,9 @@ def run(
     assert stage_index is not None, \
         "Stage argument must match a name or index of a stage in the model."
     stage = model.stages[stage_index]
-    if stage.scale_type != "logistic":
-        model.load_cvs(stage.set_name)
-        model.load_selections(stage.set_name)
-        model.load_anchor_set(stage.set_name)
+    stage.load_sets_into_model(model)
     anchor_index_instruction = extract_anchor_index(model, anchor_arg)
-    if stage.input_from == "anchors":
+    if stage.scope == "partitioned":
         # anchor_index only needs to be defined if the stage uses anchors.
         assert anchor_index_instruction is not None, \
             "Anchor argument must match a name or index of an anchor in "\

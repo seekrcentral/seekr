@@ -97,6 +97,55 @@ class Stage_bd:
                        validator=validators.in_(
                            ["unpartitioned", "partitioned"]))
     
+    def has_files(
+            self,
+            model: "Seekr_model",
+            anchor_index: int | None = None,
+            ) -> bool:
+        """
+        Returns True if the b_surface directory contains BD results files.
+
+        BD output is written to a single b_surface directory rather than
+        per-anchor subdirectories, so anchor_index is accepted for API
+        consistency but is not used.
+        """
+        bd_engine = model.get_engine_by_scale_type("brownian_dynamics")
+        if bd_engine is None:
+            return False
+        b_surface_dir = os.path.join(
+            model.directory, "anchor_sets", self.get_output_set_name(),
+            bd_engine.b_surface_directory)
+        if not os.path.exists(b_surface_dir):
+            return False
+        output_files_glob = os.path.join(b_surface_dir, bd_engine.results_glob)
+        return len(glob.glob(output_files_glob)) > 0
+
+    def load_sets_into_model(
+            self, 
+            model: "Seekr_model"
+            ) -> None:
+        """
+        Load the CVs, selections, and anchor set for this stage into the model.
+        """
+        model.load_cvs(self.set_name)
+        model.load_selections(self.set_name)
+        model.load_anchor_set(self.set_name)
+        return
+    
+    def get_output_set_name(self) -> str:
+        """
+        Get the name of the set that this stage will output to.
+        """
+        if self.set_name is None:
+            raise ValueError(f"Stage '{self.name}' must have a set name to get output set name.")
+        return self.set_name
+    
+    def is_logistic_stage(self) -> bool:
+        """
+        Returns false since this is a brownian dynamics stage.
+        """
+        return False
+    
 def struct_bd_sampling_method(
         obj: typing.Dict[str, typing.Any],
         _: typing.Type[sampling_methods_structures.Base_bd_sampling_method]
@@ -133,9 +182,3 @@ def register_unstructure_hooks(
     converter.register_unstructure_hook(sampling_methods_structures.Base_bd_sampling_method,
                                         unstruct_bd_sampling_method)
     return
-
-def is_logistic_stage(self) -> bool:
-        """
-        Returns false since this is a brownian dynamics stage.
-        """
-        return False

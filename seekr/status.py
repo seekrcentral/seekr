@@ -49,6 +49,7 @@ def status(
     }
     for stage_index in stages_to_check:
         stage = model.stages[stage_index]
+        stage.load_sets_into_model(model)
         if instruction in ["progress", "all"]:
             finished_tmp, stage_message_tmp = scales_runner.is_finished_with_message(
                 model, stage, anchor_index_instruction, use_json=print_json)

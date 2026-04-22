@@ -31,6 +31,9 @@ class Input_stage_bd:
     type: typing.Literal["bd_stage"] = "bd_stage"
     name: str = field(default="BD",
                         validator=validators.instance_of(str))
+    input_stage_name: str | None = field(default=None,
+                                 validator=validators.optional(
+                                     validators.instance_of(str)))
     n_trajectories_per_output: int = field(default=1000,
                                             validator=[validators.instance_of(int),
                                                          validators.gt(0)])

@@ -29,6 +29,9 @@ class Position_reporter(Base_reporter):
     A position reporter for SEEKR - either a PDB or DCD file.
     """
     type: typing.Literal["position"] = "position"
+    name: str | None = field(
+        default=None,
+        validator=validators.optional(validators.instance_of(str)))
     interval: int = field(
         default=1000,
         validator=[validators.instance_of(int),
@@ -61,6 +64,8 @@ class State_reporter(Base_reporter):
     A state reporter for SEEKR - energy, temperature, volume, etc. info.
     """
     type: typing.Literal["state"] = "state"
+    name: str | None = field(default=None,
+                      validator=validators.optional(validators.instance_of(str)))
     to_stdout: bool = field(default=True,
                           validator=validators.instance_of(bool))
     interval: int = field(default=1000,
@@ -100,10 +105,15 @@ class CV_value_reporter(Base_reporter):
     that correspond to a region of CV space.
     """
     type: typing.Literal["cv_value"] = "cv_value"
-    cv_name: str = field(default="main",
-                         validator=validators.instance_of(str))
-    cv_values: list[float] = field(default=Factory(list),
-                                  validator=validators.instance_of(list))
+    name: str | None = field(
+        default=None,
+        validator=validators.optional(validators.instance_of(str)))
+    cv_name: str = field(
+        default="main",
+        validator=validators.instance_of(str))
+    cv_values: list[float] = field(
+        default=Factory(list),
+        validator=validators.instance_of(list))
     interval: int = field(
         default=1000,
         validator=[validators.instance_of(int),
@@ -134,6 +144,9 @@ class Anchor_reporter(Base_reporter):
     an anchor.
     """
     type: typing.Literal["anchor"] = "anchor"
+    name: str | None = field(
+        default=None,
+        validator=validators.optional(validators.instance_of(str)))
     interval: int = field(
         default=1000,
         validator=[validators.instance_of(int),
@@ -153,6 +166,12 @@ class Anchor_reporter(Base_reporter):
     extension: str = field(
         default="dcd",
         validator=validators.instance_of(str))
+    save_interval: int | None = field(
+        default=None,
+        validator=validators.optional(validators.instance_of(int)))
+    mode: str = field(
+        default="save_last_frame",
+        validator=validators.in_(["save_last_frame", "save_first_frame"]))
     
     def get_reporter_extension(self) -> str:
         """

@@ -10,6 +10,7 @@ as classes that implement methods that interface with OpenMM
 import os
 import time
 import glob
+import json
 import typing
 import logging
 import importlib
@@ -179,7 +180,6 @@ class Base_md_openmm_interface:
             openmm_cv_object = openmm.CustomCVForce(expression)
             for i, openmm_cv in enumerate(self._openmm_cv_list):
                 cv_name = cv_names[i]
-                print("cv_name:", cv_name, "openmm_cv:", openmm_cv)
                 openmm_cv_object.addCollectiveVariable(cv_name, openmm_cv)
             
             self._openmm_cv_object = openmm_cv_object
@@ -381,7 +381,12 @@ class Base_md_openmm_interface:
                     if INITIAL_BENCHMARK_STEPS < steps_to_take:
                         steps_to_take_after_benchmark = steps_to_take - INITIAL_BENCHMARK_STEPS
                         steps_to_take = INITIAL_BENCHMARK_STEPS
-                    finish_benchmark = True
+                    self._step(1)  # warm-up: flush JIT/kernel compilation before timing
+                    num_steps += 1
+                    on_step += 1
+                    steps_to_take -= 1
+                    if steps_to_take > 0:
+                        finish_benchmark = True
                     start_time = time.time()
             self._step(steps_to_take)
             num_steps += steps_to_take
@@ -469,132 +474,10 @@ class Base_md_openmm_interface:
         #assert (current_anchor_index is not None) and (current_anchor_index >= 0), \
         #    "No anchor was found for the current simulation step."
         return current_anchor_index
-                
-    def save_to_current_anchor(
-            self, 
-            current_anchor_index: int,
-            cv_values: list[float] | None,
-            basename: str
-            ) -> None:
-        """
-        Save the current state of the simulation to the appropriate anchor.
-        """
-        assert self._model is not None
-        current_anchor = self._model.anchors[current_anchor_index]
-        # Check to make sure the system is inside the target anchor
-        if "molecular_dynamics" not in current_anchor.scale_types:
-            logging.critical(
-                f"System has reached non-MD (BD only?) anchor {current_anchor_index}. "
-                 "Consider imposing a Proximity restraint or other restraint.")
-            raise Exception("Simulation has reached a non-MD anchor. Aborting.")
-        if cv_values is not None:
-            for milestone in current_anchor.milestones:
-                if not milestone.boundary:
-                    continue
-                curdir = os.getcwd()
-                os.chdir(self._model.directory)
-                result = milestone.is_point_within(cv_values)
-                os.chdir(curdir)
-                if not result:
-                    if self._fail_on_save_to_current_anchor_if_outside_milestones:
-                        logging.critical(
-                            f"System has not reached the target anchor {current_anchor_index}. "
-                            "If using SMD, stronger force constant needed?")
-                        print("cv_values:", cv_values)
-                        print("milestone variables:", milestone.variables)
-                        raise Exception("Target anchor not reached.")
-        anchor_directory = os.path.join(
-            self._model.directory, current_anchor.directory,
-            current_anchor.stage_parameters[self._stage_index+1]["directory"])
-        # Save this anchor's new structure
-        if self._model.using_toy():
-            extension = ".txt"
-        else:
-            extension = ".pdb"
-        
-        var_string = current_anchor.make_var_string()
-        output_positions_basename_noext = basename.format(var_string, 0)
-        output_positions_basename = output_positions_basename_noext + extension
-        output_positions_filename = os.path.join(anchor_directory, 
-                                            output_positions_basename)
-        current_anchor.change_positions_filename(
-            output_positions_basename_noext, self._stage_index)
-        if self._model.using_toy():
-            write_txt_file_from_simulation(output_positions_filename, self._simulation_obj)
-        else:
-            write_pdb_file_from_simulation(output_positions_filename, self._simulation_obj)
-        return
-
-    def save_to_closest_anchor(
-            self, 
-            cv_values: list[float],
-            basename: str
-            ) -> None:
-        """
-        Save the current state of the simulation to the closest anchor.
-        """
-        assert self._model is not None
-        closest_anchor_index = None
-        closest_distance = float('inf')
-        for alpha, anchor in enumerate(self._model.anchors):
-            if "molecular_dynamics" not in anchor.scale_types:
-                continue
-            variable_distance_sq = 0.0
-            for variable in anchor.variables:
-                if variable.startswith("value_"):
-                    cv_index = int(variable.split("value_")[1])
-                    if variable in anchor.variables:
-                        distance = anchor.variables[variable] - cv_values[cv_index]
-                        variable_distance_sq += distance**2
-            total_distance = np.sqrt(variable_distance_sq)
-            if total_distance < closest_distance:
-                closest_distance = total_distance
-                closest_anchor_index = alpha
-        assert closest_anchor_index is not None, "No valid anchor found."
-        self.save_to_current_anchor(closest_anchor_index, cv_values, basename)
-        return
-
-    def load_current_anchor(
-            self, 
-            current_anchor_index: int,
-            ) -> None:
-        """
-        Load the current state of the simulation from the appropriate anchor.
-        """
-        logging.info(f"Starting steered MD from anchor {current_anchor_index}.")
-        assert self._model is not None
-        current_anchor = self._model.anchors[current_anchor_index]
-        # Check to make sure the system is inside the target anchor
-        if "molecular_dynamics" not in current_anchor.scale_types:
-            logging.critical(
-                f"Attempting to load a non-MD anchor {current_anchor_index}. Aborting.")
-            raise Exception("Cannot read non-MD anchor. Aborting.")
-        stage_parameter = current_anchor.stage_parameters[self._stage_index+1]
-        assert stage_parameter is not None, \
-            f"Stage parameter for stage {self._stage_index} is None."
-        assert "directory" in stage_parameter, \
-            f"Stage parameter for stage {self._stage_index} does not contain "\
-            +"a directory."
-        stage_directory = stage_parameter["directory"]
-        stage = self._model.stages[self._stage_index]
-        stage_output_globs: list[str] = stage.sampling_method.get_output_positions_glob_list()
-        for stage_output_glob in stage_output_globs:
-            output_files_glob = os.path.join(
-                self._model.directory, current_anchor.directory, stage_directory, 
-                stage_output_glob)
-            output_files_full = glob.glob(output_files_glob)
-            if len(output_files_full) > 0:
-                loading_filename = output_files_full[0]
-                break
-        
-        if self._model.using_toy():
-            open_txt_file_for_simulation(loading_filename, self._simulation_obj)
-        else:
-            open_pdb_file_for_simulation(loading_filename, self._simulation_obj)
-        return
-
+    
     def get_evaluation_interval(self) -> int:
         return 0       
+    
             
 
 @define
@@ -749,29 +632,6 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
         """
         Perform an evaluation at a certain point in the simulation.
         """
-        assert self._model is not None
-        if self._model.anchors is None:
-            return
-        cv_values: list[float] = []
-        assert self._simulation_obj is not None
-        assert self._openmm_cv_list is not None
-        #for i, cv in enumerate(self._openmm_cv_list):
-        #    cv_value = cv.getCollectiveVariableValues(self._simulation_obj.context)
-        #    cv_values.append(cv_value[0])
-        #cv_values = self._metadynamics_obj.getCollectiveVariables(self._simulation_obj)
-        cv_values = self.get_cv_values()
-
-        current_anchor_index = self.find_current_anchor_index(cv_values)
-        #print("Evaluation performed.")
-        #print("current anchor index:", current_anchor_index)
-        #print("self._current_alpha:", self._current_alpha)
-        if (current_anchor_index != self._current_alpha) and (current_anchor_index is not None):
-            self._current_alpha = current_anchor_index
-            #self.save_to_current_anchor(current_anchor_index, cv_values, METADYN_NAME)
-            self.save_to_current_anchor(
-                current_anchor_index, cv_values, 
-                self.sampling_method.get_output_positions_format())
-        
         return False
 
     def _step(
@@ -810,6 +670,9 @@ class Steered_md_openmm_interface(Base_md_openmm_interface):
     _current_step_in_procedure: int = 0
     _windows_list_zipped: list[list[float]] | None = None
     _on_window: int = 0
+    _anchor_positions_cache: dict | None = None
+    _running_directory: str | None = None
+    _smd_reporter: typing.Any | None = None
 
     def pre_simulation_preparations(
             self, 
@@ -848,16 +711,12 @@ class Steered_md_openmm_interface(Base_md_openmm_interface):
         full_expr = "smd_force_const*(" + " + ".join(expr_list) + ")"
         self._openmm_cv_object = openmm.CustomCVForce(full_expr)
         self._openmm_cv_object.addGlobalParameter("smd_force_const", self.sampling_method.force_constant)
-        #for i in range(len(expr_list)):
         for cv_index, openmm_cv in enumerate(self._openmm_cv_list):
-            #force = force_list[i]
-            #cv_name = f"cv_{i}"
             cv_name = cv_name_list[cv_index]
             value_name = value_name_list[cv_index]
             self._openmm_cv_object.addGlobalParameter(value_name, 0.0)
             self._openmm_cv_object.addCollectiveVariable(cv_name, openmm_cv)
-            #self._openmm_cv_list.append(force)
-
+            
         freeGroups = set(range(32)) - set(myforce.getForceGroup() for myforce in system.getForces())
         if len(freeGroups) == 0:
             raise RuntimeError('Cannot assign a force group to the steered MD stage. '
@@ -872,35 +731,76 @@ class Steered_md_openmm_interface(Base_md_openmm_interface):
         #cv_values: list[float] = []
         assert self._simulation_obj is not None
         assert self._openmm_cv_list is not None
-        #cv_values = self._openmm_cv_object.getCollectiveVariableValues(self._simulation_obj.context)
         cv_values = self.get_cv_values()
-        current_anchor_index = self.find_current_anchor_index(cv_values)
-        if current_anchor_index is None:
-            #self.save_to_closest_anchor(cv_values, SMD_NAME)
-            self.save_to_closest_anchor(
-                cv_values, self.sampling_method.get_output_positions_format())
-        else:
-            #self.save_to_current_anchor(current_anchor_index, cv_values, SMD_NAME)
-            self.save_to_current_anchor(
-                current_anchor_index, cv_values, 
-                self.sampling_method.get_output_positions_format())
-        # Update the 'value' variable so that a spurious force at 0.0 isn't applied
         for cv_index, cv_value in enumerate(cv_values):
             for i in range(self._openmm_cv_object.getNumGlobalParameters()):
                 param_name = self._openmm_cv_object.getGlobalParameterName(i)
                 if param_name == f"value_{cv_index}":
                     self._simulation_obj.context.setParameter(param_name, cv_value)
 
-        filled_anchors, unfilled_anchors = md_runner.filled_and_unfilled_anchors(
-            model, stage)
+        self._running_directory = kwargs["directory"]
+        self._anchor_positions_cache = {}
+
+        # Determine filled/unfilled anchors from Anchor_reporter JSON sidecar.
+        smd_reporter = None
+        for r in stage.reporters:
+            if r.type == "anchor":
+                smd_reporter = r
+                break
+        self._smd_reporter = smd_reporter
+
+        filled_anchor_indices: list[int] = []
+        if smd_reporter is not None:
+            basename = stage.sampling_method.get_output_positions_basename_noext()
+            ext = smd_reporter.get_reporter_extension()
+            reporter_glob = os.path.join(
+                self._running_directory,
+                f"{basename}*.{smd_reporter.name}.{ext}")
+            reporter_files = sorted(glob.glob(reporter_glob))
+            if reporter_files:
+                # Aggregate filled anchors across all per-file restart JSONs.
+                filled_set: set[int] = set()
+                for reporter_file in reporter_files:
+                    json_sidecar = os.path.splitext(reporter_file)[0] + ".json"
+                    if not os.path.exists(json_sidecar):
+                        continue
+                    with open(json_sidecar, "r") as f:
+                        json_data = json.load(f)
+                    for v in json_data.values():
+                        if v.get("filled", False):
+                            filled_set.add(int(v["index"]))
+                filled_anchor_indices = sorted(filled_set)
+
+        all_md_anchor_indices = [
+            a.index for a in self._model.anchors
+            if "molecular_dynamics" in a.scale_types
+        ]
+        unfilled_anchor_indices = [
+            i for i in all_md_anchor_indices if i not in filled_anchor_indices
+        ]
+        # If nothing has been sampled yet, seed from the current position.
+        if not filled_anchor_indices:
+            current_anchor_index = self.find_current_anchor_index(list(cv_values))
+            if current_anchor_index is not None:
+                filled_anchor_indices = [current_anchor_index]
+                if current_anchor_index in unfilled_anchor_indices:
+                    unfilled_anchor_indices.remove(current_anchor_index)
+                # Pre-cache current positions so _load_anchor_from_cache works
+                # without needing a reporter file on disk.
+                self._save_to_anchor_cache(current_anchor_index)
+
         self._procedure = sampling_methods_runner.get_smd_procedure(
-            self._model, filled_anchors, unfilled_anchors, cv_values)
+            self._model, filled_anchor_indices, unfilled_anchor_indices, cv_values)
         logging.info("Steered MD procedure summary:")
         for step in self._procedure:
             logging.info(f"anchor {step[0]} to anchor {step[1]}")
-        new_source_anchor_index = self._procedure[self._current_step_in_procedure][0]
-        self.load_current_anchor(new_source_anchor_index)
-        
+        if self._procedure:
+            new_source_anchor_index = \
+                self._procedure[self._current_step_in_procedure][0]
+            self._load_anchor_from_cache(new_source_anchor_index)
+        else:
+            logging.info("All anchors already filled; no SMD steps needed.")
+
         return
     
     def assign_new_windows(
@@ -951,10 +851,105 @@ class Steered_md_openmm_interface(Base_md_openmm_interface):
         self._windows_list_zipped = list(zip(*windows_list_unzipped))
         distance = np.sqrt(total_sq_distance)
         steps_in_window = int(abs(distance) / (self.sampling_method.velocity * timestep))
-        assert steps_in_window > 0
+        assert steps_in_window > 0, \
+            "The number of steps in each SMD window must be greater than 0. "\
+            "Consider reducing the SMD velocity."
         self._on_window = 0
         
         return
+
+    def _save_to_anchor_cache(self, anchor_index: int) -> None:
+        """
+        Cache the current simulation positions for anchor_index.
+        Called when SMD reaches a destination anchor.
+        """
+        state = self._simulation_obj.context.getState(
+            getPositions=True, enforcePeriodicBox=False)
+        positions_np = state.getPositions(asNumpy=True)\
+            .value_in_unit(unit.nanometers)
+        try:
+            bv = state.getPeriodicBoxVectors()
+        except Exception:
+            bv = None
+        self._anchor_positions_cache[anchor_index] = (positions_np, bv)
+
+    def _load_anchor_from_cache(self, anchor_index: int) -> None:
+        """
+        Load positions for anchor_index into the simulation context.
+        Uses the in-memory cache when available; otherwise reads the
+        Anchor_reporter trajectory from disk (restart-safe).
+        """
+        logging.info(f"Loading positions for anchor {anchor_index}.")
+        if anchor_index not in self._anchor_positions_cache:
+            self._load_anchor_from_reporter_file(anchor_index)
+            return
+        positions_np, bv = self._anchor_positions_cache[anchor_index]
+        self._simulation_obj.context.setPositions(positions_np * unit.nanometers)
+        if bv is not None:
+            self._simulation_obj.context.setPeriodicBoxVectors(*bv)
+
+    def _load_anchor_from_reporter_file(self, anchor_index: int) -> None:
+        """
+        Read ALL Anchor_reporter trajectories and JSON sidecars from disk,
+        iterating oldest-to-newest, and build an anchor→(positions, bv) map.
+        Later restart files overwrite earlier ones so the most recent frame per
+        anchor is always used. Then load the frame for anchor_index into the
+        simulation and cache it.
+        """
+        stage = self._model.stages[self._stage_index]
+        basename = stage.sampling_method.get_output_positions_basename_noext()
+        ext = self._smd_reporter.get_reporter_extension()
+        reporter_glob = os.path.join(
+            self._running_directory,
+            f"{basename}*.{self._smd_reporter.name}.{ext}")
+        reporter_files = sorted(glob.glob(reporter_glob))
+        assert reporter_files, \
+            f"No reporter files found to load anchor {anchor_index}. " \
+            f"Glob: {reporter_glob}"
+
+        mdtraj_top = mdtraj.Topology.from_openmm(self._simulation_obj.topology)
+
+        # Build anchor → (positions_nm, bv) from every restart file.
+        # Iterating oldest→newest so later files overwrite earlier ones.
+        anchor_frame_map: dict[int, tuple] = {}
+        for reporter_file in reporter_files:
+            json_sidecar = os.path.splitext(reporter_file)[0] + ".json"
+            if not os.path.exists(json_sidecar):
+                continue
+            with open(json_sidecar, "r") as f:
+                json_data = json.load(f)
+            file_filled_indices = sorted(
+                v["index"] for v in json_data.values() if v.get("filled", False)
+            )
+            if not file_filled_indices:
+                continue
+            if ext == "pdb":
+                traj = mdtraj.load(reporter_file)
+            else:
+                traj = mdtraj.load(reporter_file, top=mdtraj_top)
+            for fn, ai in enumerate(file_filled_indices):
+                if fn >= len(traj):
+                    break
+                positions_nm = traj.xyz[fn].astype(np.float64)
+                bv = None
+                if traj.unitcell_vectors is not None:
+                    bv_np = traj.unitcell_vectors[fn]
+                    bv = (
+                        openmm.Vec3(*bv_np[0]) * unit.nanometers,
+                        openmm.Vec3(*bv_np[1]) * unit.nanometers,
+                        openmm.Vec3(*bv_np[2]) * unit.nanometers,
+                    )
+                anchor_frame_map[ai] = (positions_nm, bv)
+
+        assert anchor_index in anchor_frame_map, \
+            f"Anchor {anchor_index} not found in any reporter file. " \
+            f"Glob: {reporter_glob}"
+
+        positions_nm, bv = anchor_frame_map[anchor_index]
+        self._simulation_obj.context.setPositions(positions_nm * unit.nanometers)
+        if bv is not None:
+            self._simulation_obj.context.setPeriodicBoxVectors(*bv)
+        self._anchor_positions_cache[anchor_index] = (positions_nm, bv)
 
     def perform_eval(
             self, 
@@ -992,13 +987,11 @@ class Steered_md_openmm_interface(Base_md_openmm_interface):
             logging.info(f"Reached anchor {target_anchor_index}.")
             self._current_step_in_procedure += 1
             #self.save_to_current_anchor(target_anchor_index, cv_values, SMD_NAME)
-            self.save_to_current_anchor(
-                target_anchor_index, cv_values, 
-                self.sampling_method.get_output_positions_format())
+            self._save_to_anchor_cache(target_anchor_index)
             if self._current_step_in_procedure < len(self._procedure):
                 new_source_anchor_index = self._procedure[self._current_step_in_procedure][0]
-                self.load_current_anchor(new_source_anchor_index)
-                cv_values = self._openmm_cv_object.getCollectiveVariableValues(self._simulation_obj.context)
+                self._load_anchor_from_cache(new_source_anchor_index)
+                cv_values = self.get_cv_values()
                 self.assign_new_windows(cv_values)
                 for cv_index, cv_value in enumerate(cv_values):
                     for i in range(self._openmm_cv_object.getNumGlobalParameters()):
@@ -1281,11 +1274,12 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
         assert self._simulation_obj is not None
         integrator: openmm.Integrator = self._simulation_obj.context.getIntegrator()
         anchor = self._anchor_obj
+        stage_name = self._model.stages[self._stage_index].name
+        stage_set_name = self._model.stages[self._stage_index].set_name
         assert anchor is not None
-        assert anchor.stage_parameters[self._stage_index+1] is not None
         anchor_directory = os.path.join(
-            self._model.directory, anchor.directory,
-            anchor.stage_parameters[self._stage_index+1]["directory"])
+            self._model.directory, "anchor_sets", stage_set_name, anchor.directory,
+            anchor.stage_parameters[stage_name]["directory"])
         output_basename = f"milestoning_restart{restart_index}_swarm_{swarm_id}.out"
         output_filename = os.path.join(anchor_directory, output_basename)
         

@@ -47,15 +47,15 @@ reporters: typing.Dict[str, typing.Type[reporters_structures.Base_reporter]] \
         = {"position": reporters_structures.Position_reporter,
            "state": reporters_structures.State_reporter,
            "cv_value": reporters_structures.CV_value_reporter,
-           # "anchors": reporters_structures.Anchors_reporter,
+           "anchor": reporters_structures.Anchor_reporter,
            }
 
 completion_criteria: typing.Dict[
     str, typing.Type[compl_crit_struct.Base_completion_criteria]] \
         = {"number_of_steps": 
                 compl_crit_struct.Number_of_steps_completion_criteria,
-           "anchors_filled": 
-                compl_crit_struct.Anchors_filled_completion_criteria,
+           "reporter_progress": 
+                compl_crit_struct.Reporter_progress_completion_criteria,
            "number_of_trajectories": 
                 compl_crit_struct.Number_of_trajectories_completion_criteria,
            "number_of_encounters": 
@@ -168,7 +168,7 @@ class Anchor:
     scale_parameters_topology: dict[str, engines_structures.Parameters_topology | None] \
         = field(default=Factory(dict),
             validator=validators.instance_of(dict))
-    stage_parameters: list[dict | None] = field(default=Factory(list),)
+    stage_parameters: dict[str, dict | None] = field(default=Factory(dict),)
     end_anchor: bool = field(default=False,
                             validator=validators.instance_of(bool))
     bulk_anchor: bool = field(default=False,
@@ -236,7 +236,7 @@ class Anchor:
         """
         Get the stage parameters for a given stage index.
         """
-        for stage_parameters in self.stage_parameters:
+        for stage_parameters in self.stage_parameters.values():
             if stage_parameters["index"] == stage_index:
                 return stage_parameters
         raise Exception(f"Stage parameters with index {stage_index} not found.")
@@ -245,6 +245,7 @@ class Anchor:
             self,
             root_directory: str,
             input_stage_index: int,
+            set_name: str,
             swarm_id: int | None = None
             ) -> list[str]:
         """
@@ -263,7 +264,8 @@ class Anchor:
                          f"{positions_base_noext}*.swarm_{swarm_id}.txt",
                          f"{positions_base_noext}*.swarm_{swarm_id:06d}.state"]
         glob_path = os.path.join(
-            root_directory, self.directory, input_stage_dir)
+            root_directory, "anchor_sets", set_name, self.directory, 
+            input_stage_dir)
         positions_full_paths = base.glob_or(glob_base, glob_path)
         return positions_full_paths
 
@@ -271,7 +273,8 @@ class Anchor:
     def get_starting_structure_swarm_ids(
             self,
             root_directory: str,
-            input_stage_index: int
+            input_stage_index: int,
+            set_name: str,
             ) -> list[int]:
         """
         Return the number of frames within a starting structure
@@ -283,7 +286,7 @@ class Anchor:
         # NOTE: this used to be the code to handle multiple frames
         #  in a single PDB file
         pdb_full_paths = self.get_positions_full_paths(
-            root_directory, input_stage_index)
+            root_directory, input_stage_index, set_name)
         swarm_ids = []
         # Loop through the paths, and use the re module to extract
         #  instances where .swarm_123456. is in the filename
@@ -386,13 +389,13 @@ class Anchor:
         
     def get_stage_output_directory(
             self,
-            stage_index: int
+            stage_name: str
             ) -> str:
         """
-        Get the output directory for this anchor for a given stage index.
+        Get the output directory for this anchor for a given stage name.
         """
         stage_output_directory \
-            = self.stage_parameters[stage_index]["directory"]
+            = self.stage_parameters[stage_name]["directory"]
         return stage_output_directory
     
     def save(
@@ -603,6 +606,7 @@ class Seekr_model:
         tmp_collective_variables = self.collective_variables
         # This causes a type error
         #self.collective_variables = ["SAVED TO EXTERNAL FILE(S)"]
+        self.collective_variables = []
         tmp_selections = {}
         for engine in self.engines:
             if hasattr(engine.unpartitioned_settings, "selections"):
@@ -611,6 +615,7 @@ class Seekr_model:
         tmp_anchor_set = self.anchors
         # This causes a type error
         #self.anchors = ["SAVED TO EXTERNAL FILE(S)"]
+        self.anchors = []
         tmp_num_anchors = self.num_anchors
         tmp_num_milestones = self.num_milestones
         self.num_anchors = 0
@@ -792,6 +797,7 @@ class Seekr_model:
         """
         Load any anchor sets that need to be loaded during prepare.
         """
+        milestone_indices = set()
         anchor_sets_directory = os.path.join(self.directory, "anchor_sets")
         this_anchor_set_directory = os.path.join(
             anchor_sets_directory, set_name)
@@ -799,20 +805,22 @@ class Seekr_model:
         anchor_files = glob.glob(this_anchor_set_glob)
         self.anchors = []
         for anchor_file in anchor_files:
-            self.anchors.append(
-                load_anchor_from_file(anchor_file))
-        return
-    
-def load_model(
-        filename: str
-        ) -> Seekr_model:
-    """
-    Load a model object from a file.
-    """
-    with open(filename, "r") as file:
-        json_string: str = json.load(file)
+            anchor = load_anchor_from_file(anchor_file)
+            self.anchors.append(anchor)
+            for milestone in anchor.milestones:
+                milestone_indices.add(milestone.index)
 
-    for plugin_name in json_string['plugins']:
+        self.num_anchors = len(self.anchors)
+        self.num_milestones = len(milestone_indices)
+        return
+
+def load_plugins(
+        plugin_list
+        ) -> None:
+    """
+
+    """
+    for plugin_name in plugin_list:
         restraints_module_str = base.get_plugin_str(
             plugin_name, submodule_name="restraints")
         if restraints_module_str is not None:
@@ -847,7 +855,20 @@ def load_model(
                 sampl_meth_module_str+".structures")
             scales_structures.update_sampling_methods(
                 sampl_meth_module_struct.sampling_methods)
-            
+    
+    return
+
+
+def load_model(
+        filename: str
+        ) -> Seekr_model:
+    """
+    Load a model object from a file.
+    """
+    with open(filename, "r") as file:
+        json_string: str = json.load(file)
+    
+    load_plugins(json_string['plugins'])
         
     # Use a cattrs Converter to define how to structure the dictionary input
     converter: cattrs.Converter = cattrs.Converter()

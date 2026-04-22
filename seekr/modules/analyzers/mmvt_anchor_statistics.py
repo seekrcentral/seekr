@@ -220,6 +220,7 @@ def read_output_file(
                         print("last_time:", last_time)
                         print("time_count - last_time:", time_count - last_time)
                         raise Exception("Time between statistics does not match")
+                    assert time_count > last_time, "Time count should be non-decreasing"
                 anchor_statistics.time_count = time_count
                 last_time = time_count
             elif line.startswith("first_encounter_time"):
@@ -473,17 +474,24 @@ def make_cumulative_anchor_statistics(
         if anchor_statistics_piecewise_list[alpha] is None:
             cumulative_windows.append(None)
             continue
+
         for i in range(len(anchor_statistics_piecewise_list[alpha])):
+            anchor_stat = anchor_statistics_piecewise_list[alpha][i]
+            for key in anchor_stat.k_alpha_beta:
+                assert anchor_stat.k_alpha_beta[key] >= 0.0, \
+                        "negative k_alpha_beta values not allowed."
             if i == 0:
-                cumulative_windows.append(anchor_statistics_piecewise_list[alpha][i])
+                cumulative_windows.append(anchor_stat)
             else:
                 cumulative_windows.append(
                     add_two_anchor_statistics(
                         cumulative_windows[i - 1],
-                        anchor_statistics_piecewise_list[alpha][i]
+                        anchor_stat
                     )
                 )
+            
         cumulative_anchor_statistics.append(cumulative_windows)
+    
     return cumulative_anchor_statistics
 
 def pare_down_anchor_statistics(

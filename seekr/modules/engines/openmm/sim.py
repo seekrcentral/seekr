@@ -303,7 +303,7 @@ def create_openmm_system(
                 positions = pdb_obj.getPositions()
                 num_frames = pdb_obj.getNumFrames()
             elif ext == ".state":
-                with open(toy_full_path, "r") as f:
+                with open(positions_full_path, "r") as f:
                     xml = f.read()
 
                 state = openmm.XmlSerializer.deserialize(xml)

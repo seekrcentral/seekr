@@ -101,7 +101,7 @@ def find_next_anchor_index(
     next_anchor_index = None
     next_anchor_distance = 9e9
     if len(visited_anchor_dict) == 0:
-        # If not anchors have been visited, find the closest one to the current cv_values
+        # If no anchors have been visited, find the closest one to the current cv_values
         for anchor_index, anchor in enumerate(model.anchors):
             if "molecular_dynamics" not in anchor.scale_types:
                 continue
@@ -140,7 +140,7 @@ def find_next_anchor_index(
 def get_smd_procedure(
             model: structures.Seekr_model,
             source_anchor_indices: list[int],
-            destimation_anchor_indices: list[int],
+            destination_anchor_indices: list[int],
             present_cv_values: list[float]
             ) -> list:
         """
@@ -149,7 +149,7 @@ def get_smd_procedure(
         """
         procedure = []
         visited_anchor_dict = {}
-        tmp_destination_list = destimation_anchor_indices[:]
+        tmp_destination_list = destination_anchor_indices[:]
         for source_anchor_index in source_anchor_indices:
             visited_anchor_dict[source_anchor_index] = 0.0
         
@@ -160,7 +160,7 @@ def get_smd_procedure(
                 # No more paths found
                 break
             visited_anchor_dict[next_anchor_index] = next_anchor_distance
-            if next_anchor_index in destimation_anchor_indices:
+            if next_anchor_index in destination_anchor_indices:
                 procedure.append((prev_anchor_index, next_anchor_index))
             if next_anchor_index in tmp_destination_list:
                 tmp_destination_list.remove(next_anchor_index)

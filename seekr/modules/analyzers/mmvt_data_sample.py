@@ -530,7 +530,7 @@ class Mmvt_data_sample:
         N_alpha_beta_matrix = np.zeros((n_anchors, n_anchors))
         T_alpha_matrix = np.zeros((n_anchors, 1))
         for alpha in range(n_anchors):
-            if not model.anchors[alpha].md:
+            if "molecular_dynamics" not in model.anchors[alpha].scale_types:
                 continue
             for beta in range(n_anchors):
                 if alpha == beta: continue
@@ -549,7 +549,7 @@ class Mmvt_data_sample:
         mmvt_Ri_alpha = []
         mmvt_Qij_alpha = []
         for alpha in range(n_anchors):
-            if not model.anchors[alpha].md:
+            if "molecular_dynamics" not in model.anchors[alpha].scale_types:
                 continue
             if self.T_alpha[alpha] > 0.0:
                 invT += self.pi_alpha[alpha] / self.T_alpha[alpha]
@@ -597,7 +597,7 @@ class Mmvt_data_sample:
         self.k_alpha_beta = defaultdict(float)
         self.k_alpha = []
         for alpha in range(n_anchors):
-            if not model.anchors[alpha].md:
+            if "molecular_dynamics" not in model.anchors[alpha].scale_types:
                 continue
             
             k_alpha = 0.0
@@ -626,8 +626,8 @@ class Mmvt_data_sample:
         for alpha, anchor in enumerate(model.anchors):
             if self.N_i_j_alpha is None or self.R_i_alpha is None:
                 continue
-            if not anchor.md:
-                break
+            if "molecular_dynamics" not in anchor.scale_types:
+                continue
             new_T_alpha = 0.0
             N_i_j_alpha_keys = list(self.N_i_j_alpha[alpha].keys())
             R_i_alpha_keys = list(self.R_i_alpha[alpha].keys())

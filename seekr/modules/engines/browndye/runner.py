@@ -42,6 +42,7 @@ def cleanse_bd_outputs(directory, results_glob, check_mode=True):
 
 def run_bd_top(
         model: structures.Seekr_model, 
+        set_name: str,
         restart: bool = False,
         force_overwrite: bool = False):
     """
@@ -49,7 +50,8 @@ def run_bd_top(
     """
     bd_engine = model.get_engine_by_scale_type("brownian_dynamics")
     assert bd_engine.type == "browndye"
-    bd_directory = os.path.join(model.directory, bd_engine.b_surface_directory)
+    bd_directory = os.path.join(model.directory, "anchor_sets", set_name, 
+                                bd_engine.b_surface_directory)
     browndye_bin_dir = bd_engine.binary_directory
     curdir = os.getcwd()
     logging.info("moving to directory: " + bd_directory)
@@ -93,16 +95,23 @@ def run_bd_top(
     os.chdir(curdir)
     return
 
-def modify_variables(model: structures.Seekr_model, 
-                     n_trajectories, n_threads=None, seed=None, 
-                     output_file=None, restart=False, 
-                     n_trajectories_per_output=None):
+def modify_variables(
+        model: structures.Seekr_model, 
+        n_trajectories: int, 
+        set_name: str,
+        n_threads: int | None = None, 
+        seed: int | None = None, 
+        output_file: str | None = None, 
+        restart: bool = False, 
+        n_trajectories_per_output: int | None = None):
     """
     Modify several variables within the *_simulation.xml file at 
     runtime based on user inputs.
     """
     bd_engine = model.get_engine_by_scale_type("brownian_dynamics")
-    bd_directory = os.path.join(model.directory, bd_engine.b_surface_directory)
+    #bd_directory = os.path.join(model.directory, bd_engine.b_surface_directory)
+    bd_directory = os.path.join(model.directory, "anchor_sets", set_name, 
+                                bd_engine.b_surface_directory)
     bd_output_glob = bd_engine.results_glob
     simulation_filename_glob_base = "*_simulation.xml"
     simulation_filename_base = os.path.join(bd_directory, simulation_filename_glob_base)
@@ -181,13 +190,16 @@ def modify_variables(model: structures.Seekr_model,
     return
 
 def run_nam_simulation(
-        model: structures.Seekr_model
+        model: structures.Seekr_model,
+        set_name: str
     ) -> None:
     """
     Run the Browndye2 simulation.
     """
     bd_engine = model.get_engine_by_scale_type("brownian_dynamics")
-    bd_directory = os.path.join(model.directory, bd_engine.b_surface_directory)
+    #bd_directory = os.path.join(model.directory, bd_engine.b_surface_directory)
+    bd_directory = os.path.join(model.directory, "anchor_sets", set_name, 
+                                bd_engine.b_surface_directory)
     browndye_bin_dir = bd_engine.binary_directory
     bd_output_glob = bd_engine.results_glob
     curdir = os.getcwd()
@@ -215,6 +227,7 @@ def run_simulation(
         model: structures.Seekr_model, 
         n_trajectories: int, 
         restart: bool, 
+        set_name: str,
         force_overwrite: bool = False
     ) -> None:
     """
@@ -223,14 +236,14 @@ def run_simulation(
     bd_engine = model.get_engine_by_scale_type("brownian_dynamics")
     assert bd_engine.type == "browndye"
     run_bd_top(
-        model, restart, force_overwrite)
+        model, set_name, restart, force_overwrite)
     n_trajectories_per_output = browndye_base.DEFAULT_N_TRAJ_PER_OUT
     if n_trajectories is not None:
         if n_trajectories_per_output > n_trajectories:
             n_trajectories_per_output = n_trajectories
     print("n_trajectories:", n_trajectories)
     modify_variables(
-        model, n_trajectories, restart=restart, 
+        model, n_trajectories, set_name, restart=restart, 
         n_trajectories_per_output=n_trajectories_per_output)
-    run_nam_simulation(model)
+    run_nam_simulation(model, set_name)
     return

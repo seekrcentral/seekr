@@ -36,6 +36,9 @@ class Input_stage_md:
     type: typing.Literal["md_stage"] = "md_stage"
     name: str = field(default="equilibration", 
                       validator=validators.instance_of(str))
+    input_stage_name: str | None = field(default=None,
+                                 validator=validators.optional(
+                                     validators.instance_of(str)))
     run_minimization: bool = field(default=False,
                                       validator=validators.instance_of(bool))
     checkpoint_interval: int = field(default=1000,
@@ -85,6 +88,17 @@ class Input_stage_md:
         for reporter_input in self.reporters:
             reporter = reporter_input.make_reporter(unpartitioned_settings_input)
             stage.reporters.append(reporter)
+        type_counters: dict[str, int] = {}
+        for reporter in stage.reporters:
+            if reporter.name is None:
+                base = f"{reporter.type}_reporter"
+                count = type_counters.get(base, 0) + 1
+                type_counters[base] = count
+                reporter.name = f"{base}_{count}"
+        # Now check all reporter names are unique
+        reporter_names = [reporter.name for reporter in stage.reporters]
+        assert len(reporter_names) == len(set(reporter_names)), \
+            f"Reporter names must be unique within a stage."
         return stage
     
 def struct_md_sampling_method_inputs(

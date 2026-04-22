@@ -66,29 +66,29 @@ class Runner_openmm():
             self.md_parameters_topology \
                 = md_engine.unpartitioned_settings.md_parameters_topology
             # TODO: handle the situation where the md_parameters_topology changes across stages
-            assert md_engine.unpartitioned_settings.stage_parameters[0] is not None, \
+            assert md_engine.unpartitioned_settings.stage_parameters["initial"] is not None, \
                 "Unpartitioned lacks an initial stage set of parameters."
             md_parameters_half_directory = os.path.join(
                     md_engine.unpartitioned_settings.directory, 
-                    md_engine.unpartitioned_settings.stage_parameters[0]["directory"])
+                    md_engine.unpartitioned_settings.stage_parameters["initial"]["directory"])
         else:
             anchor = self.model.anchors[self.anchor_index]
             anchor_unpartitioned = anchor
             anchor_md_parameters_topology \
                 = anchor.scale_parameters_topology.get("molecular_dynamics")
             if anchor_md_parameters_topology is None:
-                assert md_engine.unpartitioned_settings.stage_parameters[0] is not None, \
+                assert md_engine.unpartitioned_settings.stage_parameters["initial"] is not None, \
                     "Unpartitioned lacks an initial stage set of parameters."
                 md_parameters_half_directory = os.path.join(
                     md_engine.unpartitioned_settings.directory, 
-                    md_engine.unpartitioned_settings.stage_parameters[0]["directory"])
+                    md_engine.unpartitioned_settings.stage_parameters["initial"]["directory"])
                 self.md_parameters_topology = md_engine.unpartitioned_settings\
                     .md_parameters_topology
             else:
-                assert anchor.stage_parameters[0] is not None, \
+                assert anchor.stage_parameters["initial"] is not None, \
                     "Anchor lacks an initial stage set of parameters."
                 md_parameters_half_directory = os.path.join(
-                    anchor.directory, anchor.stage_parameters[0]["directory"])
+                    anchor.directory, anchor.stage_parameters["initial"]["directory"])
                 self.md_parameters_topology = anchor_md_parameters_topology
             
         assert md_parameters_half_directory is not None, \
@@ -96,12 +96,24 @@ class Runner_openmm():
         self.md_parameters_directory = os.path.join(
             self.model.directory, md_parameters_half_directory)
         stage_output = self.model.stages[self.stage_output_index]
-        anchor_unpartitioned_dir = anchor_unpartitioned.directory
+        if stage_output.scope == "unpartitioned":
+            anchor_unpartitioned_dir = anchor_unpartitioned.directory
+        elif stage_output.scope == "partitioned":
+            anchor_unpartitioned_dir = os.path.join(
+                "anchor_sets", stage_output.set_name, 
+                anchor_unpartitioned.directory)
+        else:
+            raise Exception("Invalid scope type: "
+                f"{stage_output.scope}.")
         # MYPY: ignore mypy error here - the dictionary is having trouble with typing
-        stage_output_directory = anchor_unpartitioned.get_stage_output_directory(
-            self.stage_output_index + 1)
+        #stage_output_directory = anchor_unpartitioned.get_stage_output_directory(
+        #    self.stage_output_index + 1)
+        next_stage_params = anchor_unpartitioned\
+            .get_stage_parameters_by_index(self.stage_output_index+1)
+        stage_output_directory = next_stage_params["directory"]
         assert stage_output.type == "md_stage"
         self.ensemble = stage_output.ensemble
+        self.needs_cv_values = False
         # Sampling method interfaces
         sampling_method = stage_output.sampling_method
         self.output_positions_basename = sampling_method.get_final_pdb_output_basename(
@@ -111,18 +123,6 @@ class Runner_openmm():
             .assign_sampling_method_interface(
                 self.stage_output_index, sampling_method, md_engine,
                 self.model.plugins)
-        # Completion criteria interfaces.
-        completion_criteria = stage_output.completion_criteria
-        self.completion_criteria_interface = completion_openmm_interface\
-            .assign_completion_interface(
-                completion_criteria, self.model, stage_output, anchor_unpartitioned)
-        # Restraints interfaces.
-        self.restraints_interfaces = []
-        for restraint in stage_output.restraints:
-            self.restraints_interfaces.append(
-                restraints_openmm_interface.assign_restraints_interface(
-                    restraint, md_engine, self.model.plugins)
-            )
         # Reporters interfaces.
         self.reporters_interfaces = []
         for reporter in stage_output.reporters:
@@ -131,6 +131,22 @@ class Runner_openmm():
                     reporter, md_engine, self.model.plugins,
                     self.model.collective_variables, swarm_id=swarm_id)
             self.reporters_interfaces.append(reporter_interface)
+        # Completion criteria interfaces.
+        completion_criteria = stage_output.completion_criteria
+        self.completion_criteria_interface = completion_openmm_interface\
+            .assign_completion_interface(
+                completion_criteria, self.model, stage_output, anchor_unpartitioned,
+                reporter_interfaces=self.reporters_interfaces)
+        if self.completion_criteria_interface.needs_cv_values():
+            self.needs_cv_values = True
+        # Restraints interfaces.
+        self.restraints_interfaces = []
+        for restraint in stage_output.restraints:
+            self.restraints_interfaces.append(
+                restraints_openmm_interface.assign_restraints_interface(
+                    restraint, md_engine, self.model.plugins)
+            )
+        
         # TODO: check in loaded modules from model JSON to see if any of these
         #  modules contain a "assign_interface" function, and run them.
         assert self.sampling_method_interface is not None, \
@@ -145,20 +161,26 @@ class Runner_openmm():
             f"engine: {md_engine.type}."
         
         input_stage_index = stage_output.input_stage_index
-        if stage_output.input_from == "unpartitioned":
+        if input_stage_index == 0:
+            input_stage_name = "initial"
+        else:
+            input_stage_name = self.model.stages[input_stage_index-1].name
+        if stage_output.scope == "unpartitioned":
             input_stage_parameter \
                 = md_engine.unpartitioned_settings\
-                    .stage_parameters[input_stage_index]
+                    .stage_parameters[input_stage_name]
             input_positions_filenames = md_engine.unpartitioned_settings\
                 .get_positions_full_paths(self.model.directory, input_stage_index, swarm_id)
-        elif stage_output.input_from == "anchors":
+        elif stage_output.scope == "partitioned":
             assert anchor is not None
-            input_stage_parameter = anchor.stage_parameters[input_stage_index]
+            input_stage_parameter = anchor.stage_parameters[input_stage_name]
             input_positions_filenames = anchor.get_positions_full_paths(
-                self.model.directory, input_stage_index, swarm_id)
+                self.model.directory, input_stage_index, stage_output.set_name, 
+                swarm_id)
+            
         else:
-            raise Exception("Invalid input stage type: "\
-                f"{stage_output.input_from}.")
+            raise Exception("Invalid scope type: "\
+                f"{stage_output.scope}.")
         
         # MYPY: ignore mypy error here - the dictionary is having trouble with typing
         input_stage_directory = input_stage_parameter["directory"]
@@ -174,32 +196,20 @@ class Runner_openmm():
 
         glob_ = stage_output.sampling_method.get_output_positions_glob_list(swarm_id=swarm_id)
         
-        if stage_output.input_from == "unpartitioned":
-            if stage_output.output_to == "unpartitioned":
-                output_files_glob_dir = os.path.join(
-                    self.running_directory)
+        if stage_output.scope == "unpartitioned":
+            output_files_glob_dir = os.path.join(
+                self.running_directory)
 
-            elif stage_output.output_to == "anchors":
-                anchor_dirs_glob = os.path.join(
-                    self.model.directory, "anchor_*", stage_output_directory)
-                output_files_glob_dir = os.path.join(
-                    anchor_dirs_glob)
+        elif stage_output.scope == "partitioned":
+            anchor_dirs_glob = os.path.join(
+                self.model.directory, "anchor_*", stage_output_directory)
+            output_files_glob_dir = os.path.join(
+                anchor_dirs_glob)
 
-            else:
-                raise Exception("Invalid output_to")
-        elif stage_output.input_from == "anchors":
-            if stage_output.output_to == "unpartitioned":
-                unpartitioned_dir_glob = os.path.join(
-                    self.model.directory, "unpartitioned", stage_output_directory)
-                output_files_glob_dir = os.path.join(
-                    unpartitioned_dir_glob)
+        else:
+            raise Exception("Invalid scope type: "\
+                f"{stage_output.scope}.")
 
-            elif stage_output.output_to == "anchors":
-                output_files_glob_dir = os.path.join(
-                    self.running_directory)
-
-            else:
-                raise Exception("Invalid output_to")
             
         self.swarm_id = swarm_id
         self.swarm_string = ""
@@ -301,7 +311,9 @@ class Runner_openmm():
             directory=self.running_directory,)
         for i, reporter_interface in enumerate(self.reporters_interfaces):
             reporter_ext = reporter_interface.get_reporter_extension()
-            reporter_filename = reporter_basename + f".reporter_{i}." + reporter_ext
+            reporter_name = reporter_interface._reporter.name
+            reporter_filename = reporter_basename + "." + reporter_name \
+                + "." + reporter_ext
             reporter_interface.add_sampling_method_interface(self.sampling_method_interface)
             reporter_interface.add_reporter_to_simulation(
                 simulation=simulation, filename=reporter_filename, 
@@ -337,7 +349,8 @@ class Runner_openmm():
             checkpoint_info_filename=self.checkpoint_information_filename,
             lock_filename=lock_filename,
             completion_openmm_interface=self.completion_criteria_interface,
-            do_initial_benchmark=True)
+            do_initial_benchmark=True,
+            needs_cv_values=self.needs_cv_values)
         total_time = time.time() - start_time
         ns_per_day = num_steps * self.sim_openmm.timestep * 1e-3 \
             * 86400 / total_time

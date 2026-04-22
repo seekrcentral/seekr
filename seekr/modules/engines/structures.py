@@ -484,7 +484,7 @@ class MD_unpartitioned_settings:
     # within MD simulations
     directory: str = field(default=base.UNPARTITIONED_DIRECTORY, 
                            validator=validators.instance_of(str))
-    stage_parameters: list[dict] = field(default=Factory(list),)
+    stage_parameters: dict[str, dict | None] = field(default=Factory(dict),)
     md_parameters_topology: Parameters_topology | None = None
     selections: list[Selection] = field(
         default=Factory(list),
@@ -501,7 +501,7 @@ class MD_unpartitioned_settings:
         Generate the filetree for this unpartitioned settings object
         """
         unpartitioned_dict: dict[str, dict] = {self.directory: {}}
-        for stage_parameter in self.stage_parameters:
+        for stage_parameter in self.stage_parameters.values():
             if stage_parameter is not None:
                 stage_directory = stage_parameter["directory"]
                 unpartitioned_dict[self.directory][stage_directory] = {}
@@ -515,7 +515,7 @@ class MD_unpartitioned_settings:
         """
         Get the stage parameters for a given stage index.
         """
-        for stage_parameters in self.stage_parameters:
+        for stage_parameters in self.stage_parameters.values():
             if stage_parameters["index"] == stage_index:
                 return stage_parameters
         raise Exception(f"Stage parameters with index {stage_index} not found.")
@@ -524,12 +524,16 @@ class MD_unpartitioned_settings:
             self,
             root_directory: str,
             input_stage_index: int,
+            set_name: str,
             swarm_id: int | None = None
             ) -> list[str]:
         """
         Construct the full path to the PDB/TXT for this unpartitioned settings object and a 
         given stage.
         """
+        # NOTE: set_name isn't used here, but needs to be an argument for
+        # anchors, which are ambiguously lumped with unpartitioned settings 
+        # in some contexts. So, we just pass it
         positions_base_noext = self.get_stage_parameters_by_index(
             input_stage_index)["positions"]
         assert isinstance(positions_base_noext, str), \
@@ -551,14 +555,18 @@ class MD_unpartitioned_settings:
     def get_starting_structure_swarm_ids(
             self,
             root_directory: str,
-            input_stage_index: int
+            input_stage_index: int,
+            set_name: str
             ) -> list[int]:
         """
         Return the number of frames within a starting structure
         for this unpartitioned settings object. AKA: swarm size.
         """
+        # NOTE: set_name isn't used here, but needs to be an argument for
+        # anchors, which are ambiguously lumped with unpartitioned settings 
+        # in some contexts. So, we just pass it
         pdb_full_paths = self.get_positions_full_paths(
-            root_directory, input_stage_index)
+            root_directory, input_stage_index, set_name)
         #num_frames = len(pdb_full_paths)
         #return num_frames
         swarm_ids = []
@@ -584,15 +592,27 @@ class MD_unpartitioned_settings:
                 return selection.atom_indices
         raise Exception(f"Selection with name {name} not found.")
 
+    """
     def get_stage_output_directory(
             self,
             stage_index: int
             ) -> str:
-        """
+        ""
         Get the output directory for this anchor for a given stage index.
-        """
+        ""
         stage_output_directory \
             = self.get_stage_parameters_by_index(stage_index)["directory"]
+        return stage_output_directory
+    """
+    def get_stage_output_directory(
+            self,
+            stage_name: str
+            ) -> str:
+        """
+        Get the output directory for this anchor for a given stage name.
+        """
+        stage_output_directory \
+            = self.stage_parameters[stage_name]["directory"]
         return stage_output_directory
 
     def save_selections(

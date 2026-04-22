@@ -100,6 +100,7 @@ class Metadynamics_md_sampling_method(Base_md_sampling_method):
     steps_per_update: int = field(default=250,
                                     validator=[validators.instance_of(int),
                                                validators.gt(0)])
+    # TODO: not passed from input - implement someday.
     write_biases: bool = field(default=False,
                                 validator=validators.instance_of(bool))
     

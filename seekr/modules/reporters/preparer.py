@@ -32,6 +32,9 @@ class Position_reporter_input(Base_reporter_input):
     Input for position reporter - DCD or PDB format.
     """
     type: typing.Literal["position"] = "position"
+    name: str | None = field(
+        default=None,
+        validator=validators.optional(validators.instance_of(str)))
     interval: int = field(default=1000,
                           validator=[validators.instance_of(int),
                                      validators.gt(0)])
@@ -61,9 +64,11 @@ class Position_reporter_input(Base_reporter_input):
             atom_indices = None
             reporter.make_topology = False
 
+        reporter.name = self.name
         reporter.interval = self.interval
         reporter.enforce_periodic_box = self.enforce_periodic_box
         reporter.atom_subset = atom_indices
+        reporter.extension = self.extension
         return reporter
 
 @define
@@ -72,6 +77,9 @@ class State_reporter_input(Base_reporter_input):
     Input for state reporter
     """
     type: typing.Literal["state"] = "state"
+    name: str | None = field(
+        default=None,
+        validator=validators.optional(validators.instance_of(str)))
     to_stdout: bool = field(default=True,
                           validator=validators.instance_of(bool))
     interval: int = field(default=1000,
@@ -86,6 +94,7 @@ class State_reporter_input(Base_reporter_input):
         Make the reporter object for the model file.
         """
         reporter = reporters_structures.State_reporter()
+        reporter.name = self.name
         reporter.to_stdout = self.to_stdout
         reporter.interval = self.interval
         return reporter
@@ -96,6 +105,9 @@ class CV_value_reporter_input(Base_reporter_input):
     Input for CV value reporter - write structures that correspond to specific CV values.
     """
     type: typing.Literal["cv_value"] = "cv_value"
+    name: str | None = field(
+        default=None,
+        validator=validators.optional(validators.instance_of(str)))
     cv_name: str = field(default="main",
                          validator=validators.instance_of(str))
     cv_values: list[float] = field(default=Factory(list),
@@ -125,6 +137,7 @@ class CV_value_reporter_input(Base_reporter_input):
         Make the reporter object for the model file.
         """
         reporter = reporters_structures.CV_value_reporter()
+        reporter.name = self.name
         reporter.cv_name = self.cv_name
         reporter.cv_values = self.cv_values
         reporter.interval = self.interval
@@ -143,6 +156,9 @@ class Anchor_reporter_input(Base_reporter_input):
     anchors.
     """
     type: typing.Literal["anchor"] = "anchor"
+    name: str | None = field(
+        default=None,
+        validator=validators.optional(validators.instance_of(str)))
     interval: int = field(
         default=1000,
         validator=[validators.instance_of(int),
@@ -159,17 +175,22 @@ class Anchor_reporter_input(Base_reporter_input):
     extension: str = field(
         default="dcd",
         validator=validators.instance_of(str))
+    save_interval: int | None = field(
+        default=None,
+        validator=validators.optional(validators.instance_of(int)))
+    mode: str = field(
+        default="save_last_frame",
+        validator=validators.in_(["save_last_frame", "save_first_frame"]))
     
     def make_reporter(
             self,
             unpartitioned_settings: engines_preparer.MD_unpartitioned_settings_input
-        ) -> reporters_structures.CV_value_reporter:
+        ) -> reporters_structures.Anchor_reporter:
         """
         Make the reporter object for the model file.
         """
-        reporter = reporters_structures.CV_value_reporter()
-        reporter.cv_name = self.cv_name
-        reporter.cv_values = self.cv_values
+        reporter = reporters_structures.Anchor_reporter()
+        reporter.name = self.name
         reporter.interval = self.interval
         reporter.enforce_periodic_box = self.enforce_periodic_box
         reporter.atom_subset = self.atom_subset
@@ -180,4 +201,5 @@ class Anchor_reporter_input(Base_reporter_input):
         else:
             raise ValueError(f"Unsupported extension {self.extension} for CV value reporter.")
         reporter.extension = self.extension
+        reporter.mode = self.mode
         return reporter

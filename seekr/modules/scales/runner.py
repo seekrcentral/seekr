@@ -32,6 +32,10 @@ def is_finished_with_message(
             .construct_anchor_or_unpartitioned_index_list(model, stage, anchor_index)
         anchor_or_unpartitioned: engines_structures.MD_unpartitioned_settings \
             | structures.Anchor
+        if len(anchor_or_unpartitioned_index_list) == 0:
+            finished = False
+        else:
+            finished = True
         for anchor_or_unpartitioned_index in anchor_or_unpartitioned_index_list:
             if anchor_or_unpartitioned_index is None:
                 assert md_engine.unpartitioned_settings is not None
@@ -40,10 +44,14 @@ def is_finished_with_message(
                 anchor_or_unpartitioned \
                     = model.anchors[anchor_or_unpartitioned_index]
             current_step = md_runner.get_current_md_step(
-                anchor_or_unpartitioned, stage.index, 0, model.directory
+                anchor_or_unpartitioned, stage.index, 0, model.directory,
+                stage.set_name
             )
-            finished, message = md_runner.is_finished_md_with_message(
-                model, stage, anchor_or_unpartitioned, current_step, use_json=use_json)
+            tmp_finished, message = md_runner.is_finished_md_with_message(
+                model, stage, anchor_or_unpartitioned, current_step, 
+                use_json=use_json)
+            if not tmp_finished:
+                finished = False
             if use_json:
                 final_message[anchor_or_unpartitioned_index] = message
             else:
@@ -60,6 +68,13 @@ def is_finished_with_message(
         else:
             final_message += f"    Unpartitioned: {message}\n"
 
+    elif stage.scale_type == "logistic":
+        finished, message = logistic_runner.is_finished_logistic_with_message(
+            model, stage, use_json=use_json)
+        if use_json:
+            final_message[None] = message
+        else:
+            final_message += f"    Unpartitioned: {message}\n"
     else:
         raise Exception(f"Stage type not recognized: {stage.type}.")
     return finished, final_message

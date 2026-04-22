@@ -214,17 +214,19 @@ class Voronoi_cell:
             anchor: structures.Anchor, 
             root_directory: str,
             anchor_set_name: str,
-            toy_mode: bool
+            toy_mode: bool,
+            stage_name: str = "initial"
             ) -> None:
         """
         Copy the files for the initial 'stage' from this Anchor_input
         to the actual anchor.
         """
-        if anchor.stage_parameters[0] is not None:
+        if stage_name in anchor.stage_parameters:
             anchor_initial_directory: str = os.path.join(
                 root_directory, base.ANCHOR_SETS_DIR, anchor_set_name, anchor.directory, 
-                anchor.stage_parameters[0]["directory"])
-            anchor.stage_parameters[0]["positions"] = engines_preparer.POSITIONS_BASENAME
+                anchor.stage_parameters[stage_name]["directory"])
+            anchor.stage_parameters[stage_name]["positions"] \
+                = engines_preparer.POSITIONS_BASENAME
             if toy_mode:
                 # MYPY: Similar to the unpartitioned case, mypy is not happy because
                 # the toy positions are an array of positions, but non-toy systems
@@ -232,7 +234,7 @@ class Voronoi_cell:
                 for frame_id, frame_positions in enumerate(self.positions):
                     full_positions_path = os.path.join(
                         anchor_initial_directory,
-                        f"{engines_preparer.POSITIONS_BASENAME}.swarm{frame_id}.txt")
+                        f"{engines_preparer.POSITIONS_BASENAME}.swarm_{frame_id}.txt")
                     np.savetxt(full_positions_path, np.array(frame_positions))
             else:
                 if self.md_parameters_topology is not None:
@@ -338,16 +340,16 @@ class Anchors_as_voronoi_cells_anchor_scheme(
                 #    "Connection flags within Voronoi CVs not currently supported."
                 need_voronoi_connections = True
 
-            anchor.stage_parameters = []
+            anchor.stage_parameters = {}
             if voronoi_cell.positions is not None and voronoi_cell.positions != "":
                 stage_parameter: dict[str, str | int | list] = {}
                 stage_parameter["index"] = 0
                 stage_parameter["directory"] = base.INITIAL_DIRECTORY
                 #stage_parameter["md_parameters_topology"] = voronoi_cell.md_parameters_topology
                 stage_parameter["positions"] = voronoi_cell.positions
-                anchor.stage_parameters = [stage_parameter]
+                anchor.stage_parameters = {"initial": stage_parameter}
             else:
-                anchor.stage_parameters = [None]
+                anchor.stage_parameters = {}
             anchors.append(anchor)
         
         if need_voronoi_connections:

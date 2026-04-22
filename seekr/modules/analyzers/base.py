@@ -498,7 +498,7 @@ def plot_scalar_conv(
     #    return None, None
     for i, conv_value in enumerate(conv_values):
         if not np.isfinite(conv_value) or conv_value == 0:
-            conv_values[i] = np.NAN
+            conv_values[i] = np.nan
     
     if not np.any(np.isfinite(conv_values)):
         #print("skipping key:", key, "because values aren't finite")
@@ -1078,8 +1078,6 @@ def plot_milestones_2d(
     fig, ax, vor, anchor_points = plot_voronoi_tesselation(
         model, boundaries, fill_values=None)
     milestone_points = find_milestone_points_2d(model, vor, boundaries)
-    print("Found {} milestones.".format(len(milestone_points)))
-    print("fill_values:", fill_values)
     ax.set_title(title)
     ax.set_xlabel(x_coordinate_title)
     ax.set_ylabel(y_coordinate_title)

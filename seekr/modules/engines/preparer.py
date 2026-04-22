@@ -13,6 +13,7 @@ from attrs import define, field, validators, Factory
 import mdtraj
 
 import seekr.modules.base as base
+import seekr.modules.structures as structures
 import seekr.modules.engines.structures as engines_structures
 
 POSITIONS_BASENAME = "positions"
@@ -39,13 +40,13 @@ class MD_unpartitioned_settings_input:
         new_md_unpartitioned_settings = engines_structures.MD_unpartitioned_settings()
         new_md_unpartitioned_settings.directory = self.directory
         new_md_unpartitioned_settings.selections = self.selections
-        stage_parameters: list[dict | None]
+        stage_parameters: dict[str, dict | None]
         if self.positions is not None and self.positions != "":
             stage_parameters = \
-                [{"index": 0, "directory": base.INITIAL_DIRECTORY, 
-                  "positions": self.positions}]
+                {"initial":{"index": 0, "directory": base.INITIAL_DIRECTORY, 
+                  "positions": self.positions}}
         else:
-            stage_parameters = [None]
+            stage_parameters = {}
         new_md_unpartitioned_settings.stage_parameters = stage_parameters
         new_md_unpartitioned_settings.md_parameters_topology = self.md_parameters_topology
         return new_md_unpartitioned_settings
@@ -60,14 +61,14 @@ class MD_unpartitioned_settings_input:
         Copy the files for the initial 'stage' from this Anchor_input
         to the actual anchor.
         """
-        if new_unpartitioned_settings.stage_parameters[0] is not None:
+        if new_unpartitioned_settings.stage_parameters["initial"] is not None:
             unpartitioned_initial_directory = os.path.join(
                 root_directory, self.directory, base.INITIAL_DIRECTORY)
             if self.md_parameters_topology is not None \
                     or (self.positions is not None \
                         and self.positions != ""):
                 new_unpartitioned_settings.generate_filetree(root_directory)
-            new_unpartitioned_settings.stage_parameters[0]["positions"] = POSITIONS_BASENAME
+            new_unpartitioned_settings.stage_parameters["initial"]["positions"] = POSITIONS_BASENAME
             if toy_mode:
                 # MYPY: an error happens here because toy input positions take an array,
                 # but non-toy inputs take str (representing the PDB file) - not sure 
@@ -110,4 +111,38 @@ class MD_unpartitioned_settings_input:
             if selection.name == selection_name:
                 return selection.atom_indices
         raise ValueError(f"Selection with name {selection_name} not found.")
-                        
+
+def get_spherical_milestones_and_cv_index_in_neighbor_anchor(
+        model: structures.Seekr_model,
+        neighbor_anchor: structures.Anchor,
+        ) -> tuple[list[structures.Milestone], int]:
+    cvs = model.collective_variables
+    spherical_milestones_in_neighbor_anchor = []
+    this_anchors_bd_cv_index = None
+    for milestone in neighbor_anchor.milestones:
+        found_variable_in_this_milestone = False
+        for variable in milestone.variables:
+            if variable.startswith("me"):
+                cv_index = milestone.get_cv_index_from_variable(variable)
+                if cvs[cv_index].type == "distance":
+                    spherical_milestones_in_neighbor_anchor.append(
+                        milestone)
+                    if this_anchors_bd_cv_index is None:
+                        this_anchors_bd_cv_index = cv_index
+                    else:
+                        assert this_anchors_bd_cv_index == cv_index, \
+                            "BD anchor is attempting to use multiple cvs to "\
+                            "define reaction criteria - not implemented."
+                    if not found_variable_in_this_milestone:
+                        found_variable_in_this_milestone = True
+                    else:
+                        raise AssertionError("Milestone has multiple distance CVs"\
+                                            " - not implemented")
+
+    assert len(spherical_milestones_in_neighbor_anchor) == 2, \
+        "BD anchor must have exactly 2 spherical milestones - "\
+        "other arrangements not yet implemented"
+    # Sort by the average between the positions of the neighboring anchors
+    spherical_milestones_in_neighbor_anchor.sort(
+        key=lambda x: x.variables["avg_value"], reverse=True)
+    return spherical_milestones_in_neighbor_anchor, this_anchors_bd_cv_index

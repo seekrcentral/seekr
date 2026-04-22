@@ -145,8 +145,11 @@ def modify_variables(bd_milestone_directory, bd_output_glob,
             
     return
 
-def run_nam_simulation(sda_bin_dir, bd_directory, sda_output_glob, 
-                       force_overwrite=False):
+def run_nam_simulation(
+        sda_bin_dir: str, 
+        bd_directory: str, 
+        sda_output_glob: str, 
+        force_overwrite: bool = False):
     """
     Run the SDA simulation.
     
@@ -205,6 +208,7 @@ def run_simulation(
         model: structures.Seekr_model, 
         n_trajectories: int, 
         restart: bool, 
+        set_name: str,
         force_overwrite: bool = False
     ) -> None:
     """
@@ -212,7 +216,9 @@ def run_simulation(
     """
     bd_engine = model.get_engine_by_scale_type("brownian_dynamics")
     assert bd_engine.type == "sda"
-    bd_directory = os.path.join(model.directory, bd_engine.b_surface_directory)
+    #bd_directory = os.path.join(model.directory, bd_engine.b_surface_directory)
+    bd_directory = os.path.join(model.directory, "anchor_sets", set_name, 
+                                bd_engine.b_surface_directory)
     sda_output_glob = sda_base.SDA_RESULTS_GLOB
     bd_seed = bd_engine.random_seed
     modify_variables(

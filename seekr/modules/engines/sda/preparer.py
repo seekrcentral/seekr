@@ -9,10 +9,11 @@ import os
 import typing
 
 from attrs import define, field, Factory
-from attrs.validators import and_, instance_of, in_, deep_iterable, gt, ge
+from attrs.validators import and_, instance_of, in_, deep_iterable, gt, ge, optional
 import numpy as np
 import parmed
 
+import seekr.modules.base as base
 import seekr.modules.structures as structures
 import seekr.modules.collective_variables.distance_cv as distance_cv
 import seekr.modules.collective_variables.structures as cv_structures
@@ -157,6 +158,18 @@ class SDA_settings_input:
                                 iterable_validator=instance_of(list),
                          ))
     # atoms list?
+    xmin: float | None = field(default=None,
+                               validator=optional(instance_of(float)))
+    xmax: float | None = field(default=None,
+                               validator=optional(instance_of(float)))
+    ymin: float | None = field(default=None,
+                               validator=optional(instance_of(float)))
+    ymax: float | None = field(default=None,
+                               validator=optional(instance_of(float)))
+    zmin: float | None = field(default=None,
+                               validator=optional(instance_of(float)))
+    zmax: float | None = field(default=None,
+                               validator=optional(instance_of(float)))
 
     def make_model_scale(
             self
@@ -202,6 +215,13 @@ class SDA_settings_input:
         bd_engine.unpartitioned_settings.atomic_parameters.append(
             sda_structures.SDA_atomic_parameter(
                 type="O*", resname="CTR", vdw=None, test_charge=-0.5))
+        bd_engine.geom_type = self.geometry
+        bd_engine.xmin = self.xmin
+        bd_engine.xmax = self.xmax
+        bd_engine.ymin = self.ymin
+        bd_engine.ymax = self.ymax
+        bd_engine.zmin = self.zmin
+        bd_engine.zmax = self.zmax
         return bd_engine
     
     def start_from_unpartitioned(
@@ -219,6 +239,7 @@ class SDA_settings_input:
             self,
             model: structures.Seekr_model, 
             root_directory: str,
+            anchor_set_name: str = "main",
             using_toy: bool = False  # dummy parameter
     ) -> None:
         """
@@ -234,7 +255,8 @@ class SDA_settings_input:
                 # If anchor.bd is True, while anchor.md is False, then this
                 # must be the b-surface directory - "bulk anchor"
                 b_surface_directory = os.path.join(
-                    root_directory, anchor.directory)
+                    root_directory, base.ANCHOR_SETS_DIR, anchor_set_name, 
+                    anchor.directory)
                 for molecule in self.molecules:
                     pqr_filename = os.path.basename(molecule.pqr_filename)
                     new_bd_molecule = sda_structures.SDA_molecule()
@@ -556,16 +578,16 @@ def make_sda_input(
     sda_input.nrun = n_trajectories
     sda_input.dseed = bd_engine.random_seed
     # NOTE: take a look at the newer code in SEEKR2 to get this working
-    sda_input.geometry = model.sda_settings.geometry
-    if sda_input.geometry.lower() == "box":
+    sda_input.geom_type = bd_engine.geom_type
+    if sda_input.geom_type.lower() == "box":
         sda_input.pbc = 1
         sda_input.surface = 1
-    sda_input.xmin = model.sda_settings.xmin
-    sda_input.xmax = model.sda_settings.xmax
-    sda_input.ymin = model.sda_settings.ymin
-    sda_input.ymax = model.sda_settings.ymax
-    sda_input.zmin = model.sda_settings.zmin
-    sda_input.zmax = model.sda_settings.zmax
+    sda_input.xmin = bd_engine.xmin
+    sda_input.xmax = bd_engine.xmax
+    sda_input.ymin = bd_engine.ymin
+    sda_input.ymax = bd_engine.ymax
+    sda_input.zmin = bd_engine.zmin
+    sda_input.zmax = bd_engine.zmax
     sda_input.solutes = []
     for molecule in bd_engine.unpartitioned_settings.molecules:
         sda_input.solutes.append(molecule.make_solute_object(bd_engine.apbs_grid_spacing))

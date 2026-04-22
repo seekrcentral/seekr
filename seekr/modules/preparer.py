@@ -46,7 +46,7 @@ reporter_inputs: typing.Dict[str, typing.Type[reporters_preparer.Base_reporter_i
         = {"position": reporters_preparer.Position_reporter_input,
            "state": reporters_preparer.State_reporter_input,
            "cv_value": reporters_preparer.CV_value_reporter_input,
-           #"anchors": reporters_preparer.Anchors_reporter_input
+           "anchor": reporters_preparer.Anchor_reporter_input
            }
 compl_crit_inputs: typing.Dict[str, typing.Type[compl_crit_struct.Base_completion_criteria]] \
         = structures.completion_criteria
@@ -205,11 +205,14 @@ class Seekr_input:
         
         # Assign stage information
         model.stages = []
+        stage_names = set()
         settings_by_scale: dict[str, typing.Any] = {"logistic": None}
         for settings in self.settings_list:
             settings_by_scale[settings.scale_type] = settings
 
         last_stage_index_by_scale: dict[str, int] = defaultdict(int)
+        last_any_stage_index: int = 0
+        stage_name_to_index: dict[str, int] = {}
         current_scopes = {}
         current_scope = "unpartitioned"
         if self.initial_scopes is None:
@@ -223,24 +226,46 @@ class Seekr_input:
             assert self.initial_scopes[scale] in ["unpartitioned", "partitioned"], \
                 f"Invalid initial scope '{self.initial_scopes[scale]}' for scale '{scale}'."
             current_scopes[scale] = self.initial_scopes[scale]
-            
+        
+        # Logistic stages may assign the scope of future stages, keep track
+        #  of this here.
+        scope_future = {} # key: stage_name, value: scope name
+
         for i, stage_input in enumerate(self.stages):
             scale_type = stage_input.get_scale_type()
             settings = settings_by_scale[scale_type]
             if scale_type == "logistic":
                 stage, new_scope = stage_input.make_model_stage(
                     i+1, current_scope, settings)
-                # TODO here - need a way to assign the new scope to the correct
-                # scale.
+                if new_scope is not None:
+                    assert i + 1 < len(self.stages), \
+                        "A scope-changing logistic stage cannot be the last stage."
+                    scope_future[self.stages[i+1].name] = new_scope
+                stage.input_stage_index = last_any_stage_index
+                if stage_input.input_stage_name is not None:
+                    stage.input_stage_index = stage_name_to_index[stage_input.input_stage_name]
+                # A logistic stage advances the last-seen index for all simulation scale types
+                for k in settings_by_scale:
+                    if k != "logistic":
+                        last_stage_index_by_scale[k] = stage.index
             else:
+                if stage_input.name in scope_future:
+                    current_scopes[scale_type] = scope_future[stage_input.name]
                 current_scope = current_scopes[scale_type]
                 stage = stage_input.make_model_stage(i+1, current_scope, settings)
-                # Logistic scales will, by default, apply to the previous stage.
-                last_stage_index_by_scale["logistic"] = stage.index
                 stage.input_stage_index = last_stage_index_by_scale[scale_type]
+                if stage_input.input_stage_name is not None:
+                    stage.input_stage_index = stage_name_to_index[stage_input.input_stage_name]
                 last_stage_index_by_scale[scale_type] = stage.index
             
             model.stages.append(stage)
+            stage_name_to_index[stage.name] = stage.index
+            last_any_stage_index = stage.index
+            assert stage.name != "initial", \
+                "Stage name 'initial' is reserved."
+            assert stage.name not in stage_names, \
+                f"Duplicate stage name '{stage.name}' detected."
+            stage_names.add(stage.name)
 
         if self.random_seed is not None:
             model.set_random_seeds(self.random_seed)
@@ -541,6 +566,8 @@ def prepare_model_cvs_and_anchors(
     resolve_modifications_and_filetree(
         model, anchors, index_reference, associated_input_anchor, 
         seekr_input.directory, force_overwrite)
+    
+    # Check for repeat alias indices among the milestones in the anchor.
     for anchor in anchors:
         alias_indices = set()
         for milestone in anchor.milestones:
@@ -557,13 +584,16 @@ def prepare_model_cvs_and_anchors(
 def cleanse_outputs_all(
         model: "structures.Seekr_model",
         anchor_or_unpartitioned: engines_structures.MD_unpartitioned_settings \
-            | structures.Anchor
+            | structures.Anchor,
+        swarm_id: int = 0
         ) -> None:
     """
     Delete all simulation outputs from unpartitioned_settings or anchor.
     """
     for stage in model.stages:
-        cleanse_outputs_stage(model, anchor_or_unpartitioned, stage.index-1)
+        if stage.type not in ("md_stage", "bd_stage"):
+            continue
+        cleanse_outputs_stage(model, anchor_or_unpartitioned, stage.index-1, swarm_id)
     return
 
 def cleanse_outputs_stage(
@@ -580,8 +610,17 @@ def cleanse_outputs_stage(
     swarm_string = f"*swarm_{swarm_id}"
     # Replace with methods in the scales
     if stage.type == "md_stage":
-        full_directory = os.path.join(model.directory, anchor_or_unpartitioned.directory, 
-                                    stage.get_directory_name())
+        if stage.scope == "unpartitioned":
+            full_directory = os.path.join(
+                model.directory, anchor_or_unpartitioned.directory, 
+                stage.get_directory_name())
+        elif stage.scope == "partitioned":
+            full_directory = os.path.join(
+                model.directory, "anchor_sets", stage.set_name, 
+                anchor_or_unpartitioned.directory, stage.get_directory_name())
+        else:
+            raise Exception(f"Unknown stage scope: {stage.scope}")
+        
         if os.path.exists(full_directory):
             file_globs = stage.sampling_method.get_output_positions_glob_list(swarm_id)
             for file_glob in file_globs:
@@ -594,6 +633,18 @@ def cleanse_outputs_stage(
             for dcd_file in glob.glob(dcd_glob):
                 #print("removing file:", dcd_file)
                 os.remove(dcd_file)
+            pdb_glob = os.path.join(full_directory, f"{swarm_string}*.pdb")
+            for pdb_file in glob.glob(pdb_glob):
+                #print("removing file:", pdb_file)
+                os.remove(pdb_file)
+            state_glob = os.path.join(full_directory, f"{swarm_string}*.state")
+            for state_file in glob.glob(state_glob):
+                #print("removing file:", state_file)
+                os.remove(state_file)
+            json_glob = os.path.join(full_directory, f"{swarm_string}*.json")
+            for json_file in glob.glob(json_glob):
+                #print("removing file:", json_file)
+                os.remove(json_file)
             out_glob = os.path.join(full_directory, f"{swarm_string}.out")
             for out_file in glob.glob(out_glob):
                 #print("removing file:", out_file)
@@ -609,7 +660,7 @@ def cleanse_outputs_stage(
                 os.remove(backup_info_file)
             backup_glob = os.path.join(full_directory, 
                 engines_base.RESTART_CHECKPOINT_FILENAME_NOEXT \
-                + f".{swarm_id}." + engines_base.RESTART_CHECKPOINT_FILENAME_EXT)
+                + f"{swarm_id}." + engines_base.RESTART_CHECKPOINT_FILENAME_EXT)
             for backup_file in glob.glob(backup_glob):
                 #print("removing file:", backup_file)
                 os.remove(backup_file)
@@ -618,16 +669,20 @@ def cleanse_outputs_stage(
                 #print("removing file:", lock_filename)
                 os.remove(lock_filename)
     elif stage.type == "bd_stage":
-        assert model.bd_engine is not None
-        if anchor_or_unpartitioned.directory == model.bd_engine.b_surface_directory:
-            full_directory = os.path.join(model.directory, model.bd_engine.b_surface_directory)
+        bd_engine = model.get_engine_by_scale_type("brownian_dynamics")
+        assert bd_engine is not None
+        if anchor_or_unpartitioned.directory == bd_engine.b_surface_directory:
+            full_directory = os.path.join(
+                model.directory, bd_engine.b_surface_directory)
             if os.path.exists(full_directory):
-                output_files_glob = os.path.join(full_directory, model.bd_engine.results_glob)
+                output_files_glob = os.path.join(
+                    full_directory, bd_engine.results_glob)
                 output_files_list = glob.glob(output_files_glob)
                 for output_file in output_files_list:
                     os.remove(output_file)
                 
-                simulation_file_glob = os.path.join(full_directory, "*_simulation.xml")
+                simulation_file_glob = os.path.join(
+                    full_directory, "*_simulation.xml")
                 for simulation_file in glob.glob(simulation_file_glob):
                     os.remove(simulation_file)
                 
@@ -650,42 +705,113 @@ def modify_model(
         old_model: structures.Seekr_model, 
         new_model: structures.Seekr_model, 
         root_directory: str, 
-        force_overwrite=False) -> list[int]:
+        force_overwrite: bool = False) -> None: #-> list[int]:
     """
     If someone runs the prepare stage on a model with existing
     directories and simulation results, examine the changes to delete
     and rename directories properly, and only overwrite simulation files
     if forced to do so.
     """
-    
     old_model.directory = root_directory
-    anchor_pairs: list[tuple[int, int]] = []
-    old_anchors_to_delete: list[int] = []
-    new_anchors_to_create: list[int] = []
     
-    #index_where_stages_begin_to_differ = None
-    # NOTE: I think we don't want to do this - if the stage settings change
-    # I think it is up to the user to choose whether to force overwrite subsequent
-    # stages.
-    #for i, (old_stage, new_stage) in enumerate(zip(old_model.stages, new_model.stages)):
-    #    if old_stage != new_stage:
-    #        index_where_stages_begin_to_differ = i
+    #######################################
+    # 1. check Stages
+    #######################################
+    # Look through the new and old stages and pair them up by name
+    old_stages_to_delete: list[int] = []
+    new_stages_to_create: list[int] = []
+    stage_pairs: list[tuple[int, int]] = []
+    stage_i: structures.Stage
+    stage_j: structures.Stage
+    for i, stage_i in enumerate(new_model.stages):
+        i_paired: bool = False
+        for j, stage_j in enumerate(old_model.stages):
+            if stage_i.name == stage_j.name:
+                pair = (i, j)
+                stage_pairs.append(pair)
+                i_paired = True
+                break
+        if not i_paired:
+            new_stages_to_create.append(i)
+        
+    for j, stage_j in enumerate(old_model.stages):
+        j_paired = False
+        for pair in stage_pairs:
+            if j == pair[1]:
+                j_paired = True
+                break
+        if not j_paired:
+            old_stages_to_delete.append(j)
     
-    #stages_to_delete_indices = []
-    #if index_where_stages_begin_to_differ is not None:
-    #    for i in range(index_where_stages_begin_to_differ, len(old_model.stages)):
-    #        stages_to_delete_indices.append(i)
-    
+    pair_indices_where_stages_differed: set[tuple] = set()
+
+    for i, j in stage_pairs:
+        new_stage = new_model.stages[i]
+        old_stage = old_model.stages[j]
+        stages_the_same = True
+        
+        
+        # NOTE: not including completion_criteria, restraints, or reporters 
+        # When determining whether stages are the same, because in these cases
+        # later already-run stages might not be significantly affected. We will
+        # only mark a stage as stages_the_same=False if there's no chance that the
+        # output files could be retained meaningfully, such that any child stages
+        # would also need to be redone.
+        
+
+        if old_stage.type != new_stage.type:
+            stages_the_same = False
+        if old_stage.scale_type != new_stage.scale_type:
+            stages_the_same = False
+        if old_stage.input_stage_index != new_stage.input_stage_index:
+            stages_the_same = False
+        if old_stage.scope != new_stage.scope:
+            stages_the_same = False
+        if new_stage.type in ("md_stage", "bd_stage"):
+            if old_stage.sampling_method.type != new_stage.sampling_method.type:
+                stages_the_same = False
+            if old_stage.set_name != new_stage.set_name:
+                stages_the_same = False
+        elif new_stage.is_logistic_stage():
+            if old_stage.get_output_set_name() != new_stage.get_output_set_name():
+                stages_the_same = False
+
+        if not stages_the_same:
+            pair_indices_where_stages_differed.add((i,j))
+            old_stages_to_delete.append(j)
+            new_stages_to_create.append(i)
+
+        # All child stages of a stage that has changed will also be considered 
+        # to have changed.
+        input_stage_pair = (new_stage.input_stage_index, 
+                            old_stage.input_stage_index)
+        if input_stage_pair in pair_indices_where_stages_differed:
+            pair_indices_where_stages_differed.add((i,j))
+            old_stages_to_delete.append(j)
+            new_stages_to_create.append(i)
+
+        # Now check if 
+
+    old_stages_to_delete.sort()
+    new_stages_to_create.sort()
+
     stages_to_delete_indices_with_files: list[int] = []
     stages_to_delete_names_with_files: list[str] = []
-    #for i in stages_to_delete_indices:
-    #    old_model_stage = old_model.stages[i]
-    #    if old_model_stage.has_files(old_model):
-    #        stages_to_delete_indices_with_files.append(old_model_stage.index)
-    #        stages_to_delete_names_with_files.append(old_model_stage.name)
-            
-    # Look through the new and old milestones and pair them up by the value
+    for i in old_stages_to_delete:
+        old_model_stage = old_model.stages[i]
+        if old_model_stage.has_files(old_model):
+            stages_to_delete_indices_with_files.append(old_model_stage.index)
+            stages_to_delete_names_with_files.append(old_model_stage.name)
+    
+    #######################################
+    # 2. check Anchors
+    #######################################
+    # NOTE: assumed that anchor set "main" is loaded.
+    # Look through the new and old anchors and pair them up by the value
     #  of their variables
+    old_anchors_to_delete: list[int] = []
+    new_anchors_to_create: list[int] = []
+    anchor_pairs: list[tuple[int, int]] = []
     anchor_alpha: structures.Anchor
     anchor_beta: structures.Anchor
     for alpha, anchor_alpha in enumerate(new_model.anchors):
@@ -711,7 +837,6 @@ def modify_model(
     # Now check all the paired anchors to see if anyone's milestones
     # have changed
     old_anchors_with_changed_milestones: list[int] = []
-    old_anchors_with_starting_pdbs_to_keep: list[int] = []
     for pair in anchor_pairs:
         (alpha, beta) = pair
         anchor_alpha = new_model.anchors[alpha]
@@ -737,18 +862,23 @@ def modify_model(
                 milestones_changed = True
         if milestones_changed:
             old_anchors_with_changed_milestones.append(beta)
-            
-    # NOTE: no need to worry about unpartitioned_settings because there are no values or milestones.
+    
+    #######################################
+    # 3. display warnings
+    #######################################
+    # NOTE: no need to worry about unpartitioned_settings because there are no 
+    # values or milestones.
     warning_msg = ""
-    # check whether deleting directories contain simulation files
-    deleting_directories_with_files = []
+
+    # check whether deleting anchor directories contain simulation files
+    deleting_anchor_directories_with_files = []
     for del_anchor_index in old_anchors_to_delete:
         del_anchor: structures.Anchor = old_model.anchors[del_anchor_index]
         if del_anchor.has_files(old_model, root_directory):
-            deleting_directories_with_files.append(del_anchor.directory)
+            deleting_anchor_directories_with_files.append(del_anchor.directory)
     
-    if len(deleting_directories_with_files) > 0 :
-        warning_msg+=f"The anchor(s) {deleting_directories_with_files} "\
+    if len(deleting_anchor_directories_with_files) > 0 :
+        warning_msg+=f"The anchor(s) {deleting_anchor_directories_with_files} "\
             +"already have existing output files and the entered command "\
             "would overwrite them. If you desire to overwrite the existing "\
             "files, then use the --force_overwrite (-f) option, and these "\
@@ -759,7 +889,8 @@ def modify_model(
     cleansing_anchors: list[structures.Anchor] = []
     cleansing_directories: list[str] = []
     for cleanse_anchor_index in old_anchors_with_changed_milestones:
-        cleanse_anchor: structures.Anchor = old_model.anchors[cleanse_anchor_index]
+        cleanse_anchor: structures.Anchor \
+            = old_model.anchors[cleanse_anchor_index]
         if cleanse_anchor.has_files(old_model, root_directory):
             cleansing_anchors.append(cleanse_anchor)
             cleansing_directories.append(cleanse_anchor.directory)
@@ -784,35 +915,45 @@ def modify_model(
         print(warning_msg)
         raise Exception("Cannot overwrite existing files.")
     
+    #############################################
+    # 4. File/directory modifications/deletions
+    #############################################
+
     for del_anchor_index in old_anchors_to_delete:
         del_anchor = old_model.anchors[del_anchor_index]
-        full_path = os.path.join(root_directory, del_anchor.directory)
+        full_path = os.path.join(
+            root_directory, "anchor_sets", "main", del_anchor.directory)
         print("removing directory: "+del_anchor.directory)
-        shutil.rmtree(full_path)
+        shutil.rmtree(full_path, ignore_errors=True)
     
     for cleansing_anchor in cleansing_anchors:
         print("removing output files from anchor:", cleansing_anchor.name)
         cleanse_outputs_all(old_model, cleansing_anchor)
     
-    # NOTE: remove this block because we want to trust the users to re-run
-    # the necessary stages if they want to overwrite the files.
-    #for stage_index in stages_to_delete_indices:
-    #    stage = old_model.stages[stage_index]
-    #    print("removing output files from stage:", stage.name)
-    #    # TODO: method doesn't exist: fix this
-    #    stage.remove_directory(old_model)
+    for stage_index in stages_to_delete_indices_with_files:
+        stage = old_model.stages[stage_index]
+        print("removing output files from stage:", stage.name)
+        # TODO: method doesn't exist: fix this
+        stage.remove_directory(old_model)
+        if stage.is_logistic_stage():
+            output_set_name = stage.get_output_set_name()
+            if output_set_name != "main":
+                # We want "main" excluded from deletion because the
+                # new model might redefine it.
+                stage.delete_output_set(output_set_name)
 
     # Now that the equivalent anchors are known, we know which ones will
     # be deleted, and which ones are being changed, with or without
     # simulation data, 
     
-    new_anchors_with_starting_pdbs_to_keep = []
     for pair in anchor_pairs:
         (alpha, beta) = pair
         anchor1 = old_model.anchors[beta]
         anchor2 = new_model.anchors[alpha]
-        full_path1 = os.path.join(root_directory, anchor1.directory)
-        full_path2 = os.path.join(root_directory, anchor2.directory)
+        full_path1 = os.path.join(
+            root_directory, "anchor_sets", "main", anchor1.directory)
+        full_path2 = os.path.join(
+            root_directory, "anchor_sets", "main", anchor2.directory)
         if full_path1 != full_path2:
             if os.path.exists(full_path2):
                 # then we cannot rename to this without giving this one
@@ -822,10 +963,10 @@ def modify_model(
                         continue
                     if problem_anchor.directory == anchor2.directory:
                         temporary_name = problem_anchor.directory+"temp"
-                        temp_full_path1 = os.path.join(root_directory, 
-                                                  problem_anchor.directory)
-                        temp_full_path2 = os.path.join(root_directory, 
-                                                  temporary_name)
+                        temp_full_path1 = os.path.join(
+                            root_directory, "anchor_sets", "main", problem_anchor.directory)
+                        temp_full_path2 = os.path.join(
+                            root_directory, "anchor_sets", "main", temporary_name)
                         print("moving directory {} to {}".format(
                             problem_anchor.directory, temporary_name))
                         os.rename(temp_full_path1, temp_full_path2)
@@ -844,17 +985,14 @@ def modify_model(
         # Do not do this, because this information will be calculated anew,
         # even if existing structures are kept.
         #anchor2.stage_parameters = anchor1.stage_parameters
-            
-        if anchor1.index in old_anchors_with_starting_pdbs_to_keep:
-            new_anchors_with_starting_pdbs_to_keep.append(anchor2.index)
-    
-    for new_anchor_index_to_create in new_anchors_to_create:
-        print("creating new anchor {}".format(new_anchor_index_to_create))
+        
     
     # TODO: ensure that the new model has the same plugins as the old
     # as well as the same engines, scales, etc.
-
-    return new_anchors_with_starting_pdbs_to_keep
+    # TODO: return something else here - there are no more new anchors
+    # with starting PDBs to keep.
+    #return new_anchors_with_starting_pdbs_to_keep
+    return
 
 def resolve_modifications_and_filetree(
         model: structures.Seekr_model, 
@@ -872,22 +1010,21 @@ def resolve_modifications_and_filetree(
         # then a model file already exists at this location: update
         # the anchor directories.
         old_model = structures.load_model(json_path)
+        old_model.load_cvs("main")
+        old_model.load_selections("main")
+        old_model.load_anchor_set("main")
         logging.info("Model file already existed at this location. "\
                      "Modified the existing model.")
         model.set_random_seeds(old_model.get_random_seed())
-        new_anchors_with_starting_pdbs_to_keep = modify_model(
-            old_model, model, root_directory, force_overwrite)
-    else:
-        new_anchors_with_starting_pdbs_to_keep = None
-
+        modify_model(old_model, model, root_directory, force_overwrite)
+    
     # NOTE: This is the name of the anchor set when a anchor_stage is activated. 
     #  This value can be changed by a logistic stage
     on_set_name = "main"
     for stage in model.stages:
-        
         # TODO: transitions between unpartitioned and partitioned stages
         #  via a logistic stage.
-        if stage.scale_type == "molecular_dynamics":
+        if stage.scale_type in ["molecular_dynamics", "logistic"]:
             if stage.scope == "partitioned":
                 # NOTE: mypy error is handled with "md_stage" type check above
                 stage.add_stage_parameters_to_anchors(model)
@@ -895,29 +1032,20 @@ def resolve_modifications_and_filetree(
             elif stage.scope == "unpartitioned":
                 stage.add_stage_parameters_to_unpartitioned_settings(model)
                 
-            
-        #elif stage.scale_type == "logistic":
         else:
             pass
             
-        # Add Nones wherever a stage wasn't added somewhere
-
         if stage.is_logistic_stage():
-            on_set_name = stage.output_set_name
+            on_set_name = stage.get_output_set_name()
         else:
             stage.set_name = on_set_name
-        # TODO: if stage.type = "logistic_stage", then change on_set_name, possibly.
-    
+        
     for old_index in index_reference:
         new_index = index_reference[old_index]
         if new_index < len(anchors):
             input_anchor = associated_input_anchor[old_index]
             anchors[new_index].generate_filetree(model, root_directory, "main")
-            if (new_anchors_with_starting_pdbs_to_keep is not None) \
-                    and (new_index in new_anchors_with_starting_pdbs_to_keep):
-                logging.info(f"Keeping starting structure for anchor: {new_index}")
-            else:
-                input_anchor.copy_initial_files(anchors[new_index], root_directory, 
+            input_anchor.copy_initial_files(anchors[new_index], root_directory, 
                                                 "main", model.using_toy())
     return
 

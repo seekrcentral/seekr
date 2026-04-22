@@ -306,7 +306,7 @@ def monte_carlo_milestoning_error(
         k_alpha_beta_matrix)
     nonzero_indices_Q_alpha_list = []
     for alpha, anchor in enumerate(model.anchors):
-        if not anchor.md:
+        if "molecular_dynamics" not in anchor.scale_types:
             continue
         nonzero_indices_Q_alpha = find_nonzero_matrix_entries(
             mmvt_Qij_alpha[alpha])
@@ -323,7 +323,7 @@ def monte_carlo_milestoning_error(
             nonzero_indices_k_alpha_beta_matrix)
         mmvt_Qnew_list = []
         for alpha, anchor in enumerate(model.anchors):
-            if not anchor.md:
+            if "molecular_dynamics" not in anchor.scale_types:
                 continue
             mmvt_Qnew_alpha = irreversible_stochastic_matrix_algorithm_sample(
                 mmvt_Qij_alpha[alpha], mmvt_Nij_alpha[alpha], 
@@ -331,8 +331,9 @@ def monte_carlo_milestoning_error(
             mmvt_Qnew_list.append(mmvt_Qnew_alpha)
             
         if counter > skip and counter % stride == 0:
-            resampled_bulk_stats = bulk_anchor_statistics\
-                .resample_bulk_anchor_statistics(bulk_stats)
+            if bulk_stats is not None:
+                new_bulk_stats = bulk_anchor_statistics\
+                    .resample_bulk_anchor_statistics(bulk_stats)
             mmvt_Nij_list = []
             for alpha, anchor in enumerate(model.anchors):
                 if anchor.bulk_anchor:
@@ -372,7 +373,16 @@ def monte_carlo_milestoning_error(
                     end_states
                 )
             new_data_sample.calculate_extra_kinetics(model, end_states)
-            new_data_sample.fill_out_k_off_and_k_on(anchor_indices_by_name)
+            #new_data_sample.fill_out_k_off_and_k_on(anchor_indices_by_name)
+            new_data_sample.fill_out_k_off(anchor_indices_by_name)
+            if bulk_stats is not None:
+                end_states_not_bulk = analyzers_base.get_end_states_not_bulk(model)
+                new_data_sample.k_ons = analyzers_base.calculate_k_on_kinetics(
+                    model.num_milestones, new_data_sample.K, end_states_not_bulk,
+                    new_bulk_stats.transition_counts, 
+                    new_bulk_stats.transition_probabilities,
+                    new_bulk_stats.k_ons_src,
+                    new_bulk_stats.outer_milestone_indices)
             data_sample_list.append(new_data_sample)
     
     return data_sample_list

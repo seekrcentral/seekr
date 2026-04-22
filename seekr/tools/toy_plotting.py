@@ -67,9 +67,9 @@ class Toy_plot():
         self.title = title
         self.boundaries = boundaries
         if (self.boundaries == None).any():
-            if stage.input_from == "anchors":
+            if stage.scope == "partitioned":
                 anchor_indices = [i for i in range(model.num_anchors)]
-            elif stage.input_from == "unpartitioned":
+            elif stage.scope == "unpartitioned":
                 anchor_indices = None
             _, auto_boundaries = self.load_trajs(stage, anchor_indices)
             self.boundaries = auto_boundaries
@@ -152,14 +152,15 @@ class Toy_plot():
         miny = 9e9
         maxy = -9e9
         md_engine = self.model.get_engine_by_scale_type("molecular_dynamics")
-        unpartitioned_object = md_engine.unpartitioned_settings
         if anchor_indices is None:
             anchor_unpartitioned_objects = [md_engine.unpartitioned_settings]
             
         else:
             anchor_unpartitioned_objects \
                 = [self.model.anchors[i] for i in anchor_indices]
-
+            rootdir = os.path.join(
+                rootdir, "anchor_sets", stage.set_name)
+        
         for anchor_index, anchor_or_unpartitioned in enumerate(
                 anchor_unpartitioned_objects):
             pdb_path = os.path.join(
@@ -171,7 +172,7 @@ class Toy_plot():
                 rootdir, anchor_or_unpartitioned.directory, 
                 anchor_or_unpartitioned\
                     .get_stage_parameters_by_index(stage_id)["directory"], 
-                    "*1.swarm_*.reporter_*.dcd")
+                    "*1.swarm_*.position_reporter_*.dcd")
             swarm_dcds = glob.glob(swarm_dcds_glob)
             swarm_ids = []
             for swarm_dcd in swarm_dcds:
@@ -186,7 +187,7 @@ class Toy_plot():
             positions_frame_list = []
             num_steps = 0
             for swarm_id in swarm_ids:
-                dcd_file_glob = "*.swarm_{}.reporter_*.dcd".format(swarm_id)
+                dcd_file_glob = "*.swarm_{}.position_reporter_*.dcd".format(swarm_id)
                 dcd_glob = os.path.join(
                     rootdir, anchor_or_unpartitioned.directory, 
                     anchor_or_unpartitioned\
@@ -307,7 +308,7 @@ class Toy_plot():
             = self.load_trajs(stage, animating_anchor_indices, swarm_id)
         walks = self.traj_walk(positions_list)
         lines = self.make_graphical_objects(len(walks))
-        
+
         #num_frames = self.num_steps // self.stride
         assert len(self.num_steps_by_anchor.values()) > 0, \
             "No trajectories found in this stage."
@@ -381,14 +382,15 @@ def toy_plotting(
     """
     stage_index = run.extract_stage_index(model, stage_arg)
     stage = model.stages[stage_index]
+    stage.load_sets_into_model(model)
     if animating_anchor_indices is None:
-        if stage.input_from == "unpartitioned":
+        if stage.scope == "unpartitioned":
             animating_anchor_indices = None
-        elif stage.input_from == "anchors":
+        elif stage.scope == "partitioned":
             animating_anchor_indices = [i for i in range(model.num_anchors)]
         else:
-            raise Exception(f"Invalid option for stage.input_from: "\
-                            f"{stage.input_from}.")
+            raise Exception(f"Invalid option for stage.scope: "\
+                            f"{stage.scope}.")
     boundaries = np.array([[minx, maxx], [miny, maxy]])
     if len(model.collective_variables) == 1:
         voronoi = False

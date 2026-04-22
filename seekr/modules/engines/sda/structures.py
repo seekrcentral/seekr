@@ -484,20 +484,39 @@ class SDA_bd_engine:
                             ))
     b_surface_directory: str = field(default="b_surface",
                                     validator=instance_of(str))
+    results_glob: str = field(default=sda_base.SDA_RESULTS_GLOB,
+                            validator=instance_of(str))
     unpartitioned_settings: SDA_unpartitioned_settings | None = None
     random_seed: int = field(default=0,
                              validator=[instance_of(int), ge(0)])
+    geom_type: str = field(default="sphere",
+                            validator=in_(
+                                ["sphere", "box", "nambox"]))
+    xmin: float | None = field(default=None,
+                            validator=optional(instance_of(float)))
+    xmax: float | None = field(default=None,
+                            validator=optional(instance_of(float)))
+    ymin: float | None = field(default=None,
+                            validator=optional(instance_of(float)))
+    ymax: float | None = field(default=None,
+                            validator=optional(instance_of(float)))
+    zmin: float | None = field(default=None,
+                            validator=optional(instance_of(float)))
+    zmax: float | None = field(default=None,
+                            validator=optional(instance_of(float)))
 
     
     def get_bd_transition_counts(
             self, 
-            root_directory: str
+            root_directory: str,
+            set_name: str
             ) -> dict:
         """
         Get the transition counts from the BD results files.
         """
         output_file_glob = os.path.join(
-            root_directory, self.b_surface_directory, sda_base.SDA_RESULTS_GLOB)
+            root_directory, "anchor_sets", set_name, 
+            self.b_surface_directory, sda_base.SDA_RESULTS_GLOB)
         output_file_list = glob.glob(output_file_glob)
         output_file_list = base.order_files_numerically(output_file_list)
         bd_transition_counts = {}

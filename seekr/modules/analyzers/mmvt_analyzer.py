@@ -50,7 +50,7 @@ class Mmvt_analyzer:
     def extract_data(
             self,
             min_time_ps: float,
-            max_time_ps: float
+            max_time_ps: float | None
             ) -> None:
         """
         Extract data from the SEEKR MMVT simulation output.
@@ -61,6 +61,7 @@ class Mmvt_analyzer:
             return
         
         time_between_statistics = None
+        set_name = self.model.stages[self.stage_index-1].set_name
         for anchor in self.model.anchors:
             anchor_stats_alpha, tmp_time_between_statistics \
                 = scales_mmvt_analyzer.make_anchor_stats_alpha(
@@ -72,7 +73,7 @@ class Mmvt_analyzer:
             self.anchor_stats_alpha_list.append(anchor_stats_alpha)
             if anchor.bulk_anchor:
                 bulk_stats = scales_mmvt_analyzer.make_bulk_anchor_stats(
-                    self.model, anchor)
+                    self.model, anchor, set_name)
                 if bulk_stats is not None:
                     assert self.bulk_stats is None, \
                         "Only one anchor may have bulk statistics (Like from BD)."
@@ -709,7 +710,7 @@ def analyze_mmvt(
         stage_index: int,
         skip_checks: bool = False,
         min_time_ps: float = 0.0,
-        max_time_ps: float = np.finfo(np.float32).max,
+        max_time_ps: float | None = None,
         error_analysis_method: str = "bootstrap",
         only_extract_data: bool = False
         ) -> Mmvt_analyzer:

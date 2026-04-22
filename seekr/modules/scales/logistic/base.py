@@ -10,8 +10,17 @@ import os
 import glob
 import typing
 from shutil import rmtree
+from collections import namedtuple
 
 from attrs import define, field, validators, Factory
+
+Run_instruction_logistic = namedtuple(
+    "Run_instruction_logistic",
+    [
+        "anchor_index",
+        "swarm_id",
+        "message"
+    ])
 
 @define
 class Stage_logistic:
@@ -39,18 +48,6 @@ class Stage_logistic:
     input_stage_index: int = field(default=0,
                                       validator=[validators.instance_of(int),
                                                  validators.ge(0)])
-    """
-    input_from: str = field(default="unpartitioned", 
-                            validator=validators.instance_of(str))
-    output_to: str = field(default="anchor", 
-                           validator=validators.instance_of(str))
-    input_set_name: typing.Optional[str] = field(
-        default=None, 
-        validator=validators.optional(validators.instance_of(str)))
-    output_set_name: typing.Optional[str] = field(
-        default=None, 
-        validator=validators.optional(validators.instance_of(str)))
-    """
     
     def get_directory_name(self) -> str:
         """
@@ -61,7 +58,8 @@ class Stage_logistic:
     
     def has_files(
             self, 
-            model: "Seekr_model"
+            model: "Seekr_model",
+            anchor_index: int | None = None,
             ) -> bool:
         """
         Returns true if any of the stage directories contain
@@ -70,7 +68,7 @@ class Stage_logistic:
         stage_output_globs: list[str] = self.output_positions_glob_list
         my_directory = self.get_directory_name()
         for anchor in model.anchors:
-            for stage_parameter in anchor.stage_parameters:
+            for stage_parameter in anchor.stage_parameters.values():
                 if stage_parameter is None:
                     continue
                 stage_directory = stage_parameter["directory"]
@@ -105,6 +103,15 @@ class Stage_logistic:
         """
         return True
     
+    def write_to_log(
+            self,
+            instructions: list[Run_instruction_logistic]
+        ) -> None:
+        """
+        Write the given instructions to a log file within this stage's directory.
+        """
+        ...
+    
 @define
 class Input_stage_logistic:
     """
@@ -117,13 +124,7 @@ class Input_stage_logistic:
                       validator=validators.instance_of(str))
     comment: str = field(default="This is a logistic stage.",
                          validator=validators.instance_of(str))
-    input_set_name: typing.Optional[str] = field(
-        default=None, 
-        validator=validators.optional(validators.instance_of(str)))
-    output_set_name: typing.Optional[str] = field(
-        default=None, 
-        validator=validators.optional(validators.instance_of(str)))
-
+    
     def get_scale_type(self) -> str:
         return "logistic"
 

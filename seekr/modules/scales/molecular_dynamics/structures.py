@@ -1,9 +1,8 @@
 """
 modules/scales/molecular_dynamics/structures.py
 
-Structures for scales within seekr: molecular_dynamics,
-brownian_dynamics, ... - anything that might appear within the 
-model.json file.
+Structures for the molecular dynamics scale within seekr - anything that 
+might appear within the model.json file.
 """
 
 import os
@@ -43,7 +42,7 @@ class Scale_md:
         """
         Check if the anchor has the necessary files for this scale.
         """
-        for stage_parameter in anchor.stage_parameters:
+        for stage_parameter in anchor.stage_parameters.values():
             stage_directory = stage_parameter["directory"]
             stage_directory = os.path.join(
                 root_directory, self.directory, stage_directory)
@@ -66,7 +65,7 @@ class Scale_md:
             anchor_set_name: str = base.PREPARE_SET_NAME
             ) -> None:
         anchor_dict: dict[str, dict] = {anchor.directory: {}}
-        for stage_parameter in anchor.stage_parameters:
+        for stage_parameter in anchor.stage_parameters.values():
             stage_directory = stage_parameter["directory"]
             anchor_dict[anchor.directory][stage_directory] = {}
         
@@ -135,8 +134,9 @@ class Stage_md:
             stage_parameter: dict[str, int | str] = {}
             stage_parameter["index"] = self.index
             stage_parameter["directory"] = directory_name
-            stage_parameter["positions"] = self.sampling_method.get_output_positions_basename_noext()
-            anchor.stage_parameters.append(stage_parameter)
+            stage_parameter["positions"] \
+                = self.sampling_method.get_output_positions_basename_noext()
+            anchor.stage_parameters[self.name] = stage_parameter
         return
     
     def add_stage_parameters_to_unpartitioned_settings(
@@ -149,14 +149,17 @@ class Stage_md:
         md_engine = model.get_engine_by_scale_type("molecular_dynamics")
         assert md_engine is not None, "MD stage provided, but "\
             "MD engine settings not provided."
-        assert md_engine.unpartitioned_settings is not None, "MD engine unpartitioned "\
-            "settings not provided, yet MD stage is provided."
+        assert md_engine.unpartitioned_settings is not None, \
+            "MD engine unpartitioned settings not provided, yet MD stage "\
+            "is provided."
         directory_name: str = self.get_directory_name()
         stage_parameter: dict[str, int | str] = {}
         stage_parameter["index"] = self.index
         stage_parameter["directory"] = directory_name
-        stage_parameter["positions"] = self.sampling_method.get_output_positions_basename_noext()
-        md_engine.unpartitioned_settings.stage_parameters.append(stage_parameter)
+        stage_parameter["positions"] \
+            = self.sampling_method.get_output_positions_basename_noext()
+        md_engine.unpartitioned_settings.stage_parameters[self.name] \
+            = stage_parameter
         return
     
     def has_files(
@@ -170,27 +173,40 @@ class Stage_md:
         """
         stage_output_globs: list[str] = self.sampling_method.get_output_positions_glob_list()
         my_directory = self.get_directory_name()
+        anchor_set_directory = os.path.join(
+            model.directory, "anchor_sets", self.get_output_set_name())
         for anchor in model.anchors:
             if anchor_index is not None and anchor.index != anchor_index:
                 continue
-            for stage_parameter in anchor.stage_parameters:
+            for stage_parameter in anchor.stage_parameters.values():
+                if stage_parameter is None:
+                    continue
                 stage_directory = stage_parameter["directory"]
                 if stage_directory == my_directory:
                     for stage_output_glob in stage_output_globs:
                         output_files_glob = os.path.join(
-                            model.directory, anchor.directory, stage_directory, 
+                            anchor_set_directory, anchor.directory, stage_directory, 
                             stage_output_glob)
                         if len(glob.glob(output_files_glob)) > 0:
                             return True
+                        
+        # Now test unpartitioned if anchor_index not specified
+        if anchor_index is not None:
+            return False
+        
         md_engine = model.get_engine_by_scale_type("molecular_dynamics")
         assert md_engine.unpartitioned_settings is not None, "MD engine unpartitioned "\
             "settings not provided, yet MD stage is provided."
-        for stage_parameter in md_engine.unpartitioned_settings.stage_parameters:
+        unpartitioned_dir = os.path.join(
+            model.directory, md_engine.unpartitioned_settings.directory)
+        for stage_parameter in md_engine.unpartitioned_settings.stage_parameters.values():
+            if stage_parameter is None:
+                continue
             stage_directory = stage_parameter["directory"]
             if stage_directory == my_directory:
                 for stage_output_glob in stage_output_globs:
                     output_files_glob = os.path.join(
-                        model.directory, stage_directory, stage_output_glob)
+                        unpartitioned_dir, stage_directory, stage_output_glob)
                     if len(glob.glob(output_files_glob)) > 0:
                         return True
         return False
@@ -203,8 +219,10 @@ class Stage_md:
         Remove entire directory in all anchors and unpartitioned settings for this stage.
         """
         my_directory = self.get_directory_name()
+        anchor_set_directory = os.path.join(
+            model.directory, "anchor_sets", self.get_output_set_name())
         for anchor in model.anchors:
-            full_directory = os.path.join(model.directory, anchor.directory, my_directory)
+            full_directory = os.path.join(anchor_set_directory, anchor.directory, my_directory)
             if os.path.exists(full_directory):
                 rmtree(full_directory)
         md_engine = model.get_engine_by_scale_type("molecular_dynamics")
@@ -220,6 +238,24 @@ class Stage_md:
         Returns false since this is a molecular dynamics stage.
         """
         return False
+    
+    def load_sets_into_model(
+            self, 
+            model: "Seekr_model"
+            ) -> None:
+        """
+        Load the CVs, selections, and anchor set for this stage into the model.
+        """
+        model.load_cvs(self.set_name)
+        model.load_selections(self.set_name)
+        model.load_anchor_set(self.set_name)
+        return
+    
+    def get_output_set_name(self) -> str:
+        """
+        Get the name of the set that provides output to this stage.
+        """
+        return self.set_name
 
 def struct_md_sampling_method(
         obj: typing.Dict[str, typing.Any],

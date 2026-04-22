@@ -63,8 +63,7 @@ def analyze(
         return None
     assert 1 <= stage_index < len(model.stages)+1, "Invalid stage index."
     stage = model.stages[stage_index-1]
-    if max_time_ps is None:
-        max_time_ps = np.finfo(np.float32).max
+    stage.load_sets_into_model(model)
     if stage.sampling_method.type == "mmvt":
         from seekr.modules.analyzers.mmvt_analyzer import analyze_mmvt
         analysis = analyze_mmvt(

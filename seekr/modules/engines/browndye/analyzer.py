@@ -11,12 +11,13 @@ from collections import defaultdict
 import seekr.modules.base as base
 import seekr.modules.structures as structures
 import seekr.modules.engines.browndye.base as browndye_base
-import seekr.modules.engines.browndye.preparer as browndye_preparer
+import seekr.modules.engines.preparer as engines_preparer
 import seekr.modules.analyzers.bulk_anchor_statistics as bulk_anchor_statistics
 
 def parse_browndye_results(
         model: structures.Seekr_model,
         bulk_anchor: structures.Anchor,
+        set_name: str,
         bd_sample_from_normal=False
         ) -> bulk_anchor_statistics.Bulk_anchor_statistics:
     """
@@ -24,7 +25,9 @@ def parse_browndye_results(
     """
     bd_engine = model.get_engine_by_scale_type("brownian_dynamics")
     assert bd_engine.type == "browndye"
-    bd_directory = os.path.join(model.directory, bd_engine.b_surface_directory)
+    bd_directory = os.path.join(
+        model.directory, "anchor_sets", set_name, 
+        bd_engine.b_surface_directory)
     browndye_bin_dir = bd_engine.binary_directory
     b_surface_output_file_glob = os.path.join(
         bd_directory, bd_engine.results_glob)
@@ -52,7 +55,7 @@ def parse_browndye_results(
             transition_counts_anchor = defaultdict(int)
             transition_probabilities_anchor = defaultdict(float)
             spherical_milestones_in_neighbor_anchor, this_anchors_bd_cv_index \
-                = browndye_preparer.get_spherical_milestones_and_cv_index_in_neighbor_anchor(
+                = engines_preparer.get_spherical_milestones_and_cv_index_in_neighbor_anchor(
                     model, neighbor_anchor)
             inner_milestone_index = spherical_milestones_in_neighbor_anchor[1].index
             outer_milestone_index = spherical_milestones_in_neighbor_anchor[0].index
