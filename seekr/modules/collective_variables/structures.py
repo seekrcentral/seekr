@@ -98,7 +98,7 @@ def struct_collective_variable(
         obj: typing.Dict[str, typing.Any],
         _: typing.Type[cv_base.Base_CV]
         ) -> cv_base.Base_CV:
-    typ = obj.pop("type")
+    typ = obj.get("type")
     return cattrs.structure(obj, cvs[typ])
 
 def unstruct_collective_variable(
@@ -120,7 +120,7 @@ def load_cv_from_file(
     converter: cattrs.Converter = cattrs.Converter()
     with open(filename, "r") as file:
         cv_dict = json.load(file)
-    converter.register_structure_hook(cv_base.Base_CV,
-                                      struct_collective_variable)
+    converter.register_structure_hook_func(
+        lambda t: t is cv_base.Base_CV, struct_collective_variable)
     cv = converter.structure(cv_dict, cv_base.Base_CV)
     return cv

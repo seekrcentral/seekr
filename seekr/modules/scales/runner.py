@@ -5,16 +5,19 @@ Differentiate between different scales and call the appropriate
 runner functions for each scale.
 """
 
+import importlib
+
+import seekr.modules.base as base
+import seekr.modules.scales.base as scales_base
 import seekr.modules.structures as structures
 import seekr.modules.engines.structures as engines_structures
-import seekr.modules.scales.structures as scales_structures
 import seekr.modules.scales.molecular_dynamics.runner as md_runner
 import seekr.modules.scales.brownian_dynamics.runner as bd_runner
 import seekr.modules.scales.logistic.runner as logistic_runner
 
 def is_finished_with_message(
         model: structures.Seekr_model,
-        stage: scales_structures.Stage,
+        stage: scales_base.Base_stage,
         anchor_index: str | None = None,
         use_json: bool = True
     ) -> tuple[bool, list[str]]:
@@ -76,12 +79,28 @@ def is_finished_with_message(
         else:
             final_message += f"    Unpartitioned: {message}\n"
     else:
-        raise Exception(f"Stage type not recognized: {stage.type}.")
+        found = False
+        for plugin in model.plugins:
+            scales_module_str = base.get_plugin_str(
+                plugin, submodule_name="scales", require_preparer=True,
+                require_openmm_interface=False, require_runner=True)
+            if scales_module_str is not None:
+                scales_module_run = importlib.import_module(scales_module_str+".runner")
+                this_module_found, finished, final_message \
+                    = scales_module_run.is_finished_with_message(
+                        model, stage, anchor_index, use_json)
+                if this_module_found:
+                    found = True
+                    break
+
+        if not found:
+            raise Exception(f"Stage type not recognized: {stage.type}.")
+        
     return finished, final_message
 
 def construct_anchor_or_unpartitioned_index_list(
         model: structures.Seekr_model,
-        stage: scales_structures.Stage,
+        stage: scales_base.Base_stage,
         anchor_index: str
         ) -> list[int | None]:
     """
@@ -95,11 +114,26 @@ def construct_anchor_or_unpartitioned_index_list(
         raise NotImplementedError("BD stages do not support anchor-specific "\
                                   "operations.")
     else:
-        raise Exception(f"Stage type not recognized: {stage.type}.")
+        found = False
+        for plugin in model.plugins:
+            scales_module_str = base.get_plugin_str(
+                plugin, submodule_name="scales", require_preparer=True,
+                require_openmm_interface=False, require_runner=True)
+            if scales_module_str is not None:
+                scales_module_run = importlib.import_module(scales_module_str+".runner")
+                this_module_found, result \
+                    = scales_module_run.construct_anchor_or_unpartitioned_index_list(
+                        model, stage, anchor_index)
+                if this_module_found:
+                    found = True
+                    return result
+
+        if not found:
+            raise Exception(f"Stage type not recognized: {stage.type}.")
 
 def choose_next_simulation(
         model: structures.Seekr_model,
-        stage: scales_structures.Stage,
+        stage: scales_base.Base_stage,
         choose_params: dict,
         force_overwrite: bool,
         swarm_id: int | None = None,
@@ -124,11 +158,28 @@ def choose_next_simulation(
         run_instructions = logistic_runner.choose_next_simulation_logistic(
             model, stage, force_overwrite, use_json, silent=silent)
     else:
-        raise Exception(f"Stage type not recognized: {stage.type}.")
+        found = False
+        for plugin in model.plugins:
+            scales_module_str = base.get_plugin_str(
+                plugin, submodule_name="scales", require_preparer=True,
+                require_openmm_interface=False, require_runner=True)
+            if scales_module_str is not None:
+                scales_module_run = importlib.import_module(scales_module_str+".runner")
+                this_module_found, run_instructions \
+                    = scales_module_run.choose_next_simulation(
+                        model, stage, choose_params, force_overwrite, swarm_id, use_json, 
+                        silent)
+                if this_module_found:
+                    found = True
+                    break
+
+        if not found:
+            raise Exception(f"Stage type not recognized: {stage.type}.")
+        
     return run_instructions
     
 def get_calculation_directory(
-        engine: structures.Engine,
+        engine: engines_structures.Base_engine,
         root_directory: str):
     """
     Return the calculation directory for a given BD stage index.
@@ -139,6 +190,23 @@ def get_calculation_directory(
     elif engine.scale_type == "molecular_dynamics":
         full_directory = md_runner.get_calculation_directory_md(
             engine, root_directory)
+        
+    else:
+        found = False
+        for plugin in engine.model.plugins:
+            scales_module_str = base.get_plugin_str(
+                plugin, submodule_name="scales", require_preparer=True,
+                require_openmm_interface=False, require_runner=True)
+            if scales_module_str is not None:
+                scales_module_run = importlib.import_module(scales_module_str+".runner")
+                this_module_found, full_directory = scales_module_run.get_calculation_directory(
+                    engine, root_directory)
+                if this_module_found:
+                    found = True
+                    break
+        if not found:
+            raise Exception(f"Scale type {engine.scale_type} not recognized.")
+        
     return full_directory
     
 def do_run_instruction(
@@ -164,4 +232,20 @@ def do_run_instruction(
         logistic_runner.do_run_instruction_logistic(
             model, force_overwrite, stage_index=stage_index, 
             instruction=instruction)
+    else:
+        found = False
+        for plugin in model.plugins:
+            scales_module_str = base.get_plugin_str(
+                plugin, submodule_name="scales", require_preparer=True,
+                require_openmm_interface=False, require_runner=True)
+            if scales_module_str is not None:
+                scales_module_run = importlib.import_module(scales_module_str+".runner")
+                this_module_found = scales_module_run.do_run_instruction(
+                    model, force_overwrite, stage_index, instruction, device_index)
+                if this_module_found:
+                    found = True
+                    break
+
+        if not found:
+            raise Exception(f"Stage type not recognized: {stage.scale_type}.")
     return

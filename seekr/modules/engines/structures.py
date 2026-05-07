@@ -641,3 +641,25 @@ class MD_unpartitioned_settings:
             loaded_selections.append(new_selection)
         self.selections = loaded_selections
             
+class Base_engine(typing.Protocol):
+    """
+    Base class for all engines.
+    """
+    type: typing.Literal["base"] = "base"
+    
+    def can_handle_toy(self) -> bool: ...
+
+    def get_random_seed(self) -> int: ...
+
+    def set_random_seed(self, seed: int) -> None: ...
+
+    def save_selections(self, directory: str) -> None: ...
+
+    def load_selections(self, directory: str) -> None: ...
+
+class Base_engine_settings_input(typing.Protocol):
+    """
+    Base engine settings class for all engines.
+    """
+    type: typing.Literal["base"] = "base"
+

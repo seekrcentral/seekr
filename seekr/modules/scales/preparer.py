@@ -6,6 +6,7 @@ Routines for preparing the various scales.
 
 import os
 import typing
+import importlib
 
 import seekr.modules.base as base
 import seekr.modules.scales.logistic.base as logistic_scale_base
@@ -21,16 +22,17 @@ import seekr.modules.engines.openmm.preparer as openmm_preparer
 import seekr.modules.engines.browndye.preparer as browndye_preparer
 import seekr.modules.engines.sda.preparer as sda_preparer
 
-Input_stage = typing.Union[md_preparer.Input_stage_md, bd_preparer.Input_stage_bd,
-                           logistic_scale_base.Input_stage_logistic,
-                           reassign_anchors_logistic_stage.Input_stage_reassign_anchors,
-                           anchor_starting_structures_from_reporter_logistic_stage\
-                                .Input_stage_anchor_starting_structures_from_reporter,
-                           ]
+# TODO: remove
+#Input_stage = typing.Union[md_preparer.Input_stage_md, bd_preparer.Input_stage_bd,
+#                           logistic_scale_base.Input_stage_logistic,
+#                           reassign_anchors_logistic_stage.Input_stage_reassign_anchors,
+#                           anchor_starting_structures_from_reporter_logistic_stage\
+#                                .Input_stage_anchor_starting_structures_from_reporter,
+#                           ]
 
-Engine_settings_input = typing.Union[openmm_preparer.Openmm_settings_input, 
-                                     browndye_preparer.Browndye_settings_input,
-                                     sda_preparer.SDA_settings_input]
+#Engine_settings_input = typing.Union[openmm_preparer.Openmm_settings_input, 
+#                                     browndye_preparer.Browndye_settings_input,
+#                                     sda_preparer.SDA_settings_input]
 
 def generate_files(
         model: structures.Seekr_model, 
@@ -47,7 +49,22 @@ def generate_files(
     elif scale_type == "molecular_dynamics":
         pass
     else:
-        raise Exception(f"Scale type {scale_type} not recognized.")
+        # TODO: handle logistic scale (?)
+        found = False
+        for plugin in model.plugins:
+            scales_module_str = base.get_plugin_str(
+                plugin, submodule_name="scales", require_preparer=True,
+                require_openmm_interface=False, require_runner=True)
+            if scales_module_str is not None:
+                scales_module_prep = importlib.import_module(scales_module_str+".preparer")
+                this_module_found = scales_module_prep.generate_files(
+                    model, directory, anchor_set_name, scale_type)
+                if this_module_found:
+                    found = True
+                    break
+
+        if not found:
+            raise Exception(f"Scale type {scale_type} not recognized.")
     
 def register_structure_hooks(
         converter: typing.Any

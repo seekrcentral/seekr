@@ -15,6 +15,7 @@ import openmm.app as openmm_app
 
 import seekr.modules.base as base
 import seekr.modules.structures as structures
+import seekr.modules.engines.structures as engines_structures
 import seekr.modules.restraints.structures as restraints_structures
 
 # TODO: choose which force group to assign restraints to. Will it be a 
@@ -222,7 +223,7 @@ class Cylinder_restraint_openmm_interface(Base_restraint_openmm_interface):
 
 def assign_restraints_interface(
         restraint: restraints_structures.Base_restraint, 
-        md_engine: structures.MD_engine,
+        md_engine: engines_structures.Base_engine,
         plugin_list: list[str],
         ) -> Base_restraint_openmm_interface:
     """

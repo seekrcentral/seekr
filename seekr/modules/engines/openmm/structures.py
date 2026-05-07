@@ -31,7 +31,7 @@ class Monte_carlo_barostat_settings:
 Barostat_settings = typing.Union[Monte_carlo_barostat_settings]
 
 @define
-class Openmm_md_engine:
+class Openmm_md_engine(engines_structures.Base_engine):
     type: typing.Literal["openmm"] = "openmm"
     scale_type: typing.Literal["molecular_dynamics"] = "molecular_dynamics"
     nonbonded_method: str | None = field(

@@ -5,7 +5,9 @@ MMVT analysis methods that are scale-specific.
 """
 
 import typing
+import importlib
 
+import seekr.modules.base as base
 import seekr.modules.structures as structures
 import seekr.modules.scales.molecular_dynamics.mmvt_analyzer as mmvt_md_analyzer
 import seekr.modules.analyzers.mmvt_anchor_statistics as mmvt_anchor_statistics
@@ -32,7 +34,26 @@ def make_anchor_stats_alpha(
                                           min_time_ps, max_time_ps,
                                           time_between_statistics)
     else:
-        stats, time_between_stats = None, None
+        # Check the plugins
+        found = False
+        for plugin in model.plugins:
+            scales_module_str = base.get_plugin_str(
+                plugin, submodule_name="scales", require_preparer=True,
+                require_openmm_interface=False, require_runner=True)
+            if scales_module_str is not None:
+                scales_module_mmvt = importlib.import_module(
+                    scales_module_str+".mmvt_analyzer")
+                this_module_found, stats, time_between_stats \
+                    = scales_module_mmvt.make_anchor_stats_alpha(
+                        model, anchor, stage_index, min_time_ps, 
+                        max_time_ps, time_between_statistics)
+                if this_module_found:
+                    found = True
+                    break
+
+        if not found:
+            stats = None
+            time_between_stats = None
 
     return stats, time_between_stats
 

@@ -16,6 +16,7 @@ class Base_md_sampling_method_input(typing.Protocol):
     """
     Base class for all MD sampling method inputs.
     """
+    type: typing.Literal["base"] = "base"
     pass
 
 @define

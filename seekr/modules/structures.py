@@ -14,11 +14,13 @@ import logging
 import importlib
 
 import cattrs
+from cattrs.gen import make_dict_unstructure_fn
 from attrs import define, field, validators, Factory
 import numpy as np
 
 import seekr.modules.base as base
 import seekr.modules.collective_variables.base as cv_base
+import seekr.modules.scales.base as scales_base
 import seekr.modules.collective_variables.structures as cv_structures
 import seekr.modules.engines.structures as engines_structures
 import seekr.modules.completion_criteria.structures as compl_crit_struct
@@ -28,14 +30,39 @@ import seekr.modules.engines.browndye.structures as browndye_structures
 import seekr.modules.engines.sda.structures as sda_structures
 import seekr.modules.engines.openmm.structures as openmm_structures
 import seekr.modules.scales.structures as scales_structures
+import seekr.modules.scales.molecular_dynamics.structures as md_struct
+import seekr.modules.scales.brownian_dynamics.structures as bd_struct
+import seekr.modules.scales.logistic\
+    .anchor_starting_structures_from_reporter_logistic_stage \
+        as anch_start_struct_rpt_stage
+import seekr.modules.scales.logistic.reassign_anchors_logistic_stage \
+    as reassign_anchors_logistic_stage
 
-BD_engine = typing.Union[browndye_structures.Browndye_bd_engine,
-                         sda_structures.SDA_bd_engine]
+#BD_engine = typing.Union[browndye_structures.Browndye_bd_engine,
+#                         sda_structures.SDA_bd_engine]
 BD_unpartitioned_settings = typing.Union[
     browndye_structures.Browndye_unpartitioned_settings,
     sda_structures.SDA_unpartitioned_settings]
-MD_engine = typing.Union[openmm_structures.Openmm_md_engine]
-Engine = typing.Union[BD_engine, MD_engine]
+#MD_engine = typing.Union[openmm_structures.Openmm_md_engine]
+#Engine = typing.Union[BD_engine, MD_engine]
+engines: typing.Dict[str, typing.Type[engines_structures.Base_engine]] \
+        = {"browndye": browndye_structures.Browndye_bd_engine,
+           "sda": sda_structures.SDA_bd_engine,
+           "openmm": openmm_structures.Openmm_md_engine}
+
+scales: typing.Dict[str, typing.Type[scales_base.Base_scale]] \
+        = {"molecular_dynamics": md_struct.Scale_md,
+           "brownian_dynamics": bd_struct.Scale_bd,}
+           #"logistic": logistic_base.Scale_logistic} # Leave out for now
+
+stages: typing.Dict[str, typing.Type[scales_base.Base_stage]] \
+        = {"md_stage": md_struct.Stage_md,
+           "bd_stage": bd_struct.Stage_bd,
+           "anchor_starting_structures_from_reporter_stage": \
+                anch_start_struct_rpt_stage\
+                    .Stage_anchor_starting_structures_from_reporter,
+            "reassign_anchors_stage": reassign_anchors_logistic_stage\
+                .Stage_reassign_anchors}
 
 restraints: typing.Dict[str, typing.Type[restraints_structures.Base_restraint]] \
         = {"positional": restraints_structures.Positional_restraint,
@@ -208,6 +235,8 @@ class Anchor:
         """
         Generate the filetree for this anchor.
         """
+        assert len(self.scale_types) > 0, \
+            f"Anchor '{self.name}' has no defined scale_types."
         for scale_type in self.scale_types:
             scale = model.get_scale_by_type(scale_type)
             scale.generate_filetree_anchor(self, root_directory, anchor_set_name)
@@ -446,9 +475,9 @@ class Seekr_model:
                                           validators.gt(0)])
     is_toy_system: bool = field(default=False,
                                 validator=validators.instance_of(bool))
-    scales: list[scales_structures.Scale] = field(default=Factory(list),)
-    engines: list[Engine] = field(default=Factory(list),)
-    stages: list[scales_structures.Stage] = field(default=Factory(list),)
+    scales: list[scales_base.Base_scale] = field(default=Factory(list),)
+    engines: list[engines_structures.Base_engine] = field(default=Factory(list),)
+    stages: list[scales_base.Base_stage] = field(default=Factory(list),)
     collective_variables: list[cv_base.Base_CV] \
         = field(default=Factory(list),)
     num_anchors: int = field(default=0,
@@ -480,7 +509,7 @@ class Seekr_model:
     def get_scale_by_type(
             self, 
             scale_type: str
-            ) -> scales_structures.Scale | None:
+            ) -> scales_base.Base_scale | None:
         """
         Get a scale by its type.
         """
@@ -492,7 +521,7 @@ class Seekr_model:
     def get_engine_by_scale_type(
             self, 
             scale_type: str
-            ) -> Engine:
+            ) -> engines_structures.Base_engine:
         """
         Get an engine by its scale type.
         """
@@ -622,6 +651,67 @@ class Seekr_model:
         self.num_milestones = 0
 
         converter: cattrs.Converter = cattrs.Converter()
+
+        def unstruct_restraint(
+                obj: restraints_structures.Base_restraint
+                ) -> typing.Dict[str, typing.Any]:
+            """
+            Unstructure a restraint object to a dictionary.
+            """
+            d = make_dict_unstructure_fn(type(obj), converter)(obj)
+            d["type"] = obj.type
+            return d
+
+        def unstruct_reporter(
+                obj: reporters_structures.Base_reporter
+                ) -> typing.Dict[str, typing.Any]:
+            """
+            Unstructure a reporter object to a dictionary.
+            """
+            d = make_dict_unstructure_fn(type(obj), converter)(obj)
+            d["type"] = obj.type
+            return d
+
+        def unstruct_completion_criteria(
+                obj: compl_crit_struct.Base_completion_criteria
+                ) -> typing.Dict[str, typing.Any]:
+            """
+            Unstructure a completion criteria object to a dictionary.
+            """
+            d = make_dict_unstructure_fn(type(obj), converter)(obj)
+            d["type"] = obj.type
+            return d
+
+        def unstruct_engine(
+                obj: engines_structures.Base_engine
+                ) -> typing.Dict[str, typing.Any]:
+            """
+            Unstructure a engine object to a dictionary.
+            """
+            d = make_dict_unstructure_fn(type(obj), converter)(obj)
+            d["type"] = obj.type
+            return d
+
+        def unstruct_scale(
+                obj: scales_base.Base_scale
+                ) -> typing.Dict[str, typing.Any]:
+            """
+            Unstructure a scale object to a dictionary.
+            """
+            d = make_dict_unstructure_fn(type(obj), converter)(obj)
+            d["type"] = obj.type
+            return d
+
+        def unstruct_stage(
+                obj: scales_base.Base_stage
+                ) -> typing.Dict[str, typing.Any]:
+            """
+            Unstructure a stage object to a dictionary.
+            """
+            d = make_dict_unstructure_fn(type(obj), converter)(obj)
+            d["type"] = obj.type
+            return d
+
         converter.register_unstructure_hook(restraints_structures.Base_restraint,
                                             unstruct_restraint)
         converter.register_unstructure_hook(reporters_structures.Base_reporter,
@@ -855,9 +945,25 @@ def load_plugins(
                 sampl_meth_module_str+".structures")
             scales_structures.update_sampling_methods(
                 sampl_meth_module_struct.sampling_methods)
-    
-    return
+            
+        engine_module_str = base.get_plugin_str(
+            plugin_name, submodule_name="engines", require_openmm_interface=False,
+            require_runner=True)
+        if engine_module_str is not None:
+            engine_module_struct = importlib.import_module(
+                engine_module_str+".structures")
+            engines.update(engine_module_struct.engines)
 
+        scales_module_str = base.get_plugin_str(
+            plugin_name, submodule_name="scales", require_openmm_interface=False,
+            require_runner=True)
+        if scales_module_str is not None:
+            scales_module_struct = importlib.import_module(
+                scales_module_str+".structures")
+            scales.update(scales_module_struct.scales)
+            stages.update(scales_module_struct.stages)
+        
+    return
 
 def load_model(
         filename: str
@@ -872,6 +978,49 @@ def load_model(
         
     # Use a cattrs Converter to define how to structure the dictionary input
     converter: cattrs.Converter = cattrs.Converter()
+
+    def struct_restraint(
+            obj: typing.Dict[str, typing.Any],
+            _: typing.Type[restraints_structures.Base_restraint]
+            ) -> restraints_structures.Base_restraint:
+        typ = obj.get("type")
+        return converter.structure(obj, restraints[typ])
+
+    def struct_reporter(
+            obj: typing.Dict[str, typing.Any],
+            _: typing.Type[reporters_structures.Base_reporter]
+            ) -> reporters_structures.Base_reporter:
+        typ = obj.get("type")
+        return converter.structure(obj, reporters[typ])
+
+    def struct_completion_criteria(
+            obj: typing.Dict[str, typing.Any],
+            _: typing.Type[compl_crit_struct.Base_completion_criteria]
+            ) -> compl_crit_struct.Base_completion_criteria:
+        typ = obj.get("type")
+        return converter.structure(obj, completion_criteria[typ])
+
+    def struct_engine(
+            obj: typing.Dict[str, typing.Any],
+            _: typing.Type[engines_structures.Base_engine]
+            ) -> engines_structures.Base_engine:
+        typ = obj.get("type")
+        return converter.structure(obj, engines[typ])
+
+    def struct_scale(
+            obj: typing.Dict[str, typing.Any],
+            _: typing.Type[scales_base.Base_scale]
+            ) -> scales_base.Base_scale:
+        typ = obj.get("type")
+        return converter.structure(obj, scales[typ])
+
+    def struct_stage(
+            obj: typing.Dict[str, typing.Any],
+            _: typing.Type[scales_base.Base_stage]
+            ) -> scales_base.Base_stage:
+        typ = obj.get("type")
+        return converter.structure(obj, stages[typ])
+
     # Register a structure hook for the Positions_type
     converter.register_structure_hook(base.Positions_type, 
                                       structure_positions_type_union)
@@ -879,14 +1028,20 @@ def load_model(
                                       structure_float_or_list_type_union)
     converter.register_structure_hook(base.Int_or_list_type, 
                                       structure_int_or_list_type_union)
-    converter.register_structure_hook(restraints_structures.Base_restraint,
-                                        struct_restraint)
-    converter.register_structure_hook(reporters_structures.Base_reporter,
-                                        struct_reporter)
-    converter.register_structure_hook(compl_crit_struct.Base_completion_criteria,
-                                        struct_completion_criteria)
-    converter.register_structure_hook(cv_base.Base_CV,
-                                        cv_structures.struct_collective_variable)
+    converter.register_structure_hook_func(
+        lambda t: t is restraints_structures.Base_restraint, struct_restraint)
+    converter.register_structure_hook_func(
+        lambda t: t is reporters_structures.Base_reporter, struct_reporter)
+    converter.register_structure_hook_func(
+        lambda t: t is compl_crit_struct.Base_completion_criteria, struct_completion_criteria)
+    converter.register_structure_hook_func(
+        lambda t: t is cv_base.Base_CV, cv_structures.struct_collective_variable)
+    converter.register_structure_hook_func(
+        lambda t: t is engines_structures.Base_engine, struct_engine)
+    converter.register_structure_hook_func(
+        lambda t: t is scales_base.Base_scale, struct_scale)
+    converter.register_structure_hook_func(
+        lambda t: t is scales_base.Base_stage, struct_stage)
     
     scales_structures.register_structure_hooks(converter)
     model: Seekr_model = converter.structure(json_string, Seekr_model)
@@ -959,53 +1114,3 @@ def structure_int_or_list_type_union(
     else:
         raise ValueError(f"Invalid type for positions: {type(data)}")
 
-def struct_restraint(
-        obj: typing.Dict[str, typing.Any],
-        _: typing.Type[restraints_structures.Base_restraint]
-        ) -> restraints_structures.Base_restraint:
-    typ = obj.pop("type")
-    return cattrs.structure(obj, restraints[typ])
-
-def unstruct_restraint(
-        obj: restraints_structures.Base_restraint
-        ) -> typing.Dict[str, typing.Any]:
-    """
-    Unstructure a restraint object to a dictionary.
-    """
-    d = cattrs.unstructure(obj)
-    d["type"] = obj.type
-    return d
-
-def struct_reporter(
-        obj: typing.Dict[str, typing.Any],
-        _: typing.Type[reporters_structures.Base_reporter]
-        ) -> reporters_structures.Base_reporter:
-    typ = obj.pop("type")
-    return cattrs.structure(obj, reporters[typ])
-
-def unstruct_reporter(
-        obj: reporters_structures.Base_reporter
-        ) -> typing.Dict[str, typing.Any]:
-    """
-    Unstructure a reporter object to a dictionary.
-    """
-    d = cattrs.unstructure(obj)
-    d["type"] = obj.type
-    return d
-
-def struct_completion_criteria(
-        obj: typing.Dict[str, typing.Any],
-        _: typing.Type[compl_crit_struct.Base_completion_criteria]
-        ) -> compl_crit_struct.Base_completion_criteria:
-    typ = obj.pop("type")
-    return cattrs.structure(obj, completion_criteria[typ])
-
-def unstruct_completion_criteria(
-        obj: compl_crit_struct.Base_completion_criteria
-        ) -> typing.Dict[str, typing.Any]:
-    """
-    Unstructure a completion criteria object to a dictionary.
-    """
-    d = cattrs.unstructure(obj)
-    d["type"] = obj.type
-    return d

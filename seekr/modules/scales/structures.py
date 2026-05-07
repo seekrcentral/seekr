@@ -1,29 +1,24 @@
 """
+modules/scales/structures.py
 
+Routines for structuring objects directly related to scales and their stages.
 """
 
-import os
-import glob
 import typing
 from shutil import rmtree
 
 import seekr.modules.scales.molecular_dynamics.structures as md_structures
 import seekr.modules.scales.brownian_dynamics.structures as bd_structures
-import seekr.modules.scales.logistic.base as logistic_base
-import seekr.modules.scales.logistic.reassign_anchors_logistic_stage \
-    as reassign_anchors_logistic_stage
-import seekr.modules.scales.logistic.anchor_starting_structures_from_reporter_logistic_stage \
-    as anchor_starting_structures_from_reporter_logistic_stage
 import seekr.modules.scales.logistic.structures as logistic_struct
 
 
-Scale = typing.Union[md_structures.Scale_md, bd_structures.Scale_bd]
-Stage = typing.Union[md_structures.Stage_md, bd_structures.Stage_bd,
-                     logistic_base.Stage_logistic,
-                     reassign_anchors_logistic_stage.Stage_reassign_anchors,
-                     anchor_starting_structures_from_reporter_logistic_stage\
-                        .Stage_anchor_starting_structures_from_reporter,
-                     ]
+#Scale = typing.Union[md_structures.Scale_md, bd_structures.Scale_bd]
+#Stage = typing.Union[md_structures.Stage_md, bd_structures.Stage_bd,
+#                     logistic_base.Stage_logistic,
+#                     reassign_anchors_logistic_stage.Stage_reassign_anchors,
+#                     anchor_starting_structures_from_reporter_logistic_stage\
+#                        .Stage_anchor_starting_structures_from_reporter,
+#                     ]
 
 def register_structure_hooks(
         converter: typing.Any

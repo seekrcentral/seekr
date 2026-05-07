@@ -29,7 +29,7 @@ def struct_md_sampling_method(
         obj: typing.Dict[str, typing.Any],
         _: typing.Type[logistic_base.Stage_logistic]
         ) -> logistic_base.Stage_logistic:
-    typ = obj.pop("type")
+    typ = obj.get("type")
     return cattrs.structure(obj, stage_types_logistic[typ])
 
 def unstruct_md_sampling_method(

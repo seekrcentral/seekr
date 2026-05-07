@@ -129,7 +129,7 @@ class SDA_molecule_input:
         return ghost_site_indices, original_indices, ghost_atom_lines
     
 @define
-class SDA_settings_input:
+class SDA_settings_input(engines_structures.Base_engine_settings_input):
     type: typing.Literal["sda"] = "sda"
     scale_type: typing.Literal["brownian_dynamics"] = "brownian_dynamics"
     geometry: str = field(default="sphere",

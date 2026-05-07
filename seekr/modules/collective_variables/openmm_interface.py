@@ -19,6 +19,7 @@ import seekr.modules.collective_variables.distance_cv as distance_cv
 import seekr.modules.collective_variables.external_cv as external_cv
 import seekr.modules.collective_variables.structures as cv_structures
 import seekr.modules.structures as structures
+import seekr.modules.engines.structures as engines_structures
 
 if typing.TYPE_CHECKING:
     try:
@@ -586,7 +587,7 @@ CV_openmm_interface = typing.Union[Distance_cv_openmm_interface,
 
 def assign_cv_interface(
         collective_variable: cv_base.Base_CV,
-        md_engine: structures.MD_engine,
+        md_engine: engines_structures.Base_engine,
         root_directory: str,
         plugin_list: list[str]
         ) -> CV_openmm_interface | None:

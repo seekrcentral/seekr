@@ -558,6 +558,8 @@ class Sim_openmm:
             integrator.addComputePerDof("old_v", "v")
             integrator.addConstrainPositions()
             integrator.addComputePerDof("v", "(x-old_x)/dt")
+            sampling_method_interface.post_integration_instructions(
+                integrator=integrator, anchor=anchor)
             random_seed = integrator_settings.random_seed + self.random_seed
             integrator.setRandomNumberSeed(random_seed)
         elif integrator_type == "verlet":

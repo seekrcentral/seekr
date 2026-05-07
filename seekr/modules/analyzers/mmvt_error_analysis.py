@@ -350,17 +350,19 @@ def monte_carlo_milestoning_error(
             #new_data_sample.compute_rate_matrix()
             new_data_sample.Q, new_data_sample.K = analyzers_base.compute_rate_matrix(
                 model.num_milestones, new_data_sample.N_ij, new_data_sample.R_i)
+            Q_raw, _ = analyzers_base.compute_rate_matrix(
+                model.num_milestones, new_data_sample.N_ij_unmodified,
+                new_data_sample.R_i_unmodified)
             new_data_sample.N_ij = main_data_sample.N_ij
             new_data_sample.R_i = main_data_sample.R_i
-            
+
             #if model.using_bd():
             #    new_data_sample.parse_browndye_results(
             #        bd_sample_from_normal=True)
             new_data_sample.p_i, new_data_sample.free_energy_milestones = \
                 analyzers_base.calculate_thermodynamics(
-                    model.num_milestones, new_data_sample.Q, new_data_sample.K, 
-                    new_data_sample.N_ij, new_data_sample.R_i, 
-                    model.temperature
+                    model.num_milestones, new_data_sample.Q,
+                    model.temperature, Q_raw=Q_raw
             )
             end_states, anchor_indices_by_name \
                 = mmvt_data_sample.make_end_states_dict_and_anchor_indices_by_name(model)

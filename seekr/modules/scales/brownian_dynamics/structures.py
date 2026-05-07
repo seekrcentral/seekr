@@ -14,6 +14,7 @@ from attrs import define, field, validators, Factory
 import cattrs
 
 import seekr.modules.base as base
+import seekr.modules.scales.base as scales_base
 import seekr.modules.sampling_methods.structures as sampling_methods_structures
 import seekr.modules.completion_criteria.structures as compl_crit_struct
 
@@ -22,7 +23,7 @@ sampling_methods_bd \
            "WE": sampling_methods_structures.WE_bd_sampling_method,}
 
 @define
-class Scale_bd:
+class Scale_bd(scales_base.Base_scale):
     """
     A Brownian dynamics scale.
     """
@@ -30,6 +31,7 @@ class Scale_bd:
     engine: str = field(default="browndye",
                           validator=validators.instance_of(str))
     
+    # TODO: remove? Not used anywhere else.
     def has_files_anchor(
             self, 
             anchor: "seekr.modules.structures.Anchor",
@@ -64,7 +66,7 @@ class Scale_bd:
         base.make_tree(root_directory, anchor_sets_dict)
 
 @define
-class Stage_bd:
+class Stage_bd(scales_base.Base_stage):
     type: typing.Literal["bd_stage"] = "bd_stage"
     scale_type: typing.Literal["brownian_dynamics"] = "brownian_dynamics"
     index: int = field(default=0,
@@ -146,11 +148,51 @@ class Stage_bd:
         """
         return False
     
+    def add_stage_parameters_to_anchors(
+            self, 
+            model: "Seekr_model",
+            ) -> None:
+        """
+        Add the stage directory to all anchors in the model.
+        """
+        for anchor in model.anchors:
+            #directory_name: str = self.get_directory_name()
+            stage_parameter: dict[str, int | str] = {}
+            stage_parameter["index"] = self.index
+            #stage_parameter["directory"] = directory_name
+            #stage_parameter["positions"] \
+            #    = self.sampling_method.get_output_positions_basename_noext()
+            anchor.stage_parameters[self.name] = stage_parameter
+        return
+    
+    def add_stage_parameters_to_unpartitioned_settings(
+            self, 
+            model: "Seekr_model"
+            ) -> None:
+        """
+        Add the stage parameters to the unpartitioned settings.
+        """
+        bd_engine = model.get_engine_by_scale_type("brownian_dynamics")
+        assert bd_engine is not None, "BD stage provided, but "\
+            "BD engine settings not provided."
+        assert bd_engine.unpartitioned_settings is not None, \
+            "BD engine unpartitioned settings not provided, yet BD stage "\
+            "is provided."
+        #directory_name: str = self.get_directory_name()
+        stage_parameter: dict[str, int | str] = {}
+        stage_parameter["index"] = self.index
+        #stage_parameter["directory"] = directory_name
+        #stage_parameter["positions"] \
+        #    = self.sampling_method.get_output_positions_basename_noext()
+        bd_engine.unpartitioned_settings.stage_parameters[self.name] \
+            = stage_parameter
+        return
+    
 def struct_bd_sampling_method(
         obj: typing.Dict[str, typing.Any],
         _: typing.Type[sampling_methods_structures.Base_bd_sampling_method]
         ) -> sampling_methods_structures.Base_bd_sampling_method:
-    typ = obj.pop("type")
+    typ = obj.get("type")
     return cattrs.structure(obj, sampling_methods_bd[typ])
 
 def unstruct_bd_sampling_method(

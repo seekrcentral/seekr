@@ -61,9 +61,7 @@ def run_simulation(
         runner_sda.run_simulation(
             model, n_trajectories, restart, stage.set_name, force_overwrite)
     else:
-        # TODO: search plugins for other MD engines
-        # Oct 9, 2025 - This is not a priority right now, as we are a long way
-        #  from supporting other engines in plugins.
+        # NOTE: plugins can handle this with their own routine in the scale.
         pass
 
     return

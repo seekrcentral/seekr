@@ -14,6 +14,7 @@ from attrs import define, field, validators, Factory
 import cattrs
 
 import seekr.modules.base as base
+import seekr.modules.scales.base as scales_base
 import seekr.modules.sampling_methods.structures as sampling_methods_structures
 import seekr.modules.completion_criteria.structures as compl_crit_struct
 import seekr.modules.restraints.structures as restraints_structures
@@ -26,14 +27,14 @@ sampling_methods_md \
            "mmvt": sampling_methods_structures.MMVT_md_sampling_method,}
 
 @define
-class Scale_md:
+class Scale_md(scales_base.Base_scale):
     """
     A molecular dynamics scale.
     """
     type: typing.Literal["molecular_dynamics"] = "molecular_dynamics"
     engine: str = field(default="openmm",
                           validator=validators.instance_of(str))
-    
+    # TODO: remove? Not used anywhere else.
     def has_files_anchor(
             self, 
             anchor: "Anchor",
@@ -74,7 +75,7 @@ class Scale_md:
         base.make_tree(root_directory, anchor_sets_dict)
 
 @define
-class Stage_md:
+class Stage_md(scales_base.Base_stage):
     """
     A md stage of the SEEKR calculation, whether that is an initial
     equilibration, a sampling method to obtain starting structures,
@@ -261,7 +262,7 @@ def struct_md_sampling_method(
         obj: typing.Dict[str, typing.Any],
         _: typing.Type[sampling_methods_structures.Base_md_sampling_method]
         ) -> sampling_methods_structures.Base_md_sampling_method:
-    typ = obj.pop("type")
+    typ = obj.get("type")
     return cattrs.structure(obj, sampling_methods_md[typ])
 
 def unstruct_md_sampling_method(

@@ -17,7 +17,7 @@ import seekr.modules.engines.preparer as engines_preparer
 import seekr.modules.scales.molecular_dynamics.structures as md_scale
 
 @define
-class Openmm_settings_input:
+class Openmm_settings_input(engines_structures.Base_engine_settings_input):
     type: typing.Literal["openmm"] = "openmm"
     scale_type: typing.Literal["molecular_dynamics"] = "molecular_dynamics"
     nonbonded_method: str = field(default="pme",

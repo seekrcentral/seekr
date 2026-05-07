@@ -152,11 +152,10 @@ def create_toy_input(
     sel.atom_indices = [0]
     md_settings.unpartitioned_settings.selections = [sel]
     md_settings.unpartitioned_settings.positions = [[[0.0, -0.7, 0.0]]]
-    seekr_input.settings_list = [md_settings]
+    seekr_input.engine_settings_list = [md_settings]
 
     seekr_input.initial_scopes = {
         "molecular_dynamics": "unpartitioned",
-        "brownian_dynamics":  "unpartitioned",
         "logistic":           "unpartitioned",
     }
 
@@ -176,6 +175,7 @@ def create_toy_input(
         vc = anchor_scheme_preparer.Voronoi_cell()
         vc.value = value
         vc.positions = [position]
+        vc.scale_types = ["molecular_dynamics"]
         anchor_scheme.voronoi_cells.append(vc)
 
     # --- stage 1: equilibration ---
@@ -380,7 +380,7 @@ def create_host_guest_input(
         _sel("o5_group",    o5_group_indices),
         _sel("single_index", single_group_index),
     ]
-    seekr_input.settings_list = [md_settings]
+    seekr_input.engine_settings_list = [md_settings]
 
     seekr_input.initial_scopes = {
         "molecular_dynamics": "unpartitioned",
@@ -425,7 +425,7 @@ def create_host_guest_input(
             lig.selections = [_sel("guest", ligand_indices_bd)]
             bd_settings.molecules = [rec, lig]
 
-        seekr_input.settings_list.append(bd_settings)
+        seekr_input.engine_settings_list.append(bd_settings)
 
     # --- CV name depends on cv type ---
     cv_name = "rmsd_host_guest" if use_rmsd_cv else "distance_host_guest"
@@ -565,9 +565,12 @@ def create_host_guest_input(
         vc = anchor_scheme_preparer.Voronoi_cell()
         vc.value = [value]
         vc.positions = ""
+        vc.scale_types = ["molecular_dynamics"]
         anchor_scheme.voronoi_cells.append(vc)
     if bd:
         anchor_scheme.voronoi_cells[-1].bulk_anchor = True
+        anchor_scheme.voronoi_cells[-1].scale_types.append("brownian_dynamics")
+
     seekr_input.partitions[0].anchor_scheme = anchor_scheme
 
     return seekr_input

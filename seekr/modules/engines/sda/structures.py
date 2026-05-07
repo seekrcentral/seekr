@@ -461,9 +461,10 @@ class SDA_unpartitioned_settings:
     solvent_dielectric: float = field(
         default=78.5, 
         validator=[instance_of(float), ge(1.0)])
+    stage_parameters: dict[str, dict | None] = field(default=Factory(dict),)
 
 @define
-class SDA_bd_engine:
+class SDA_bd_engine(engines_structures.Base_engine):
     type: typing.Literal["sda"] = "sda"
     scale_type: typing.Literal["brownian_dynamics"] = "brownian_dynamics"
     binary_directory: str = field(default="",

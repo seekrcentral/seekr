@@ -1335,7 +1335,7 @@ Sampling_md_openmm_interface = typing.Union[Conventional_md_openmm_interface,
 def assign_sampling_method_interface(
         stage_index: int,
         sampling_method: sampling_methods_structures.Base_md_sampling_method, 
-        md_engine: structures.MD_engine,
+        md_engine: engines_structures.Base_engine,
         plugin_list: list[str]
         ) -> Sampling_md_openmm_interface:
     """

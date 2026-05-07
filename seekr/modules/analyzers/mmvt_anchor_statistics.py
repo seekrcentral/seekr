@@ -166,8 +166,8 @@ class Mmvt_anchor_statistics:
 def read_output_file(
         output_filename: str,
         alpha: int = 0,
-        min_step: int = 0,
-        max_step: int = np.iinfo(np.int64).max
+        min_step: float = 0,
+        max_step: float = float('inf')
         ) -> list["Mmvt_anchor_statistics"]:
     """
     Read the output file for a single anchor and extract statistics.
@@ -257,8 +257,8 @@ def read_output_file(
 def read_output_file_list(
         output_file_list: list[str], 
         anchor: structures.Anchor, 
-        min_step: int, 
-        max_step: int) -> None:
+        min_step: float, 
+        max_step: float) -> None:
     """
     Read the output files for this anchor and extract statistics.
     """
@@ -290,7 +290,7 @@ def read_output_file_list(
             # generate a new mmvt_statistics list
             mmvt_statistics_list_this_restart, time_between_statistics\
                  = read_output_file(output_filename, alpha=anchor.index, 
-                                                                 min_step=min_step, max_step=max_step)
+                                    min_step=min_step, max_step=max_step)
         else:
             # Then it's a new swarm, and we can add the statistics
             new_swarm_mmvt_statistics_list, new_swarm_time_between_statistics \

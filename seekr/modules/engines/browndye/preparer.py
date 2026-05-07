@@ -106,7 +106,7 @@ class Browndye_molecule_input:
         return ghost_site_indices, original_indices
     
 @define
-class Browndye_settings_input:
+class Browndye_settings_input(engines_structures.Base_engine_settings_input):
     type: typing.Literal["browndye"] = "browndye"
     scale_type: typing.Literal["brownian_dynamics"] = "brownian_dynamics"
     binary_directory: str = field(default="",

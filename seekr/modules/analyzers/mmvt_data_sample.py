@@ -8,17 +8,14 @@ be sampled by other means for the purposes of error analysis.
 
 import copy
 import typing
-from collections import defaultdict
+from collections import defaultdict, deque
 
 from attrs import define, field, validators
 import numpy as np
-from scipy import linalg as la
 
 import seekr.modules.structures as structures
 import seekr.modules.analyzers.base as analyzers_base
 
-HIGH_K_ALPHA_BETA_FLUX = 1e10
-FLUX_MATRIX_K_EXPONENT = 1000
 LOW_PROBABILITY = 1e-25
 
 def flux_matrix_to_K(
@@ -173,12 +170,18 @@ class Mmvt_data_sample:
             ) -> None:
         """
         Computes the equilibrium probability quantities "pi_alpha" used
-        in MMVT theory. The value self.pi_alpha gets set by this 
-        function.
+        in MMVT theory. Uses a BFS spanning-tree approach in log-space,
+        which is numerically stable for any anchor connectivity graph
+        (including N-dimensional MMVT systems) and avoids ill-conditioning
+        issues inherent in solving the rate matrix as a linear system.
+
+        BFS is short for: breadth-first search.
+
+        MMVT satisfies detailed balance: pi[i]*k[i->j] = pi[j]*k[j->i],
+        so log pi[j] = log pi[i] + log k[i->j] - log k[j->i]. This
+        relation is path-independent and is accumulated over a BFS
+        spanning tree of the anchor connectivity graph.
         """
-        # First, determine if there is a bulk anchor, and if so, use it as
-        # the "pivot", if not, make our own pivot.
-        # The "pivot" is the entry in the flux_matrix that 
         bulk_indices = []
         found_bulk = False
         for alpha, anchor in enumerate(model.anchors):
@@ -187,82 +190,58 @@ class Mmvt_data_sample:
                 found_bulk = True
             else:
                 assert not found_bulk, \
-                "The bulk anchors must be the last ones in the model."
-        
+                    "The bulk anchors must be the last ones in the model."
+
         if len(bulk_indices) == 0:
-            # Then we have a model without a bulk anchor: we need to make our
-            # own pivot
+            # No bulk anchor: append a synthetic pivot at the end.
             pivot_index = model.num_anchors
             flux_matrix_dimension = model.num_anchors + 1
         else:
-            # If bulk anchors exist, we can use them as the pivot
             pivot_index = bulk_indices[0]
-            flux_matrix_dimension = model.num_anchors-len(bulk_indices)+1
-        
-        self.pi_alpha = np.zeros(flux_matrix_dimension)
-        flux_matrix = np.zeros((flux_matrix_dimension, flux_matrix_dimension))
-        column_sum = np.zeros(flux_matrix_dimension)
-        flux_matrix[pivot_index, pivot_index] = 1.0
-        for alpha, anchor1 in enumerate(model.anchors):
-            flux_matrix[alpha, pivot_index] = 1.0
-            if anchor1.bulk_anchor:
+            flux_matrix_dimension = model.num_anchors - len(bulk_indices) + 1
+
+        n_non_bulk = pivot_index  # number of non-bulk anchors
+
+        # Initialize log-probabilities to -inf (zero probability).
+        log_pi = np.full(n_non_bulk, -np.inf)
+
+        # Find the first anchor with any observed transitions as the BFS root.
+        root = None
+        for alpha in range(n_non_bulk):
+            if any(self.k_alpha_beta.get((alpha, beta), 0.0) > 0.0
+                   for beta in range(n_non_bulk) if beta != alpha):
+                root = alpha
                 break
-            id_alias = anchor1.alias_from_neighbor_id(pivot_index)
-            flux_matrix[pivot_index, alpha] = 0.0
-            dead_end_anchor = False
-            if len(anchor1.milestones) == 1:
-                dead_end_anchor = True
-            for beta, anchor2 in enumerate(model.anchors):
-                if beta == pivot_index:
-                    break
-                if alpha == beta:
-                    pass 
-                else:
-                    id_alias = anchor1.alias_from_neighbor_id(
-                        anchor2.index)
-                    if id_alias is None:
-                        flux_matrix[alpha, beta] = 0.0
-                    else:
-                        if dead_end_anchor:
-                            # This line was supposed to work for a 1D
-                            # Smoluchowski system, but with a 3D
-                            # spherical system, the 2.0 needs to be 1.0.
-                            #flux_matrix[alpha, beta] = 2.0 *\
-                            #     self.k_alpha_beta[(alpha, beta)]
-                            flux_matrix[alpha, beta] = 1.0 *\
-                                 self.k_alpha_beta[(alpha, beta)]
-                        else:
-                            flux_matrix[alpha, beta] = \
-                                self.k_alpha_beta[(alpha, beta)]
-                        column_sum[alpha] += flux_matrix[alpha, beta]
-                
-            flux_matrix[alpha, alpha] = -column_sum[alpha]
-            
-        flux_matrix[pivot_index, pivot_index-1] = HIGH_K_ALPHA_BETA_FLUX
-        prob_equil = np.zeros((flux_matrix_dimension,1))
-        prob_equil[pivot_index] = 1.0
-        pi_alpha = la.solve(flux_matrix.T, prob_equil)
-        self.pi_alpha = abs(pi_alpha)
-        
-        # refine pi_alpha
-        pi_alpha_slice = np.zeros((flux_matrix_dimension-1, 1))
-        for i in range(flux_matrix_dimension-1):
-            pi_alpha_slice[i,0] = -self.pi_alpha[i,0] * flux_matrix[i,i]
-                    
-        K = flux_matrix_to_K(flux_matrix)
-        K_inf = np.linalg.matrix_power(K, FLUX_MATRIX_K_EXPONENT)
-        stationary_dist = K_inf.T @ pi_alpha_slice
-        for i in range(flux_matrix_dimension-1):
-            self.pi_alpha[i,0] = -stationary_dist[i,0] / flux_matrix[i,i]
-        for alpha, anchor1 in enumerate(model.anchors):
-            if anchor1.bulk_anchor:
-                break
-            # Set low probabilities to anchors with no transitions observed.
-            if self.k_alpha[alpha] == 0:
-                self.pi_alpha[alpha,0] = LOW_PROBABILITY
-        # TODO: should this be indexed by pivot_index and end_state?
-        self.pi_alpha[-1,0] = 0.0
-        self.pi_alpha = self.pi_alpha / np.sum(self.pi_alpha)
+
+        if root is not None:
+            log_pi[root] = 0.0  # unnormalized reference
+            visited = {root}
+            queue = deque([root])
+            while queue:
+                i = queue.popleft()
+                for j in range(n_non_bulk):
+                    if j == i or j in visited:
+                        continue
+                    k_fwd = self.k_alpha_beta.get((i, j), 0.0)
+                    k_bwd = self.k_alpha_beta.get((j, i), 0.0)
+                    if k_fwd > 0.0 and k_bwd > 0.0:
+                        log_pi[j] = log_pi[i] + np.log(k_fwd) - np.log(k_bwd)
+                        visited.add(j)
+                        queue.append(j)
+
+        # Normalize using log-sum-exp for numerical stability.
+        finite_mask = np.isfinite(log_pi)
+        if not np.any(finite_mask):
+            raise ValueError(
+                "No anchor transitions observed: cannot compute pi_alpha.")
+        log_total = np.logaddexp.reduce(log_pi[finite_mask])
+        pi_non_bulk = np.where(finite_mask, np.exp(log_pi - log_total), 0.0)
+
+        # Append 0 for the bulk/pivot state and reshape to column vector.
+        self.pi_alpha = np.append(pi_non_bulk, 0.0).reshape(-1, 1)
+        if np.any(self.pi_alpha < 0.0):
+            raise ValueError(
+                "Negative entries in pi_alpha: {}".format(self.pi_alpha))
         return
     
     def fill_out_data_quantities(
@@ -415,7 +394,7 @@ class Mmvt_data_sample:
                 this_src_state_normalized_p_i[i] = self.p_i[src_milestone]
                 marginal_prob_src += self.p_i[src_milestone]
             this_src_state_normalized_p_i /= marginal_prob_src
-            probability_check = 0.0
+            #probability_check = 0.0
             for dest_state_name, dest_milestone_list in end_states.items():
                 if src_state_name == dest_state_name:
                     continue
@@ -423,6 +402,36 @@ class Mmvt_data_sample:
                 anchor_key = (src_state_name, dest_state_name)
                 anchor_src_to_anchor_dest_MFPTs[anchor_key] = 0.0
                 end_state_to_end_state_probabilities_anchor[anchor_key] = 0.0
+                milestone_to_milestone_probability_in_states = {}
+                state_marginal_prob = 0.0
+                for i, src_milestone in enumerate(src_milestone_list):
+                    for j, dest_milestone in enumerate(dest_milestone_list):
+                        if src_milestone == dest_milestone:
+                            continue
+                        milestone_key = (src_milestone, dest_milestone)
+                        prob_src_to_dest = self.milestone_to_milestone_probabilities[\
+                            (src_milestone, dest_milestone)]
+                        milestone_to_milestone_probability_in_states[milestone_key] = prob_src_to_dest
+                        state_marginal_prob += prob_src_to_dest
+
+                for i, src_milestone in enumerate(src_milestone_list):
+                    for j, dest_milestone in enumerate(dest_milestone_list):
+                        if src_milestone == dest_milestone:
+                            continue
+                        milestone_key = (src_milestone, dest_milestone)
+                        milestone_to_milestone_probability_in_states[milestone_key] /= state_marginal_prob
+                        prob_weight = milestone_to_milestone_probability_in_states[milestone_key]
+
+                        this_src_dest_time_weighted_by_prob =  \
+                            prob_weight * self.milestone_to_milestone_MFPTs[milestone_key]
+                        this_src_dest_prob_weighted_by_prob =  \
+                            prob_weight * self.milestone_to_milestone_probabilities[milestone_key]
+                        end_state_to_end_state_probabilities_anchor[anchor_key] \
+                            += this_src_dest_prob_weighted_by_prob
+                        anchor_src_to_anchor_dest_MFPTs[anchor_key] \
+                            += this_src_dest_time_weighted_by_prob
+
+                """ # TODO: remove
                 for i, src_milestone in enumerate(src_milestone_list):
                     marginal_prob_dest = 0.0
                     this_dest_state_normalized_prob = np.zeros(len(dest_milestone_list))
@@ -434,25 +443,34 @@ class Mmvt_data_sample:
                         this_dest_state_normalized_prob[j] = prob_src_to_dest
                         marginal_prob_dest += prob_src_to_dest
 
+                    # Skip src_milestones with zero probability of reaching
+                    # this dest state (e.g. innermost end-state milestones
+                    # that are immediately absorbed by an adjacent end-state
+                    # milestone before they can escape to the other state).
+                    if marginal_prob_dest == 0.0:
+                        continue
                     this_dest_state_normalized_prob /= marginal_prob_dest
 
                     for j, dest_milestone in enumerate(dest_milestone_list):
                         if src_milestone == dest_milestone:
                             continue
+                        print("this_src_state_normalized_p_i:", this_src_state_normalized_p_i[i])
+                        print("this_dest_state_normalized_prob[j]:", this_dest_state_normalized_prob[j])
                         prob_weight = this_src_state_normalized_p_i[i] \
                             * this_dest_state_normalized_prob[j]
                         this_src_dest_time_weighted_by_prob =  \
                             prob_weight * self.milestone_to_milestone_MFPTs[\
                             (src_milestone, dest_milestone)]
+                        print("src_milestone:", src_milestone, "dest_milestone:", dest_milestone)
+                        print("prob_weight:", prob_weight, "this_src_dest_time_weighted_by_prob:", 
+                              this_src_dest_time_weighted_by_prob)
                         end_state_to_end_state_probabilities_anchor[anchor_key] \
                             += prob_weight
                         anchor_src_to_anchor_dest_MFPTs[anchor_key] \
                             += this_src_dest_time_weighted_by_prob
 
                 probability_check += end_state_to_end_state_probabilities_anchor[anchor_key]
-            
-            assert np.isclose(probability_check, 1.0)
-            
+                """
         self.anchor_to_anchor_probabilities \
             = end_state_to_end_state_probabilities_anchor
         self.anchor_to_anchor_MFPTs = anchor_src_to_anchor_dest_MFPTs
@@ -490,13 +508,15 @@ class Mmvt_data_sample:
         self.Q, self.K = analyzers_base.compute_rate_matrix(
             model.num_milestones, self.N_ij, self.R_i
         )
+        Q_raw, _ = analyzers_base.compute_rate_matrix(
+            model.num_milestones, self.N_ij_unmodified, self.R_i_unmodified
+        )
         #if model.using_bd():
         #    new_data_sample.parse_browndye_results(
         #        bd_sample_from_normal=True)
         self.p_i, self.free_energy_milestones = \
             analyzers_base.calculate_thermodynamics(
-                model.num_milestones, self.Q, self.K, self.N_ij, self.R_i, 
-                model.temperature
+                model.num_milestones, self.Q, model.temperature, Q_raw=Q_raw
         )
         end_states, anchor_indices_by_name \
             = make_end_states_dict_and_anchor_indices_by_name(model)

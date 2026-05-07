@@ -139,16 +139,12 @@ class Voronoi_cell:
             member_validator=[validators.instance_of(float)],
             iterable_validator=validators.instance_of(list),
         ))
-    # TODO: replace with string list of scales involved in this anchor
-    md: bool = field(
-        default=True,
-        validator=validators.instance_of(bool))
-    bd: bool = field(
-        default=False,
-        validator=validators.instance_of(bool))
-    # TODO: somehow replace this parameter with something more general
-    # that could contain parameter and topology information for any type of scale
-    md_parameters_topology: engines_structures.Parameters_topology | None = None
+    scale_types: list[str] = field(default=Factory(list),
+                        validator=validators.deep_iterable(
+                            member_validator=validators.instance_of(str),
+                            iterable_validator=validators.instance_of(list),
+                        ))
+    scale_parameters_topology: engines_structures.Parameters_topology | None = None
     positions: base.Positions_type = None
     selections: list[engines_structures.Selection] | None = field(
         default=None,
@@ -188,23 +184,24 @@ class Voronoi_cell:
         """
         return self.value[index]
     
-    def same_md_parameters(
+    def same_scale_parameters(
             self,
             other: "Voronoi_cell"
             ) -> bool:
-        ""
-
-        ""
-        if self.md_parameters_topology is None:
-            if other.md_parameters_topology is None:
+        """
+        Check if this anchor has the same scale parameters as another anchor.
+        """
+        if self.scale_parameters_topology is None:
+            if other.scale_parameters_topology is None:
                 return True
             else:
                 return False
         else:
-            if other.md_parameters_topology is None:
+            if other.scale_parameters_topology is None:
                 return False
             else:
-                if self.md_parameters_topology.same_parameters(other.md_parameters_topology):
+                if self.scale_parameters_topology.same_parameters(
+                    other.scale_parameters_topology):
                     return True
                 else:
                     return False
@@ -237,10 +234,10 @@ class Voronoi_cell:
                         f"{engines_preparer.POSITIONS_BASENAME}.swarm_{frame_id}.txt")
                     np.savetxt(full_positions_path, np.array(frame_positions))
             else:
-                if self.md_parameters_topology is not None:
-                    anchor.md_parameters_topology = self.md_parameters_topology
-                    self.md_parameters_topology.copy_files(
-                        anchor_initial_directory, anchor.md_parameters_topology)
+                if self.scale_parameters_topology is not None:
+                    anchor.scale_parameters_topology = self.scale_parameters_topology
+                    self.scale_parameters_topology.copy_files(
+                        anchor_initial_directory, anchor.scale_parameters_topology)
                 if (self.positions is not None) and (self.positions != ""):
                     assert isinstance(self.positions, str), \
                         "anchor.positions must be a filename str if not in Toy mode."
@@ -297,10 +294,10 @@ class Anchors_as_voronoi_cells_anchor_scheme(
             else:
                 anchor.name = voronoi_cell.name
 
+            for scale_type in voronoi_cell.scale_types:
+                anchor.scale_types.append(scale_type)
+
             if not voronoi_cell.bulk_anchor:
-                # TODO: find a smarter way to assign scale types - they 
-                #  might or might not be MD or BD.
-                anchor.scale_types.append("molecular_dynamics")
                 if voronoi_cell.end_anchor:
                     anchor.end_anchor = voronoi_cell.end_anchor
                 anchor.bulk_anchor = False

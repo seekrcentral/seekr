@@ -57,6 +57,7 @@ def _add_middle_anchor(seekr_input, value=-0.4):
     new_vc = anchor_scheme_preparer.Voronoi_cell()
     new_vc.value = [value]
     new_vc.positions = [[[0.0, value, 0.0]]]
+    new_vc.scale_types = ["molecular_dynamics"]
     seekr_input.partitions[0].anchor_scheme.voronoi_cells.insert(2, new_vc)
 
 

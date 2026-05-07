@@ -10,6 +10,7 @@ from attrs import define, field, validators, Factory
 import cattrs
 
 import seekr.modules.base as base
+import seekr.modules.scales.base as scales_base
 import seekr.modules.completion_criteria.structures as compl_crit_struct
 import seekr.modules.scales.molecular_dynamics.structures as scale_md
 import seekr.modules.engines.openmm.preparer as openmm_preparer
@@ -27,7 +28,7 @@ sampling_methods_input_md: typing.Dict[str, typing.Any] \
            "mmvt": sampling_methods_preparer.MMVT_md_input,}
 
 @define
-class Input_stage_md:
+class Input_stage_md(scales_base.Base_input_stage):
     """
     A MD stage of the SEEKR calculation, whether that is an initial
     equilibration, a sampling method to obtain starting structures,
@@ -105,7 +106,7 @@ def struct_md_sampling_method_inputs(
         obj: typing.Dict[str, typing.Any],
         _: typing.Type[sampling_methods_preparer.Base_md_sampling_method_input]
         ) -> sampling_methods_preparer.Base_md_sampling_method_input:
-    typ = obj.pop("type")
+    typ = obj.get("type")
     return cattrs.structure(obj, sampling_methods_input_md[typ])
 
 def register_structure_hooks(

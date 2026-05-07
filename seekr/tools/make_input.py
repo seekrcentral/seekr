@@ -49,7 +49,8 @@ def create_toy_model_input(
     This is the Entropy barrier system.
     """
     if use_2cvs:
-        values_list = [[0.1, -0.7], [-0.1, -0.5], [0.1, -0.3], [-0.1, -0.1], [0.1, 0.1], [-0.1, 0.3], [0.1, 0.5], [-0.1, 0.7]]
+        #values_list = [[0.1, -0.7], [-0.1, -0.5], [0.1, -0.3], [-0.1, -0.1], [0.1, 0.1], [-0.1, 0.3], [0.1, 0.5], [-0.1, 0.7]]
+        values_list = [[0.02, -0.7], [-0.02, -0.5], [0.02, -0.3], [-0.02, -0.1], [0.02, 0.1], [-0.02, 0.3], [0.02, 0.5], [-0.02, 0.7]]
         positions_list = [[[0.0, value[1], 0.0]] for value in values_list]
 
     else:
@@ -61,6 +62,7 @@ def create_toy_model_input(
     seekr_input.temperature = 298.15
     seekr_input.random_seed = 111
     md_settings = openmm_preparer.Openmm_settings_input()
+    md_settings.nonbonded_method = "nocutoff"
     md_settings.platform_type = "reference"
     md_settings.unpartitioned_settings\
         = engines_preparer.MD_unpartitioned_settings_input()
@@ -71,7 +73,7 @@ def create_toy_model_input(
         = [selection]
     md_settings.unpartitioned_settings.positions\
         = [[[0.0, -0.7, 0.0]]]
-    seekr_input.settings_list = [md_settings]
+    seekr_input.engine_settings_list = [md_settings]
 
     seekr_input.initial_scopes = {
         "molecular_dynamics": "unpartitioned",
@@ -106,6 +108,7 @@ def create_toy_model_input(
         voronoi_cell = anchor_scheme_preparer.Voronoi_cell()
         voronoi_cell.value = value
         voronoi_cell.positions = [position]
+        voronoi_cell.scale_types = ["molecular_dynamics"]
         anchor_scheme.voronoi_cells.append(voronoi_cell)
 
     seekr_input.partitions = [preparer.Partition_input()]
@@ -225,16 +228,16 @@ def create_toy_model_input(
     stage4 = md_preparer.Input_stage_md()
     stage4.name = "MMVT"
     stage4.run_minimization = False
-    stage4.checkpoint_interval = 5000
+    stage4.checkpoint_interval = 50000
     stage4.ensemble = base.NVT_ensemble()
     stage4.sampling_method = sampling_preparer.MMVT_md_input()
     stage4.completion_criteria = compl_crit_struct.Number_of_steps_completion_criteria()
-    stage4.completion_criteria.number_of_steps = 200000
+    stage4.completion_criteria.number_of_steps = 2000000
     stage4_state_reporter = reporters_preparer.State_reporter_input()
     stage4_state_reporter.to_stdout = True
-    stage4_state_reporter.interval = 5000
+    stage4_state_reporter.interval = 50000
     stage4_position_reporter = reporters_preparer.Position_reporter_input()
-    stage4_position_reporter.interval = 5000
+    stage4_position_reporter.interval = 50000
     stage4_position_reporter.enforce_periodic_box = False
     stage4_position_reporter.extension = "dcd"
     stage4.reporters = [stage4_state_reporter, stage4_position_reporter]
@@ -355,7 +358,7 @@ def create_host_guest_example_input(
     md_settings.unpartitioned_settings.selections\
         = [receptor_selection_md, ligand_selection_md, ligand_noh_selection_md, 
            solute_selection_md, o5_group, single_group]
-    seekr_input.settings_list = [md_settings]
+    seekr_input.engine_settings_list = [md_settings]
 
     seekr_input.initial_scopes = {
         "molecular_dynamics": "unpartitioned",
@@ -416,7 +419,7 @@ def create_host_guest_example_input(
             ligand_molecule.selections = [ligand_selection_bd]
             bd_settings.molecules = [receptor_molecule, ligand_molecule]
         
-        seekr_input.settings_list.append(bd_settings)
+        seekr_input.engine_settings_list.append(bd_settings)
     else:
         pass
 
@@ -503,7 +506,7 @@ def create_host_guest_example_input(
     stage4.ensemble = base.NVT_ensemble()
     stage4.sampling_method = sampling_preparer.MMVT_md_input()
     stage4.completion_criteria = compl_crit_struct.Number_of_steps_completion_criteria()
-    stage4.completion_criteria.number_of_steps = 100000
+    stage4.completion_criteria.number_of_steps = 250000
     positional_restraint = restraints_preparer.Positional_restraint_input()
     positional_restraint.selection_name = "host"
     stage4.restraints = [positional_restraint]
@@ -566,9 +569,11 @@ def create_host_guest_example_input(
         else:
             pdb_filename_full = os.path.join(HOSTGUEST_DIRECTORY, pdb_filename)
         voronoi_cell.positions = ""
+        voronoi_cell.scale_types = ["molecular_dynamics"]
         seekr_input.partitions[0].anchor_scheme.voronoi_cells.append(voronoi_cell)
 
     if bd:
+        seekr_input.partitions[0].anchor_scheme.voronoi_cells[-1].scale_types.append("brownian_dynamics")
         seekr_input.partitions[0].anchor_scheme.voronoi_cells[-1].bulk_anchor = True
 
     return seekr_input

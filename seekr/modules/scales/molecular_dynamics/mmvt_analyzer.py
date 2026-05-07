@@ -5,7 +5,6 @@ Molecular dynamics-specific MMVT analysis methods.
 """
 
 import os
-import sys
 import glob
 import typing
 
@@ -39,8 +38,8 @@ def make_anchor_stats_alpha_md(
     output_file_list = base.order_files_numerically(
         output_file_list)
     md_timestep = model.get_timestep_by_type("molecular_dynamics")
-    min_step = int(min_time_ps / md_timestep)
-    max_step = int(max_time_ps / md_timestep) if max_time_ps is not None else sys.maxsize
+    min_step = min_time_ps / md_timestep
+    max_step = max_time_ps / md_timestep if max_time_ps is not None else float("inf")
     anchor_stats_alpha, time_between_statistics_this_anchor \
             = mmvt_anchor_statistics.read_output_file_list(
             output_file_list, anchor, min_step, max_step)

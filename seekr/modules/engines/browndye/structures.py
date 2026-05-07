@@ -64,9 +64,10 @@ class Browndye_unpartitioned_settings:
                             Browndye_molecule),
                         iterable_validator=instance_of(list),
                     ))
+    stage_parameters: dict[str, dict | None] = field(default=Factory(dict),)
 
 @define
-class Browndye_bd_engine:
+class Browndye_bd_engine(engines_structures.Base_engine):
     type: typing.Literal["browndye"] = "browndye"
     scale_type: typing.Literal["brownian_dynamics"] = "brownian_dynamics"
     binary_directory: str = field(default="",

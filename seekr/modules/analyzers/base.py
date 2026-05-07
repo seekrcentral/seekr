@@ -8,10 +8,9 @@ import re
 import os
 import copy
 import typing
-from collections import defaultdict
+from collections import defaultdict, deque
 
 import numpy as np
-from scipy import linalg as la
 import PyGT
 
 import seekr.modules.structures as structures
@@ -158,53 +157,87 @@ def compute_rate_matrix(
 def calculate_thermodynamics(
         num_states: int,
         Q: np.ndarray,
-        K: np.ndarray,
-        N_ij: typing.DefaultDict[tuple[int, int], int | float],
-        R_i: typing.DefaultDict[int, float],
         temperature: float,
+        Q_raw: np.ndarray | None = None,
         ) -> tuple[np.ndarray, np.ndarray]:
     """
-    Use this data sample's statistics to construct the 
-    thermodynamic quantities.
-    """
-    eigvals, eigvecs = la.eig(K.T)
-    closest_eigval = -1e9
-    closest_eigvec = None
-    for i, eigval, in enumerate(eigvals):
-        if (eigval - 1.0)**2 < (closest_eigval - 1.0)**2:
-            closest_eigval = eigval
-            closest_eigvec = eigvecs[:,i]
-    
-    K = abs(K)
-    q_i = np.real(closest_eigvec / np.sum(closest_eigvec))
-    q_i = q_i @ np.linalg.matrix_power(K, MATRIX_EXPONENTIAL)
-    q_i = q_i / np.sum(q_i)
-    incubation_times = np.zeros(num_states)
-    p_i = np.zeros(num_states)
-    for i in range(num_states):
-        N_i = 0
-        for j in range(num_states):
-            N_i += N_ij[i,j]
-        
-        if N_i == 0:
-            incubation_times[i] = -1.0/Q[i,i]
-        else:
-            incubation_times[i] = R_i[i] / N_i
+    Compute the stationary milestone probability distribution p_i and
+    the corresponding free energy profile.
 
-    for i, q_i_val in enumerate(q_i):
-        p_i[i] = abs(q_i_val * incubation_times[i])
-    
-    sum_p_i = np.sum(p_i)
+    Uses a BFS spanning-tree approach in log-space, exploiting detailed
+    balance of the CTMC rate matrix Q:  p_i * Q[i,j] = p_j * Q[j,i],
+    so log p_j = log p_i + log Q[i,j] - log Q[j,i]. This relation is
+    path-independent and is accumulated over a BFS spanning tree of the
+    milestone connectivity graph. The approach is numerically exact for
+    any graph topology and avoids ill-conditioning issues inherent in
+    eigenvalue or linear-solve methods.
+
+    Parameters
+    ----------
+    num_states : int
+        Number of milestone states.
+    Q : np.ndarray
+        Rate matrix with zero-substituted entries for unobserved
+        transitions (used only to compute the free energy profile).
+    temperature : float
+        System temperature (units must match GAS_CONSTANT).
+    Q_raw : np.ndarray | None, optional
+        Rate matrix *before* zero-substitution of missing entries.
+        When provided, BFS traversal uses Q_raw so that only genuinely
+        observed transitions (both directions positive) influence the
+        probability ratios. Milestones unreachable via the spanning tree
+        receive probability 0 (infinite free energy).
+        To revert to using the zero-substituted Q for BFS instead,
+        replace ``Q_bfs = Q_raw if Q_raw is not None else Q`` with
+        ``Q_bfs = Q``.
+    """
+    # Select which matrix drives the BFS topology.
+    # Q_raw (pre-zero-substitution): only genuinely observed edges are used.
+    # To use zero-substituted Q instead (includes synthetic LOW_N_IJ /
+    # HIGH_N_IJ entries), replace the line below with: Q_bfs = Q
+    Q_bfs = Q_raw if Q_raw is not None else Q
+
+    # BFS spanning-tree in log-space.
+    log_pi = np.full(num_states, -np.inf)
+
+    # Find the first state with any observed outgoing rate as the BFS root.
+    root = None
     for i in range(num_states):
-        p_i[i] /= sum_p_i
-    
-    free_energy_profile = np.zeros(p_i.shape)
-    highest_p_i = max(p_i)
+        if any(Q_bfs[i, j] > 0.0 for j in range(num_states) if j != i):
+            root = i
+            break
+
+    if root is not None:
+        log_pi[root] = 0.0  # unnormalized log-probability reference
+        visited = {root}
+        queue = deque([root])
+        while queue:
+            i = queue.popleft()
+            for j in range(num_states):
+                if j == i or j in visited:
+                    continue
+                k_fwd = Q_bfs[i, j]  # rate i → j
+                k_bwd = Q_bfs[j, i]  # rate j → i
+                if k_fwd > 0.0 and k_bwd > 0.0:
+                    log_pi[j] = log_pi[i] + np.log(k_fwd) - np.log(k_bwd)
+                    visited.add(j)
+                    queue.append(j)
+
+    # Normalize using log-sum-exp for numerical stability.
+    finite_mask = np.isfinite(log_pi)
+    if not np.any(finite_mask):
+        raise ValueError(
+            "No milestone transitions observed: cannot compute p_i.")
+    log_total = np.logaddexp.reduce(log_pi[finite_mask])
+    p_i = np.where(finite_mask, np.exp(log_pi - log_total), 0.0)
+
+    highest_p_i = np.max(p_i[finite_mask])
+    free_energy_profile = np.full(num_states, np.inf)
     for i, p_i_val in enumerate(p_i):
-        free_energy = -GAS_CONSTANT*temperature*np.log(
-            p_i_val / highest_p_i)
-        free_energy_profile[i] = free_energy
-    
+        if p_i_val > 0.0:
+            free_energy_profile[i] = -GAS_CONSTANT * temperature * np.log(
+                p_i_val / highest_p_i)
+
     return p_i, free_energy_profile
 
 def calculate_kinetics(
@@ -232,59 +265,65 @@ def calculate_kinetics(
             problem_milestone)
         raise Exception(error_msg)
     
+    # Collect all end-state milestone indices across all states
+    all_end_milestone_indices = []
+    for milestone_list in end_states.values():
+        all_end_milestone_indices.extend(milestone_list)
+
     milestone_src_to_milestone_dest_MFPTs = {}
     committor_function_by_milestone = {}
     end_state_to_end_state_probabilities_by_milestone = {}
+
+    # Compute MFPTs and committor functions (dest-centric)
     for dest_state_name, dest_milestone_list in end_states.items():
         for src_state_name, src_milestone_list in end_states.items():
             if src_state_name == dest_state_name:
                 continue
-            
-            # Rate matrix for MFPT
+
             B, tau = PyGT.tools.load_CTMC(Q.T)
-            for i, dest_milestone_index in enumerate(dest_milestone_list):
-                # Prob matrices for state-to-state probs and committors
-                # This matrix is to see the probability of a system, starting on
-                #  src_milestone_index will end up at each of any of the 
-                #  dest_milestone_index milestones.
-                K_hat_many_dests = copy.deepcopy(K)
-                # This matrix is to see the committor probability from any
-                # milestones to this particular milestone
+            for dest_milestone_index in dest_milestone_list:
+                # K_hat_one_dest: dest_milestone is absorbing, src_milestones
+                # are dead-ends; K_hat_inf[:,dest] gives the committor to dest.
                 K_hat_one_dest = copy.deepcopy(K)
                 K_hat_one_dest[dest_milestone_index, :] = 0.0
                 K_hat_one_dest[dest_milestone_index, dest_milestone_index] = 1.0
-                source_vec = np.zeros((num_milestones, 1))
-                source_vec[dest_milestone_index] = 1.0
-                for j, src_milestone_index in enumerate(src_milestone_list):
+                for src_milestone_index in src_milestone_list:
                     if dest_milestone_index == src_milestone_index:
                         continue
                     mfpt_ij, mfpt_ji = PyGT.mfpt.compute_MFPT(
                         src_milestone_index, dest_milestone_index, B, tau)
-                    mfpt = mfpt_ji
                     milestone_src_to_milestone_dest_MFPTs[
-                        (src_milestone_index, dest_milestone_index)] = mfpt
-                    K_hat_many_dests[src_milestone_index, :] = 0.0
-                    K_hat_many_dests[src_milestone_index, src_milestone_index] = 1.0
-                    # Setting all states to be sink states
+                        (src_milestone_index, dest_milestone_index)] = mfpt_ji
                     K_hat_one_dest[src_milestone_index, :] = 0.0
 
                 K_hat_inf_one_dest = np.linalg.matrix_power(
                     K_hat_one_dest, MATRIX_EXPONENTIAL)
-                K_hat_inf_many_dests = np.linalg.matrix_power(
-                    K_hat_many_dests, MATRIX_EXPONENTIAL)
-                state_to_state_probs = np.dot(K_hat_inf_many_dests.T, source_vec)
-                
-                for j, src_milestone_index in enumerate(src_milestone_list):
-                    if dest_milestone_index == src_milestone_index:
-                        continue
+                committor_function_by_milestone[dest_milestone_index] = \
+                    K_hat_inf_one_dest[:, dest_milestone_index]
+
+    # Compute absorption probabilities (src-centric).
+    # For each src_milestone, make all OTHER end-state milestones absorbing,
+    # then P(src→dest) = K_hat_inf[src, dest] read via the transpose product.
+    for src_state_name, src_milestone_list in end_states.items():
+        for src_milestone_index in src_milestone_list:
+            K_hat = copy.deepcopy(K)
+            for m in all_end_milestone_indices:
+                if m != src_milestone_index:
+                    K_hat[m, :] = 0.0
+                    K_hat[m, m] = 1.0
+            source_vec = np.zeros((num_milestones, 1))
+            source_vec[src_milestone_index] = 1.0
+            K_hat_inf = np.linalg.matrix_power(K_hat, MATRIX_EXPONENTIAL)
+            probs = np.dot(K_hat_inf.T, source_vec)
+            for dest_state_name, dest_milestone_list in end_states.items():
+                if dest_state_name == src_state_name:
+                    continue
+                for dest_milestone_index in dest_milestone_list:
                     end_state_to_end_state_probabilities_by_milestone[
                         (src_milestone_index, dest_milestone_index)] \
-                            = float(state_to_state_probs[src_milestone_index])
-                    
-                committor_function_by_milestone[dest_milestone_index] = \
-                    K_hat_inf_one_dest[:,dest_milestone_index]
-
-    return milestone_src_to_milestone_dest_MFPTs, committor_function_by_milestone,\
+                            = float(probs[dest_milestone_index])
+    #print("milestone_src_to_milestone_dest_MFPTs:", milestone_src_to_milestone_dest_MFPTs)
+    return milestone_src_to_milestone_dest_MFPTs, committor_function_by_milestone, \
         end_state_to_end_state_probabilities_by_milestone
 
 def get_end_states_not_bulk(

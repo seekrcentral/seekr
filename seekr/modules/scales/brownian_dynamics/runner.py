@@ -13,6 +13,8 @@ from collections import namedtuple
 import seekr.modules.base as base
 import seekr.modules.structures as structures
 import seekr.modules.scales.structures as scales_structures
+import seekr.modules.scales.brownian_dynamics.structures as structures_bd
+import seekr.modules.engines.structures as engines_structures
 import seekr.modules.engines.runner as engines_runner
 
 Run_instruction_bd = namedtuple(
@@ -27,7 +29,7 @@ Run_instruction_bd = namedtuple(
     ])
 
 def get_calculation_directory_bd(
-        bd_engine: structures.BD_engine,
+        bd_engine: engines_structures.Base_engine,
         root_directory: str,
         set_name: str):
     """
@@ -40,7 +42,7 @@ def get_calculation_directory_bd(
 
 def is_finished_bd_with_message(
         model: structures.Seekr_model,
-        stage_bd: scales_structures.Stage,
+        stage_bd: structures_bd.Stage_bd,
         use_json: bool = True
     ) -> tuple[bool, str | dict]:
     """
@@ -128,7 +130,7 @@ def is_finished_bd_with_message(
 
 def choose_next_simulation_bd(
         model: structures.Seekr_model,
-        stage_bd: scales_structures.Stage,
+        stage_bd: structures_bd.Stage_bd,
         force_overwrite: bool,
         use_json: bool = True,
         silent: bool = False

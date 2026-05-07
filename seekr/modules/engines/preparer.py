@@ -46,7 +46,7 @@ class MD_unpartitioned_settings_input:
                 {"initial":{"index": 0, "directory": base.INITIAL_DIRECTORY, 
                   "positions": self.positions}}
         else:
-            stage_parameters = {}
+            stage_parameters = {"initial": None}
         new_md_unpartitioned_settings.stage_parameters = stage_parameters
         new_md_unpartitioned_settings.md_parameters_topology = self.md_parameters_topology
         return new_md_unpartitioned_settings

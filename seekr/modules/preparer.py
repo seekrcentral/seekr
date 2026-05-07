@@ -22,21 +22,42 @@ import importlib
 
 from attrs import define, field, validators, Factory
 import cattrs
-import numpy as np
 
 import seekr.modules.base as base
 import seekr.modules.anchor_schemes.base as anchor_schemes_base
 import seekr.modules.collective_variables.base as cv_base
 import seekr.modules.engines.base as engines_base
+import seekr.modules.scales.base as scales_base
 import seekr.modules.structures as structures
 import seekr.modules.completion_criteria.structures as compl_crit_struct
 import seekr.modules.engines.structures as engines_structures
-import seekr.modules.engines.preparer as engines_preparer
+import seekr.modules.engines.browndye.preparer as browndye_preparer
+import seekr.modules.engines.sda.preparer as sda_preparer
+import seekr.modules.engines.openmm.preparer as openmm_preparer
 import seekr.modules.restraints.preparer as restraints_preparer
 import seekr.modules.reporters.preparer as reporters_preparer
 import seekr.modules.scales.preparer as scales_preparer
 import seekr.modules.anchor_schemes.preparer as anchor_schemes_preparer
+import seekr.modules.scales.molecular_dynamics.preparer as md_preparer
+import seekr.modules.scales.brownian_dynamics.preparer as bd_preparer
+import seekr.modules.scales.logistic\
+    .anchor_starting_structures_from_reporter_logistic_stage \
+        as anch_start_struct_rpt_stage
+import seekr.modules.scales.logistic.reassign_anchors_logistic_stage \
+    as reassign_anchors_logistic_stage
 
+engine_inputs: typing.Dict[str, typing.Type[engines_structures.Base_engine]] \
+        = {"browndye": browndye_preparer.Browndye_settings_input,
+           "sda": sda_preparer.SDA_settings_input,
+           "openmm": openmm_preparer.Openmm_settings_input}
+stage_inputs: typing.Dict[str, typing.Type[scales_base.Base_input_stage]] \
+        = {"md_stage": md_preparer.Input_stage_md,
+           "bd_stage": bd_preparer.Input_stage_bd,
+           "anchor_starting_structures_from_reporter_stage": \
+                anch_start_struct_rpt_stage\
+                    .Input_stage_anchor_starting_structures_from_reporter,
+            "reassign_anchors_stage": reassign_anchors_logistic_stage\
+                .Input_stage_reassign_anchors}
 restraint_inputs: typing.Dict[str, typing.Type[restraints_preparer.Base_restraint_input]] \
         = {"positional": restraints_preparer.Positional_restraint_input,
            "pairwise": restraints_preparer.Pairwise_restraint_input,
@@ -69,15 +90,15 @@ class Toy_settings_input:
     
     def assign_toy_settings(
             self, 
-            seekr_model_md_engine : structures.MD_engine
+            seekr_model_engine : engines_structures.Base_engine
             ) -> None:
         """
         Assign the toy settings to the model engine.
         """
-        seekr_model_md_engine.toy_settings = engines_structures.Toy_settings()
-        seekr_model_md_engine.toy_settings.potential_energy_expression = self.potential_energy_expression
-        seekr_model_md_engine.toy_settings.num_particles = self.num_particles
-        seekr_model_md_engine.toy_settings.masses = self.masses
+        seekr_model_engine.toy_settings = engines_structures.Toy_settings()
+        seekr_model_engine.toy_settings.potential_energy_expression = self.potential_energy_expression
+        seekr_model_engine.toy_settings.num_particles = self.num_particles
+        seekr_model_engine.toy_settings.masses = self.masses
         return
 
 @define
@@ -140,11 +161,10 @@ class Seekr_input:
                                     validator=validators.optional(
                                         validators.instance_of(int)))
     toy_settings: Toy_settings_input | None = None
-    settings_list: list[scales_preparer.Engine_settings_input] = field(
+    engine_settings_list: list[engines_structures.Base_engine_settings_input] = field(
         default=Factory(list),)
     initial_scopes: dict[str, str] | None = None
-    
-    stages: list[scales_preparer.Input_stage] = field(default=Factory(list),)
+    stages: list[scales_base.Base_input_stage] = field(default=Factory(list),)
                             #validator=validators.deep_iterable(
                             #    member_validator=validators.instance_of(
                             #        Input_stage),
@@ -182,7 +202,7 @@ class Seekr_input:
                 f"Plugin '{plugin}' not found. Please install it or check the spelling."
         model.plugins = self.plugins
         model.temperature = self.temperature
-        for settings in self.settings_list:
+        for settings in self.engine_settings_list:
             scale = settings.make_model_scale()
             model.scales.append(scale)
             engine = settings.make_model_engine(self.temperature)
@@ -206,10 +226,13 @@ class Seekr_input:
         # Assign stage information
         model.stages = []
         stage_names = set()
-        settings_by_scale: dict[str, typing.Any] = {"logistic": None}
-        for settings in self.settings_list:
+        settings_by_scale: dict[str, typing.Any] = {}
+        for stage_input in self.stages:
+            if stage_input.get_scale_type() not in settings_by_scale:
+                settings_by_scale[stage_input.get_scale_type()] = None
+        for settings in self.engine_settings_list:
             settings_by_scale[settings.scale_type] = settings
-
+        
         last_stage_index_by_scale: dict[str, int] = defaultdict(int)
         last_any_stage_index: int = 0
         stage_name_to_index: dict[str, int] = {}
@@ -299,54 +322,80 @@ def generate_directory(
         os.mkdir(directory)
     
     return
-
-def struct_restraint_inputs(
-        obj: typing.Dict[str, typing.Any],
-        _: typing.Type[restraints_preparer.Base_restraint_input]
-        ) -> restraints_preparer.Base_restraint_input:
-    typ = obj.pop("type")
-    return cattrs.structure(obj, restraint_inputs[typ])
-
-def struct_reporter_inputs(
-        obj: typing.Dict[str, typing.Any],
-        _: typing.Type[reporters_preparer.Base_reporter_input]
-        ) -> reporters_preparer.Base_reporter_input:
-    typ = obj.pop("type")
-    return cattrs.structure(obj, reporter_inputs[typ])
-
-def struct_completion_criteria(
-        obj: typing.Dict[str, typing.Any],
-        _: typing.Type[compl_crit_struct.Base_completion_criteria]
-        ) -> compl_crit_struct.Base_completion_criteria:
-    typ = obj.pop("type")
-    return cattrs.structure(obj, compl_crit_inputs[typ])
-
-def struct_anchor_schemes(
-        obj: typing.Dict[str, typing.Any],
-        _: typing.Type[anchor_schemes_base.Base_anchor_scheme]
-        ) -> anchor_schemes_base.Base_anchor_scheme:
-    typ = obj.pop("type")
-    return cattrs.structure(obj, anchor_schemes[typ])
-
-def struct_cv_inputs(
-        obj: typing.Dict[str, typing.Any],
-        _: typing.Type[cv_base.Base_CV_input]
-        ) -> cv_base.Base_CV_input:
-    typ = obj.pop("type")
-    return cattrs.structure(obj, cv_inputs[typ])
     
 def read_input(input_filename: str) -> Seekr_input:
     """
     Read the input JSON file into the input object.
     """
+    global engine_inputs
+    global stage_inputs
     global restraint_inputs
     global reporter_inputs
     global compl_crit_inputs
     global anchor_schemes
+    # Use a cattrs Converter to define how to structure the dictionary input
+    converter = cattrs.Converter()
+
+    def struct_restraint_inputs(
+            obj: typing.Dict[str, typing.Any],
+            _: typing.Type[restraints_preparer.Base_restraint_input]
+            ) -> restraints_preparer.Base_restraint_input:
+        typ = obj.get("type")
+        return converter.structure(obj, restraint_inputs[typ])
+
+    def struct_reporter_inputs(
+            obj: typing.Dict[str, typing.Any],
+            _: typing.Type[reporters_preparer.Base_reporter_input]
+            ) -> reporters_preparer.Base_reporter_input:
+        typ = obj.get("type")
+        return converter.structure(obj, reporter_inputs[typ])
+
+    def struct_completion_criteria(
+            obj: typing.Dict[str, typing.Any],
+            _: typing.Type[compl_crit_struct.Base_completion_criteria]
+            ) -> compl_crit_struct.Base_completion_criteria:
+        typ = obj.get("type")
+        return converter.structure(obj, compl_crit_inputs[typ])
+
+    def struct_anchor_schemes(
+            obj: typing.Dict[str, typing.Any],
+            _: typing.Type[anchor_schemes_base.Base_anchor_scheme]
+            ) -> anchor_schemes_base.Base_anchor_scheme:
+        typ = obj.get("type")
+        return converter.structure(obj, anchor_schemes[typ])
+
+    def struct_cv_inputs(
+            obj: typing.Dict[str, typing.Any],
+            _: typing.Type[cv_base.Base_CV_input]
+            ) -> cv_base.Base_CV_input:
+        typ = obj.get("type")
+        return converter.structure(obj, cv_inputs[typ])
+
+    def struct_engine_inputs(
+            obj: typing.Dict[str, typing.Any],
+            _: typing.Type[engines_structures.Base_engine_settings_input]
+            ) -> engines_structures.Base_engine_settings_input:
+        typ = obj.get("type")
+        return converter.structure(obj, engine_inputs[typ])
+
+    def struct_stage_inputs(
+            obj: typing.Dict[str, typing.Any],
+            _: typing.Type[scales_base.Base_input_stage]
+            ) -> scales_base.Base_input_stage:
+        typ = obj.get("type")
+        return converter.structure(obj, stage_inputs[typ])
+
     with open(input_filename, "r") as file:
         json_string = json.load(file)
     
     for plugin_name in json_string['plugins']:
+        engines_module_str = base.get_plugin_str(
+            plugin_name, submodule_name="engines", require_preparer=True,
+            require_openmm_interface=False) # require_runner=True
+        if engines_module_str is not None:
+            engines_module_prep = importlib.import_module(engines_module_str+".preparer")
+            engine_inputs.update(engines_module_prep.engine_inputs) #!!!
+
         restraints_module_str = base.get_plugin_str(
             plugin_name, submodule_name="restraints", require_preparer=True)
         if restraints_module_str is not None:
@@ -388,9 +437,15 @@ def read_input(input_filename: str) -> Seekr_input:
                     scales_preparer.get_sampling_methods_input()[scale_type].update(
                         sampl_meth_module_prep.sampling_methods[scale_type]
                     )
+
+        scales_module_str = base.get_plugin_str(
+            plugin_name, submodule_name="scales", require_preparer=True,
+            require_openmm_interface=False) # require_runner=True
+        if scales_module_str is not None:
+            scales_module_prep = importlib.import_module(scales_module_str+".preparer")
+            stage_inputs.update(scales_module_prep.stage_inputs)
+            scales_module_prep.register_structure_hooks(converter)
            
-    # Use a cattrs Converter to define how to structure the dictionary input
-    converter = cattrs.Converter()
     cattrs.register_structure_hook(base.Positions_type, 
                                       structures.structure_positions_type_union)
     converter.register_structure_hook(base.Positions_type, 
@@ -399,16 +454,28 @@ def read_input(input_filename: str) -> Seekr_input:
                                       structures.structure_float_or_list_type_union)
     converter.register_structure_hook(base.Int_or_list_type, 
                                       structures.structure_int_or_list_type_union)
-    converter.register_structure_hook(restraints_preparer.Base_restraint_input,
-                                        struct_restraint_inputs)
-    converter.register_structure_hook(reporters_preparer.Base_reporter_input,
-                                        struct_reporter_inputs)
-    converter.register_structure_hook(compl_crit_struct.Base_completion_criteria,
-                                        struct_completion_criteria)
-    converter.register_structure_hook(cv_base.Base_CV_input,
-                                        struct_cv_inputs)
-    converter.register_structure_hook(anchor_schemes_base.Base_anchor_scheme,
-                                        struct_anchor_schemes)
+    converter.register_structure_hook_func(
+        lambda t: t is restraints_preparer.Base_restraint_input,
+        struct_restraint_inputs)
+    converter.register_structure_hook_func(
+        lambda t: t is reporters_preparer.Base_reporter_input,
+        struct_reporter_inputs)
+    converter.register_structure_hook_func(
+        lambda t: t is compl_crit_struct.Base_completion_criteria,
+        struct_completion_criteria)
+    
+    converter.register_structure_hook_func(
+        lambda t: t is cv_base.Base_CV_input,
+        struct_cv_inputs)
+    converter.register_structure_hook_func(
+        lambda t: t is anchor_schemes_base.Base_anchor_scheme,
+        struct_anchor_schemes)
+    converter.register_structure_hook_func(
+        lambda t: t is engines_structures.Base_engine_settings_input,
+        struct_engine_inputs)
+    converter.register_structure_hook_func(
+        lambda t: t is scales_base.Base_input_stage,
+        struct_stage_inputs)
     scales_preparer.register_structure_hooks(converter)
     seekr_input = converter.structure(json_string, Seekr_input)
 
@@ -1024,13 +1091,16 @@ def resolve_modifications_and_filetree(
     for stage in model.stages:
         # TODO: transitions between unpartitioned and partitioned stages
         #  via a logistic stage.
-        if stage.scale_type in ["molecular_dynamics", "logistic"]:
-            if stage.scope == "partitioned":
-                # NOTE: mypy error is handled with "md_stage" type check above
-                stage.add_stage_parameters_to_anchors(model)
-                
-            elif stage.scope == "unpartitioned":
-                stage.add_stage_parameters_to_unpartitioned_settings(model)
+        #if stage.scale_type in ["molecular_dynamics", "logistic"]:
+        # BEGIN INDENT (remove)
+        if stage.scope == "partitioned":
+            # NOTE: mypy error is handled with "md_stage" type check above
+            stage.add_stage_parameters_to_anchors(model)
+            
+        elif stage.scope == "unpartitioned":
+            stage.add_stage_parameters_to_unpartitioned_settings(model)
+        
+        # END INDENT (remove)
                 
         else:
             pass
@@ -1107,10 +1177,10 @@ def resolve_connections(
                     == input_anchor_discarded.positions, \
                 "The anchors connected by connection flag {} ".format(key) \
                 +"have inconsistent positions defined."
-            assert input_anchor_kept.same_md_parameters(
+            assert input_anchor_kept.same_scale_parameters(
                 input_anchor_discarded), \
                 "The anchors connected by connection flag {} ".format(key) \
-                +"have inconsistent MD parameters defined."
+                +"have inconsistent scale parameters defined."
             anchor_indices_to_remove.append(anchor_discarded.index)
             anchor_kept.milestones += anchor_discarded.milestones
             anchor_kept.variables.update(anchor_discarded.variables)

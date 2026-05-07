@@ -14,6 +14,8 @@ from collections import namedtuple
 
 from attrs import define, field, validators, Factory
 
+import seekr.modules.scales.base as scales_base
+
 Run_instruction_logistic = namedtuple(
     "Run_instruction_logistic",
     [
@@ -23,7 +25,7 @@ Run_instruction_logistic = namedtuple(
     ])
 
 @define
-class Stage_logistic:
+class Stage_logistic(scales_base.Base_stage):
     """
     A logistic stage exists within SEEKR to allow files and settings
     to change between simulation stages. For instance, a metadynamics
@@ -113,7 +115,7 @@ class Stage_logistic:
         ...
     
 @define
-class Input_stage_logistic:
+class Input_stage_logistic(scales_base.Base_input_stage):
     """
     A logistic stage allows one to modify position files, as well as
     CVs, anchors, selections, or other settings in the middle of a SEEKR

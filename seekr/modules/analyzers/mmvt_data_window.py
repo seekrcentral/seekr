@@ -353,6 +353,7 @@ def check_extraction(
                     existing_alias_alpha_beta.append(key)
                 assert anchor_stats_window.k_alpha_beta[key] >= 0.0, \
                     "negative k_alpha_beta values not allowed."
+            
             for key in anchor_stats_window.N_i_j_alpha:
                 if anchor_stats_window.N_i_j_alpha[key] > 0:
                     existing_alias_i_j.append(key)
@@ -373,8 +374,7 @@ def check_extraction(
                             milestone2.index)
                     else:
                         anchors_missing_i_j_statistics.add(anchor.index)
-                        break
-    
+                        
     missing_anchor_path = False
     for end_anchor_index in end_anchor_set:
         for end_anchor_index2 in end_anchor_set:
@@ -513,7 +513,6 @@ def assign_data_windows_sample(
             R_i_alpha_total.append(R_i_alpha_element)
             anchor_T_alpha = anchor_stats_window.T_alpha_total
             T_alpha_total.append(anchor_T_alpha)
-        
         abort_on_check_error = False
         if assign_to_main and i == len(window_index_list) - 1:
             abort_on_check_error = True
@@ -521,10 +520,15 @@ def assign_data_windows_sample(
         check_passed = check_extraction(
             model, anchor_stats_alpha_list, window_index=i,
             abort_on_error=abort_on_check_error)
-            
+        
         data_sample = mmvt_data_sample.Mmvt_data_sample(
             N_alpha_beta, k_alpha_beta, N_i_j_alpha, 
             R_i_alpha_total, T_alpha_total)
+        
+        if i == len(window_index_list) - 1:
+            print("data_sample.k_alpha_beta:", data_sample.k_alpha_beta)
+            print("data_sample.N_alpha_beta:", data_sample.N_alpha_beta)
+            exit()
         
         """
         if bulk_stats is not None:

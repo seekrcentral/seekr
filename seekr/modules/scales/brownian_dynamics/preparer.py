@@ -9,6 +9,7 @@ import typing
 from attrs import define, field, validators, Factory
 import cattrs
 
+import seekr.modules.scales.base as scales_base
 import seekr.modules.structures as structures
 import seekr.modules.completion_criteria.structures as compl_crit_struct
 import seekr.modules.scales.brownian_dynamics.structures as scale_bd
@@ -24,7 +25,7 @@ sampling_methods_input_bd: typing.Dict[str, typing.Any] \
            "WE": sampling_methods_preparer.WE_bd_input,}
 
 @define
-class Input_stage_bd:
+class Input_stage_bd(scales_base.Base_input_stage):
     """
     A BD stage of the SEEKR calculation.
     """
@@ -98,7 +99,7 @@ def struct_bd_sampling_method_inputs(
         obj: typing.Dict[str, typing.Any],
         _: typing.Type[sampling_methods_preparer.Base_bd_sampling_method_input]
         ) -> sampling_methods_preparer.Base_bd_sampling_method_input:
-    typ = obj.pop("type")
+    typ = obj.get("type")
     return cattrs.structure(obj, sampling_methods_input_bd[typ])
 
 def register_structure_hooks(

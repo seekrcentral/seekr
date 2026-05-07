@@ -57,14 +57,14 @@ def prepare(
                         "empty partitions are not yet implemented.")
     
     base.configure_file_and_stdout_logger(synopsis_filename, overwrite=False)
-    for settings in seekr_input.settings_list:
-        assert model.get_engine_by_scale_type(settings.scale_type) is not None, \
-            f"Engine for scale type {settings.scale_type} is not defined."
-        settings.copy_initial_files(
+    for engine_settings in seekr_input.engine_settings_list:
+        assert model.get_engine_by_scale_type(engine_settings.scale_type) is not None, \
+            f"Engine for scale type {engine_settings.scale_type} is not defined."
+        engine_settings.copy_initial_files(
             model, directory, anchor_set_name=base.PREPARE_SET_NAME, 
             using_toy=model.using_toy())
         scale_preparer.generate_files(model, directory, base.PREPARE_SET_NAME, 
-                                      settings.scale_type)
+                                      engine_settings.scale_type)
     model.save(file_path)
     # Add function to save any cvs, selections, or anchor sets that are defined
     #  in the prepare stage
