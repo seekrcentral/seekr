@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 modules/collective_variables/base.py
 
@@ -17,6 +18,8 @@ class Base_CV:
     """
     Base class for all collective variables.
     """
+    type: typing.Literal["base"] = "base"
+
     def save(
             self, 
             directory: str

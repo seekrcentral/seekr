@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 modules/analyzers/mmvt_analyzer.py
 
@@ -117,8 +118,9 @@ class Mmvt_analyzer:
 
     def error_analysis(
             self,
-            method="bootstrap",
-            random_seed: int | None = None
+            method: str = "bootstrap",
+            num_error_samples: int | None = None,
+            random_seed: int | None = None,
             ) -> None:
         """
         Perform error analysis on the extracted data.
@@ -133,7 +135,9 @@ class Mmvt_analyzer:
                 .make_piecewise_anchor_statistics(
                     self.anchor_stats_alpha_list)
             num_anchors = len(piecewise_anchors_statistics)
-            for _ in range(analyzers_base.NUM_BOOTSTRAP_SAMPLES):
+            if num_error_samples is None:
+                num_error_samples = analyzers_base.NUM_BOOTSTRAP_SAMPLES
+            for _ in range(num_error_samples):
                 bootstrap_anchors_statistics_piecewise = []
                 for alpha in range(num_anchors):
                     if piecewise_anchors_statistics[alpha] is None:
@@ -149,6 +153,7 @@ class Mmvt_analyzer:
                 bootstrap_anchors_statistics_cumulative \
                     = mmvt_anchor_statistics.make_cumulative_anchor_statistics(
                         bootstrap_anchors_statistics_piecewise)
+                
                 if self.bulk_stats is not None:
                     resampled_bulk_stats = bulk_anchor_statistics\
                         .resample_bulk_anchor_statistics(self.bulk_stats)
@@ -159,7 +164,9 @@ class Mmvt_analyzer:
                     resampled_bulk_stats, self.window_index_list, 
                     self.data_window_list, assign_to_main=False)
         elif method == "resample":
-            for _ in range(analyzers_base.NUM_RESAMPLES):
+            if num_error_samples is None:
+                num_error_samples = analyzers_base.NUM_RESAMPLES
+            for _ in range(num_error_samples):
                 resampled_anchors_statistics_piecewise = mmvt_error_analysis\
                     .resample_anchor_statistics(
                         self.anchor_stats_alpha_list)
@@ -181,9 +188,11 @@ class Mmvt_analyzer:
                         .resample_bulk_anchor_statistics(self.bulk_stats)
             else:
                 resampled_bulk_stats = None
+            if num_error_samples is None:
+                num_error_samples = analyzers_base.NUM_MONTE_CARLO_SAMPLES
             mmvt_error_analysis.monte_carlo_data_windows(
                 self.model, self.window_index_list, self.data_window_list,
-                analyzers_base.NUM_MONTE_CARLO_SAMPLES)
+                num_error_samples)
         elif method is None:
             pass
         else:
@@ -202,7 +211,10 @@ class Mmvt_analyzer:
             print("k_ons :")
         for key in self.main_data_window.k_ons:
             k_on = float(self.main_data_window.k_ons[key])
-            diss_constant = self.main_data_window.k_off / k_on
+            if k_on > 0.0:
+                diss_constant = self.main_data_window.k_off / k_on
+            else:
+                diss_constant = float("inf")
             delta_G = analyzers_base.GAS_CONSTANT*self.model.temperature\
                 *math.log(diss_constant)
             if key in self.main_data_window.k_ons_err:
@@ -712,7 +724,8 @@ def analyze_mmvt(
         min_time_ps: float = 0.0,
         max_time_ps: float | None = None,
         error_analysis_method: str = "bootstrap",
-        only_extract_data: bool = False
+        only_extract_data: bool = False,
+        num_error_samples: int | None = None
         ) -> Mmvt_analyzer:
     """
     Analyze the results of a SEEKR MMVT calculation.
@@ -738,5 +751,6 @@ def analyze_mmvt(
     if only_extract_data:
         return analysis
     analysis.fill_out_and_process_data_samples(time_between_statistics)
-    analysis.error_analysis(error_analysis_method, random_seed=model.get_random_seed())
+    analysis.error_analysis(error_analysis_method, num_error_samples,
+                            random_seed=model.get_random_seed())
     return analysis

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 modules/engines/openmm/runner.py
 
@@ -28,10 +29,13 @@ class Runner_openmm():
             self, 
             model: structures.Seekr_model, 
             stage_output_index: int,
-            anchor_index: int | None = None):
+            anchor_index: int | None = None,
+            benchmark: bool = False
+            ) -> None:
         self.model = model
         self.stage_output_index = stage_output_index
         self.anchor_index = anchor_index
+        self.benchmark = benchmark
         self.ensemble: base.Ensemble | None = None
         self.restart_checkpoint_interval: int | None = None
         self.start_step: int = 0
@@ -365,6 +369,20 @@ class Runner_openmm():
             else:
                 sampling_openmm_interface.write_pdb_file_from_simulation(
                     final_positions_filename, simulation)
+        if self.benchmark:
+            # Delete all outputs if this was benchmark mode.
+            if self.anchor_index is None:
+                anchor = None
+            else:
+                anchor = self.model.anchors[self.anchor_index]
+            if anchor is None:
+                md_engine = self.model.get_engine_by_scale_type("molecular_dynamics")
+                preparer.cleanse_outputs_stage(
+                    self.model, md_engine.unpartitioned_settings, 
+                    self.stage_output_index, self.swarm_id)
+            else:
+                preparer.cleanse_outputs_stage(
+                    self.model, anchor, self.stage_output_index, self.swarm_id)
         return
     
 def run_simulation(
@@ -374,7 +392,8 @@ def run_simulation(
         restart: bool, 
         swarm_id: int, 
         device_index: str | None = None,
-        force_overwrite: bool = False
+        force_overwrite: bool = False,
+        benchmark: bool = False
         ) -> None:
     """
     Run an OpenMM simulation.
@@ -393,7 +412,7 @@ def run_simulation(
             "A device_index is provided, yet a platform is not set."
         md_engine.platform_settings.device_index = device_index
 
-    runner = Runner_openmm(model, stage_index, anchor_index)
+    runner = Runner_openmm(model, stage_index, anchor_index, benchmark=benchmark)
     restart_index = runner.prepare(restart, force_overwrite, swarm_id)
     #assert runner.md_parameters_topology is not None
     assert runner.sampling_method_interface is not None

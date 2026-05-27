@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 create_seekr_input.py
 

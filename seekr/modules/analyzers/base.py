@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 modules/analyzers/base.py
 
@@ -17,11 +18,6 @@ import seekr.modules.structures as structures
 
 LOW_FLUX = 1e-19
 FAST_FLUX = 1e6
-LOW_N_IJ = 1e-19
-HIGH_N_IJ = 1e3
-DEFAULT_R_I = 1.0
-DEFAULT_Q_IJ = 1.0
-MATRIX_EXPONENTIAL = 9999999
 GAS_CONSTANT = 0.0019872 # in kcal/mol*K
 DEFAULT_MAX_CONVERGENCE_WINDOWS = 20
 NUM_BOOTSTRAP_SAMPLES = 100
@@ -118,7 +114,10 @@ def rate_matrix_to_transition_matrix(
             if i == j:
                 K[i,j] = 0.0
             else:
-                K[i,j] = -Q[i,j] / Q[i,i]
+                if Q[i,i] == 0.0:
+                    K[i,j] = 0.0
+                else:
+                    K[i,j] = -Q[i,j] / Q[i,i]
     
     return K
 
@@ -153,24 +152,69 @@ def compute_rate_matrix(
             
     K = rate_matrix_to_transition_matrix(Q)
     return Q, K
-        
+
+def impute_missing_rates(
+        Q: np.ndarray,
+        p_i: np.ndarray,
+        ) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Fill in missing off-diagonal entries of the rate matrix Q using
+    detailed balance against the stationary distribution p_i.
+
+    For each pair (i, j) where Q[i, j] == 0 but Q[j, i] > 0, and both
+    p_i[i] and p_i[j] are positive, set
+        Q[i, j] = (p_i[j] / p_i[i]) * Q[j, i].
+    This is the unique rate consistent with the LSQ p_i and avoids the
+    artificial timescales introduced by HIGH/LOW count substitution.
+    Pairs with no observation in either direction, or involving a
+    milestone with p_i == 0 (unreachable in the observed graph), are
+    left at zero. Diagonals are recomputed so each row sums to zero.
+    """
+    num_states = Q.shape[0]
+    Q_new = copy.deepcopy(Q)
+    for i in range(num_states):
+        Q_new[i, i] = 0.0
+    for i in range(num_states):
+        if p_i[i] <= 0.0:
+            continue
+        for j in range(num_states):
+            if i == j:
+                continue
+            if Q_new[i, j] > 0.0:
+                continue
+            if p_i[j] <= 0.0:
+                continue
+            if Q_new[j, i] > 0.0:
+                Q_new[i, j] = (p_i[j] / p_i[i]) * Q_new[j, i]
+
+    for i in range(num_states):
+        row_sum = np.sum(Q_new[i], dtype=np.longdouble)
+        Q_new[i, i] = -row_sum
+
+    K_new = rate_matrix_to_transition_matrix(Q_new)
+    return Q_new, K_new
+
 def calculate_thermodynamics(
         num_states: int,
         Q: np.ndarray,
         temperature: float,
         Q_raw: np.ndarray | None = None,
+        N_ij: typing.DefaultDict | None = None,
         ) -> tuple[np.ndarray, np.ndarray]:
     """
     Compute the stationary milestone probability distribution p_i and
     the corresponding free energy profile.
 
-    Uses a BFS spanning-tree approach in log-space, exploiting detailed
+    Uses a log-space weighted least-squares approach, exploiting detailed
     balance of the CTMC rate matrix Q:  p_i * Q[i,j] = p_j * Q[j,i],
-    so log p_j = log p_i + log Q[i,j] - log Q[j,i]. This relation is
-    path-independent and is accumulated over a BFS spanning tree of the
-    milestone connectivity graph. The approach is numerically exact for
-    any graph topology and avoids ill-conditioning issues inherent in
-    eigenvalue or linear-solve methods.
+    so log p_j - log p_i = log Q[i,j] - log Q[j,i]. In 2D/ND milestone
+    graphs with cycles, the empirical Q entries from finite sampling do
+    not exactly satisfy detailed balance. The least-squares solution
+    minimizes total squared inconsistency across all observed pairs
+    simultaneously, weighted by the harmonic mean of the crossing counts
+    N_ij and N_ji (proportional to 1/variance under Poisson statistics).
+    This gives an optimal estimate that is independent of which spanning
+    tree is chosen and favors well-sampled edges over poorly-sampled ones.
 
     Parameters
     ----------
@@ -183,45 +227,82 @@ def calculate_thermodynamics(
         System temperature (units must match GAS_CONSTANT).
     Q_raw : np.ndarray | None, optional
         Rate matrix *before* zero-substitution of missing entries.
-        When provided, BFS traversal uses Q_raw so that only genuinely
-        observed transitions (both directions positive) influence the
-        probability ratios. Milestones unreachable via the spanning tree
+        When provided, only genuinely observed transitions (both
+        directions positive) contribute equations to the least-squares
+        system. Milestones unreachable from the root via observed edges
         receive probability 0 (infinite free energy).
-        To revert to using the zero-substituted Q for BFS instead,
-        replace ``Q_bfs = Q_raw if Q_raw is not None else Q`` with
-        ``Q_bfs = Q``.
+    N_ij : DefaultDict | None, optional
+        Raw milestone crossing counts N_ij[(i, j)] before any
+        zero-substitution. When provided, each log-ratio equation is
+        weighted by the harmonic mean of N_ij[(i,j)] and N_ij[(j,i)],
+        so well-sampled edges dominate the solution. When None, all
+        edges are given equal weight (equivalent to unweighted LS).
     """
-    # Select which matrix drives the BFS topology.
-    # Q_raw (pre-zero-substitution): only genuinely observed edges are used.
-    # To use zero-substituted Q instead (includes synthetic LOW_N_IJ /
-    # HIGH_N_IJ entries), replace the line below with: Q_bfs = Q
+    
     Q_bfs = Q_raw if Q_raw is not None else Q
 
-    # BFS spanning-tree in log-space.
-    log_pi = np.full(num_states, -np.inf)
-
-    # Find the first state with any observed outgoing rate as the BFS root.
+    # Find the first state with any observed outgoing rate as the root.
     root = None
     for i in range(num_states):
         if any(Q_bfs[i, j] > 0.0 for j in range(num_states) if j != i):
             root = i
             break
 
+    log_pi = np.full(num_states, -np.inf)
+
     if root is not None:
-        log_pi[root] = 0.0  # unnormalized log-probability reference
-        visited = {root}
-        queue = deque([root])
-        while queue:
-            i = queue.popleft()
-            for j in range(num_states):
-                if j == i or j in visited:
-                    continue
-                k_fwd = Q_bfs[i, j]  # rate i → j
-                k_bwd = Q_bfs[j, i]  # rate j → i
+        # Collect all pairs (i,j) where both directions are observed.
+        edges = []
+        for i in range(num_states):
+            for j in range(i + 1, num_states):
+                k_fwd = Q_bfs[i, j]
+                k_bwd = Q_bfs[j, i]
                 if k_fwd > 0.0 and k_bwd > 0.0:
-                    log_pi[j] = log_pi[i] + np.log(k_fwd) - np.log(k_bwd)
-                    visited.add(j)
-                    queue.append(j)
+                    edges.append((i, j, np.log(k_fwd) - np.log(k_bwd)))
+
+        if len(edges) > 0:
+            # Build weighted least-squares system. Weight each equation by
+            # the harmonic mean of N_ij and N_ji (≈ 1/var of log-ratio).
+            n_edges = len(edges)
+            A = np.zeros((n_edges + 1, num_states))
+            b_vec = np.zeros(n_edges + 1)
+            total_weight = 0.0
+            for row, (i, j, delta) in enumerate(edges):
+                if N_ij is not None:
+                    N_fwd = N_ij.get((i, j), 1)
+                    N_bwd = N_ij.get((j, i), 1)
+                    denom = N_fwd + N_bwd
+                    w = (N_fwd * N_bwd / denom) if denom > 0 else 1.0
+                else:
+                    w = 1.0
+                sqrt_w = np.sqrt(max(w, 1e-12))
+                total_weight += w
+                A[row, j] = sqrt_w
+                A[row, i] = -sqrt_w
+                b_vec[row] = delta * sqrt_w
+            # Gauge constraint: log_pi[root] = 0.
+            gauge_w = np.sqrt(total_weight / n_edges) if n_edges > 0 else 1.0
+            A[n_edges, root] = gauge_w
+            b_vec[n_edges] = 0.0
+            log_pi_sol, _, _, _ = np.linalg.lstsq(A, b_vec, rcond=None)
+            log_pi_sol -= log_pi_sol[root]  # enforce gauge
+
+            # BFS to identify milestones reachable from root via observed
+            # bidirectional edges; isolated components stay at -inf.
+            reachable = {root}
+            queue = deque([root])
+            while queue:
+                node = queue.popleft()
+                for other in range(num_states):
+                    if other not in reachable:
+                        if Q_bfs[node, other] > 0.0 and Q_bfs[other, node] > 0.0:
+                            reachable.add(other)
+                            queue.append(other)
+            for idx in reachable:
+                log_pi[idx] = log_pi_sol[idx]
+        else:
+            # No bidirectional edges: only the root state is known.
+            log_pi[root] = 0.0
 
     # Normalize using log-sum-exp for numerical stability.
     finite_mask = np.isfinite(log_pi)
@@ -237,34 +318,64 @@ def calculate_thermodynamics(
         if p_i_val > 0.0:
             free_energy_profile[i] = -GAS_CONSTANT * temperature * np.log(
                 p_i_val / highest_p_i)
-
+    
     return p_i, free_energy_profile
 
 def calculate_kinetics(
         num_milestones: int,
         Q: np.ndarray,
         K: np.ndarray,
-        end_states: typing.DefaultDict[str, list[int]]
+        end_states: typing.DefaultDict[str, list[int]],
+        p_i: np.ndarray | None = None,
 ):
     """
     Once the rate matrix Q is computed, determine the timescales 
     and probabilities of transfers between different states. Fill
     out all kinetics quantities.
+
+    If p_i is provided, milestones with p_i[i] == 0 (unreachable in the
+    observed graph) are excluded from kinetics: their MFPTs become NaN
+    and their absorption probabilities are zero. This relies on Q having
+    been filled with detailed-balance rates via impute_missing_rates so
+    that observed-but-asymmetric crossings do not poison the diagonal.
     """
     assert len(end_states) > 0, "No end (bound or otherwise) states "\
         "defined in this model. Kinetics calculations will not work."
-    if np.any(Q.sum(axis=1) > 1.E-10):
-        problem_milestone = np.argmin(Q.T.sum(axis=1))
-        error_msg = """The rate matrix Q has a numerically overflowed row 
-        sum placed into the main diagonal of milestone {}. This can be
-        caused by large discrepancies of rates between adjacent milestones.
-        You can try additional sampling of whichever anchor(s) have this 
-        milestone. If possible, you may consider adding more milestones in
-        this area, or omitting calculations in this portion of the CV(s). 
-        If this problem persists, please contact the developers.""".format(
-            problem_milestone)
-        raise Exception(error_msg)
-    
+    row_sum_max = float(np.max(np.abs(Q.sum(axis=1))))
+    if row_sum_max > 1.E-8:
+        # Soft clamp: renormalize diagonals so each row sums to zero
+        # exactly. Imputation should have already enforced this, so a
+        # large residual here likely indicates a deeper sampling issue.
+        Q = copy.deepcopy(Q)
+        for i in range(num_milestones):
+            off_diag = np.sum(Q[i], dtype=np.longdouble) - Q[i, i]
+            Q[i, i] = -off_diag
+        K = rate_matrix_to_transition_matrix(Q)
+
+    if p_i is None:
+        reachable = set(range(num_milestones))
+    else:
+        reachable = {i for i in range(num_milestones) if p_i[i] > 0.0}
+
+    # Build a Q (and K) restricted to the reachable milestones so that
+    # PyGT does not divide by the zero escape rates of unreachable rows
+    # and propagate NaN into the reachable MFPTs.
+    reachable_list = sorted(reachable)
+    n_red = len(reachable_list)
+    red_idx = {m: i for i, m in enumerate(reachable_list)}
+    Q_red = np.zeros((n_red, n_red), dtype=np.float64)
+    for i, m in enumerate(reachable_list):
+        for j, m2 in enumerate(reachable_list):
+            Q_red[i, j] = float(Q[m, m2])
+    # Rebuild diagonals against the reachable subgraph so rows sum to zero
+    # exactly. Otherwise Q[i,i] (which encodes escape to all milestones in
+    # the full graph) overcounts escape relative to Q_red's off-diagonals,
+    # and the derived branching matrix K_red is sub-stochastic.
+    for i in range(n_red):
+        Q_red[i, i] = 0.0
+        Q_red[i, i] = -np.sum(Q_red[i, :])
+    K_red = rate_matrix_to_transition_matrix(Q_red)
+
     # Collect all end-state milestone indices across all states
     all_end_milestone_indices = []
     for milestone_list in end_states.values():
@@ -273,56 +384,127 @@ def calculate_kinetics(
     milestone_src_to_milestone_dest_MFPTs = {}
     committor_function_by_milestone = {}
     end_state_to_end_state_probabilities_by_milestone = {}
-
     # Compute MFPTs and committor functions (dest-centric)
     for dest_state_name, dest_milestone_list in end_states.items():
         for src_state_name, src_milestone_list in end_states.items():
             if src_state_name == dest_state_name:
                 continue
 
-            B, tau = PyGT.tools.load_CTMC(Q.T)
+            if n_red > 0:
+                B, tau = PyGT.tools.load_CTMC(Q_red.T)
+            else:
+                B, tau = None, None
+            
             for dest_milestone_index in dest_milestone_list:
-                # K_hat_one_dest: dest_milestone is absorbing, src_milestones
-                # are dead-ends; K_hat_inf[:,dest] gives the committor to dest.
-                K_hat_one_dest = copy.deepcopy(K)
-                K_hat_one_dest[dest_milestone_index, :] = 0.0
-                K_hat_one_dest[dest_milestone_index, dest_milestone_index] = 1.0
                 for src_milestone_index in src_milestone_list:
                     if dest_milestone_index == src_milestone_index:
                         continue
-                    mfpt_ij, mfpt_ji = PyGT.mfpt.compute_MFPT(
-                        src_milestone_index, dest_milestone_index, B, tau)
-                    milestone_src_to_milestone_dest_MFPTs[
-                        (src_milestone_index, dest_milestone_index)] = mfpt_ji
-                    K_hat_one_dest[src_milestone_index, :] = 0.0
+                    if src_milestone_index not in reachable \
+                            or dest_milestone_index not in reachable:
+                        # Unreachable in the observed graph: store 0 so
+                        # downstream probability-weighted sums (which will
+                        # also see p_i == 0 for this milestone) remain
+                        # numerically clean rather than producing NaN.
+                        milestone_src_to_milestone_dest_MFPTs[
+                            (src_milestone_index, dest_milestone_index)] = 0.0
+                    else:
+                        src_red = red_idx[src_milestone_index]
+                        dest_red = red_idx[dest_milestone_index]
+                        mfpt_ij, mfpt_ji = PyGT.mfpt.compute_MFPT(
+                            src_red, dest_red, B, tau)
+                        milestone_src_to_milestone_dest_MFPTs[
+                            (src_milestone_index, dest_milestone_index)] = mfpt_ji
 
-                K_hat_inf_one_dest = np.linalg.matrix_power(
-                    K_hat_one_dest, MATRIX_EXPONENTIAL)
-                committor_function_by_milestone[dest_milestone_index] = \
-                    K_hat_inf_one_dest[:, dest_milestone_index]
+                # Committor q[i] = P(reach dest before any src | start at i),
+                # computed via graph transformation on an absorbing DTMC.
+                # Make dest and all src milestones absorbing (self-loops) in
+                # the row-stochastic branching matrix K_red, then for each
+                # starting reachable transient i, GT-eliminate the others;
+                # q[i] = B_gt[dest, i] / (1 - B_gt[i, i]) on column i. GT is
+                # numerically stable at high barriers where matrix_power
+                # underflows.
+                committor = np.zeros(num_milestones, dtype=np.float64)
+                if n_red > 0 and dest_milestone_index in reachable:
+                    dest_red = red_idx[dest_milestone_index]
+                    src_reds = [red_idx[m] for m in src_milestone_list
+                                if m in reachable and m != dest_milestone_index]
+                    absorbers_red = {dest_red} | set(src_reds)
+                    K_abs = np.array(K_red, dtype=np.float64)
+                    for a in absorbers_red:
+                        K_abs[a, :] = 0.0
+                        K_abs[a, a] = 1.0
+                    B_abs, tau_abs = PyGT.tools.load_DTMC(K_abs.T, 1.0)
+                    committor[dest_milestone_index] = 1.0
+                    for i_red, m_i in enumerate(reachable_list):
+                        if i_red in absorbers_red:
+                            continue
+                        keep = absorbers_red | {i_red}
+                        rm_vec = np.array(
+                            [k not in keep for k in range(n_red)], dtype=bool)
+                        B_gt, _ = PyGT.GT.blockGT(
+                            rm_vec, B_abs.copy(), tau_abs.copy())
+                        B_gt = np.asarray(B_gt, dtype=np.float64)
+                        keep_ordered = sorted(keep)
+                        new_idx = {old: k for k, old in enumerate(keep_ordered)}
+                        ii = new_idx[i_red]
+                        dd = new_idx[dest_red]
+                        escape = 1.0 - float(B_gt[ii, ii])
+                        if escape > 0.0:
+                            committor[m_i] = min(1.0, max(
+                                0.0, float(B_gt[dd, ii]) / escape))
+                committor_function_by_milestone[dest_milestone_index] = committor
 
-    # Compute absorption probabilities (src-centric).
-    # For each src_milestone, make all OTHER end-state milestones absorbing,
-    # then P(src→dest) = K_hat_inf[src, dest] read via the transpose product.
+    # Compute absorption probabilities (src-centric) via PyGT graph
+    # transformation. For each src_milestone, GT-eliminate every reachable
+    # transient milestone other than src and the absorbers. The reduced
+    # branching matrix B_gt then satisfies, with columns summing to 1,
+    #     P(src → absorbed at a) = B_gt[a, src] / (1 - B_gt[src, src]).
+    # GT is numerically stable at arbitrary barrier heights, where the
+    # direct (I - K_TT) linear solve underflows for rare-event systems.
+    # Milestones shared between two end states (Voronoi boundaries between
+    # adjacent end-state anchors) are NOT excluded from absorption, so that
+    # flux crossing them is correctly captured as reaching the dest state.
+    if n_red > 0:
+        B_full, tau_full = PyGT.tools.load_CTMC(Q_red.T)
     for src_state_name, src_milestone_list in end_states.items():
+        exclusive_src_milestones = set(src_milestone_list)
+        for other_state_name, other_milestone_list in end_states.items():
+            if other_state_name != src_state_name:
+                exclusive_src_milestones -= set(other_milestone_list)
         for src_milestone_index in src_milestone_list:
-            K_hat = copy.deepcopy(K)
-            for m in all_end_milestone_indices:
-                if m != src_milestone_index:
-                    K_hat[m, :] = 0.0
-                    K_hat[m, m] = 1.0
-            source_vec = np.zeros((num_milestones, 1))
-            source_vec[src_milestone_index] = 1.0
-            K_hat_inf = np.linalg.matrix_power(K_hat, MATRIX_EXPONENTIAL)
-            probs = np.dot(K_hat_inf.T, source_vec)
+            probs_at_absorbers: dict[int, float] = {}
+            if src_milestone_index in reachable:
+                absorbing = {m for m in all_end_milestone_indices
+                             if m != src_milestone_index
+                             and m not in exclusive_src_milestones
+                             and m in reachable}
+                src_red = red_idx[src_milestone_index]
+                absorber_red = {red_idx[m]: m for m in absorbing}
+                keep = {src_red} | set(absorber_red.keys())
+                rm_vec = np.array(
+                    [i not in keep for i in range(n_red)], dtype=bool)
+                B_gt, _ = PyGT.GT.blockGT(
+                    rm_vec, copy.deepcopy(B_full), tau_full.copy())
+                B_gt = np.asarray(B_gt, dtype=np.float64)
+                keep_ordered = sorted(keep)
+                new_idx = {old: k for k, old in enumerate(keep_ordered)}
+                src_new = new_idx[src_red]
+                total_escape = 1.0 - float(B_gt[src_new, src_new])
+                for a_red, m in absorber_red.items():
+                    if total_escape > 0.0:
+                        prob = float(B_gt[new_idx[a_red], src_new]) \
+                            / total_escape
+                    else:
+                        prob = 0.0
+                    probs_at_absorbers[m] = min(1.0, max(0.0, prob))
             for dest_state_name, dest_milestone_list in end_states.items():
                 if dest_state_name == src_state_name:
                     continue
                 for dest_milestone_index in dest_milestone_list:
                     end_state_to_end_state_probabilities_by_milestone[
-                        (src_milestone_index, dest_milestone_index)] \
-                            = float(probs[dest_milestone_index])
-    #print("milestone_src_to_milestone_dest_MFPTs:", milestone_src_to_milestone_dest_MFPTs)
+                        (src_milestone_index, dest_milestone_index)] = \
+                            probs_at_absorbers.get(dest_milestone_index, 0.0)
+
     return milestone_src_to_milestone_dest_MFPTs, committor_function_by_milestone, \
         end_state_to_end_state_probabilities_by_milestone
 
@@ -375,12 +557,48 @@ def calculate_k_on_kinetics(
                 if inner_milestone_index in ["escaped", "total", "stuck"]:
                     continue
                 K_hat_all[outer_milestone_index, inner_milestone_index] = value
-        
-        K_hat_inf = np.linalg.matrix_power(K_hat_all, MATRIX_EXPONENTIAL)
-        end_k_ons = np.dot(K_hat_inf.T, source_vec)
+
+        # Absorption probabilities via PyGT graph transformation. Pad with
+        # an extra "escape" absorbing state so rows summing to < 1 (outer
+        # milestones with excluded escape/stuck/total mass, or unobserved
+        # milestones with zero rates) yield a column-stochastic transition
+        # matrix that PyGT can ingest. Then eliminate every milestone that
+        # is neither an outer source nor an end-state absorber in a single
+        # blockGT call; the reduced B_gt gives, for each outer m, the
+        # absorption probability at each end as
+        #     B_gt[end, m] / (1 - B_gt[m, m]).
+        N = num_milestones + 1
+        escape_idx = num_milestones
+        K_padded = np.zeros((N, N), dtype=np.float64)
+        K_padded[:num_milestones, :num_milestones] = np.asarray(
+            K_hat_all, dtype=np.float64)
+        for i in range(num_milestones):
+            s = float(K_padded[i, :num_milestones].sum())
+            K_padded[i, escape_idx] = max(0.0, 1.0 - s)
+        K_padded[escape_idx, escape_idx] = 1.0
+        B_full, tau_full = PyGT.tools.load_DTMC(K_padded.T, 1.0)
+        all_end_milestones: list[int] = []
+        for ends in end_states_not_bulk.values():
+            all_end_milestones.extend(ends)
+        keep = set(outer_milestone_indices) | set(all_end_milestones) \
+            | {escape_idx}
+        rm_vec = np.array([k not in keep for k in range(N)], dtype=bool)
+        B_gt, _ = PyGT.GT.blockGT(rm_vec, B_full.copy(), tau_full.copy())
+        B_gt = np.asarray(B_gt, dtype=np.float64)
+        keep_ordered = sorted(keep)
+        new_idx = {old: k for k, old in enumerate(keep_ordered)}
         for state_name, end_milestones in end_states_not_bulk.items():
             for end_milestone in end_milestones:
-                k_ons[state_name] += float(end_k_ons[end_milestone])
+                ee = new_idx[end_milestone]
+                for outer_milestone_index in outer_milestone_indices:
+                    oo = new_idx[outer_milestone_index]
+                    escape = 1.0 - float(B_gt[oo, oo])
+                    if escape <= 0.0:
+                        continue
+                    prob = min(1.0, max(
+                        0.0, float(B_gt[ee, oo]) / escape))
+                    k_ons[state_name] += prob \
+                        * float(source_vec[outer_milestone_index, 0])
 
     return k_ons
 

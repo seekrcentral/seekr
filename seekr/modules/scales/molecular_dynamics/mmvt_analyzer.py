@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 modules/scales/molecular_dynamics/mmvt_analyzer.py
 
@@ -47,7 +48,8 @@ def make_anchor_stats_alpha_md(
         time_between_statistics = time_between_statistics_this_anchor
     if time_between_statistics is not None \
             and time_between_statistics_this_anchor is not None:
-        assert np.isclose(time_between_statistics_this_anchor, 
-                            time_between_statistics), \
-                            "Time between statistics does not match"
+        assert np.isclose(
+            time_between_statistics_this_anchor, 
+            time_between_statistics), \
+            "Time between statistics does not match"
     return anchor_stats_alpha, time_between_statistics

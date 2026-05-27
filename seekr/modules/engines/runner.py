@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 modules/engines/runner.py
 
@@ -41,7 +42,8 @@ def run_simulation(
         swarm_id: int | None = None, 
         device_index: str | None = None,
         n_trajectories: int = 0,
-        force_overwrite: bool = False
+        force_overwrite: bool = False,
+        benchmark: bool = False
         ) -> None:
     """
     Determine which md engine to run and run it
@@ -53,7 +55,7 @@ def run_simulation(
         runner_openmm.run_simulation(
             model, stage_index, anchor_index, 
             restart, swarm_id, device_index, 
-            force_overwrite)
+            force_overwrite, benchmark)
     elif engine.type == "browndye":
         runner_browndye.run_simulation(
             model, n_trajectories, restart, stage.set_name, force_overwrite)

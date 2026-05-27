@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 modules/engines/browndye/runner.py
 
@@ -7,6 +8,7 @@ Run simulations for Browndye engine.
 import os
 import re
 import glob
+import time
 import logging
 
 import seekr.modules.engines.browndye.base as browndye_base
@@ -228,7 +230,7 @@ def run_simulation(
         n_trajectories: int, 
         restart: bool, 
         set_name: str,
-        force_overwrite: bool = False
+        force_overwrite: bool = False,
     ) -> None:
     """
     Determine which bd engine to run and run it
@@ -241,9 +243,13 @@ def run_simulation(
     if n_trajectories is not None:
         if n_trajectories_per_output > n_trajectories:
             n_trajectories_per_output = n_trajectories
-    print("n_trajectories:", n_trajectories)
+    #print("n_trajectories:", n_trajectories)
     modify_variables(
         model, n_trajectories, set_name, restart=restart, 
         n_trajectories_per_output=n_trajectories_per_output)
+    start_time = time.time()
     run_nam_simulation(model, set_name)
+    total_time = time.time() - start_time
+    trajs_per_day = int(n_trajectories * 86400 / total_time)
+    logging.info(f"Final benchmark (trajectories/day): {trajs_per_day}")
     return

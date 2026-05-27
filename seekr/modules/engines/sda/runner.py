@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 modules/engines/sda/runner.py
 
@@ -7,6 +8,8 @@ Run simulations for SDA engine.
 import os
 import re
 import glob
+import time
+import logging
 
 import seekr.modules.engines.sda.base as sda_base
 import seekr.modules.structures as structures
@@ -227,6 +230,10 @@ def run_simulation(
     if not os.path.exists(sda_bin_dir):
         raise FileNotFoundError(f"SDA binary directory does not exist: {sda_bin_dir}")
     # Run the SDA simulation
+    start_time = time.time()
     run_nam_simulation(sda_bin_dir, bd_directory, sda_output_glob, 
                        force_overwrite=force_overwrite)
+    total_time = time.time() - start_time
+    trajs_per_day = int(n_trajectories * 86400 / total_time)
+    logging.info(f"Final benchmark (trajectories/day): {trajs_per_day}")
     return

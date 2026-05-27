@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 modules/collective_variables/distance_cv.py
 
@@ -27,10 +28,15 @@ class Distance_CV(cv_base.Base_CV):
     Collective variables represent the function of system positions
     and velocities such that the cells and boundaries can be defined.
     """
-    index: int = field(validator=[validators.instance_of(int),
+    index: int = field(default=0,
+                        validator=[validators.instance_of(int),
                                   validators.ge(0)])
-    group1_name: str = field(validator=validators.instance_of(str))
-    group2_name: str = field(validator=validators.instance_of(str))
+    group1_name: str = field(default="",
+                            validator=validators.instance_of(str))
+    group2_name: str = field(default="",
+                            validator=validators.instance_of(str))
+    # NOTE: these are down here cause the ones above are assigned at init
+    type: typing.Literal["distance"] = "distance"
     name: str = field(default="",
                         validator=validators.instance_of(str))
     unit: str = field(default="nm",
@@ -40,7 +46,7 @@ class Distance_CV(cv_base.Base_CV):
     periodic: bool = False
     min_value: float = 0.0
     max_value: float = 3.0
-    type: typing.Literal["distance"] = "distance"
+    
     
     def is_periodic(self) -> bool:
         """
@@ -96,13 +102,13 @@ class Distance_cv_input(cv_base.Base_CV_input):
     and milestones. This CV input is used as an object for the 
     input JSON or API within the prepare stage of a seekr calculation.
     """
+    type: typing.Literal["distance"] = "distance"
     name: str = field(default="",
                         validator=validators.instance_of(str))
     group1_name: str = field(default="",
                              validator=validators.instance_of(str))
     group2_name: str = field(default="",
                              validator=validators.instance_of(str))
-    type: typing.Literal["distance"] = "distance"
     _index: int = field(default=0,
                           validator=validators.instance_of(int))
     min_value: float = field(default=0.0,

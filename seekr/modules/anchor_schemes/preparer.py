@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 modules/anchor_schemes/preparer.py
 
@@ -75,6 +76,7 @@ def make_milestone_between_two_voronoi_cell_anchors(
         assert anchor.index != neighbor_anchor.index
         for milestone in anchor.milestones:
             if milestone.neighbor_anchor_index == neighbor_anchor.index:
+                # We already have this milestone between the pairs
                 return milestone_index
         
         milestone1 = structures.Milestone()

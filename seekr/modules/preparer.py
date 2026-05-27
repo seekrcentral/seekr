@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 modules/preparer.py
 
@@ -721,13 +722,13 @@ def cleanse_outputs_stage(
             #    os.remove(log_file)
             backup_info_glob = os.path.join(full_directory, 
                 engines_base.INFORMATION_CHECKPOINT_FILENAME_NOEXT \
-                + f"{swarm_id}." + engines_base.INFORMATION_CHECKPOINT_FILENAME_EXT)
+                + f"{swarm_id}" + engines_base.INFORMATION_CHECKPOINT_FILENAME_EXT)
             for backup_info_file in glob.glob(backup_info_glob):
                 #print("removing file:", backup_info_file)
                 os.remove(backup_info_file)
             backup_glob = os.path.join(full_directory, 
                 engines_base.RESTART_CHECKPOINT_FILENAME_NOEXT \
-                + f"{swarm_id}." + engines_base.RESTART_CHECKPOINT_FILENAME_EXT)
+                + f"{swarm_id}" + engines_base.RESTART_CHECKPOINT_FILENAME_EXT)
             for backup_file in glob.glob(backup_glob):
                 #print("removing file:", backup_file)
                 os.remove(backup_file)

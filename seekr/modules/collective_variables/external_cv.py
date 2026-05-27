@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 modules/collective_variables/external_cv.py
 
@@ -29,9 +30,12 @@ class External_CV(cv_base.Base_CV):
     and velocities along with the anchor cells and boundaries can be
     defined.
     """
-    index: int = field(validator=[validators.instance_of(int),
+    index: int = field(default=0,
+                        validator=[validators.instance_of(int),
                                   validators.ge(0)])
-    group_names: list[str] = field()
+    group_names: list[str] = field(default=Factory(list))
+    # NOTE: these are down here cause the ones above are assigned at init
+    type: typing.Literal["external"] = "external"
     name: str = field(default="",
                         validator=validators.instance_of(str))
     unit: str = field(default="nm",
@@ -44,7 +48,6 @@ class External_CV(cv_base.Base_CV):
                             validator=validators.instance_of(bool))
     min_value: float = field(default=-9e9, validator=validators.instance_of(float))
     max_value: float = field(default=9e9, validator=validators.instance_of(float))
-    type: typing.Literal["external"] = "external"
     
     def is_periodic(self) -> bool:
         """
@@ -126,12 +129,12 @@ class External_cv_input(cv_base.Base_CV_input):
     External CV input resulting in a general function of atomic
     positions.
     """
+    type: typing.Literal["external"] = "external"
     name: str = field(default="",
                         validator=validators.instance_of(str))
     group_names: list[str] = field(default=Factory(list),)
     expression: str = field(default="",
                             validator=validators.instance_of(str))
-    type: typing.Literal["external"] = "external"
     _index: int = field(default=0,
                           validator=validators.instance_of(int))
     min_value: float = field(default=-9e9, validator=validators.instance_of(float))

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 modules/analyzers/mmvt_data_window.py
 
@@ -374,7 +375,7 @@ def check_extraction(
                             milestone2.index)
                     else:
                         anchors_missing_i_j_statistics.add(anchor.index)
-                        
+    
     missing_anchor_path = False
     for end_anchor_index in end_anchor_set:
         for end_anchor_index2 in end_anchor_set:
@@ -525,20 +526,6 @@ def assign_data_windows_sample(
             N_alpha_beta, k_alpha_beta, N_i_j_alpha, 
             R_i_alpha_total, T_alpha_total)
         
-        if i == len(window_index_list) - 1:
-            print("data_sample.k_alpha_beta:", data_sample.k_alpha_beta)
-            print("data_sample.N_alpha_beta:", data_sample.N_alpha_beta)
-            exit()
-        
-        """
-        if bulk_stats is not None:
-            data_sample.k_ons_src = bulk_stats.k_ons_src
-            data_sample.k_on_errors_src = bulk_stats.k_on_errors_src
-            data_sample.transition_counts = bulk_stats.transition_counts
-            data_sample.transition_probabilities = bulk_stats.transition_probabilities
-            data_sample.outer_milestone_indices = bulk_stats.outer_milestone_indices
-        """
-
         if check_passed:
             data_sample.preprocess_statistics(model)
             data_sample.calculate_pi_alpha(model)
@@ -557,6 +544,7 @@ def assign_data_windows_sample(
             data_window.time = window_time
             data_window.main_data_sample = data_sample
             data_window.fill_out_attributes_from_main_data_sample()
+            
         else:
             data_window.data_sample_list.append(data_sample)
 

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 modules/scales/brownian_dynamics/structures.py
 

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 modules/analyzers/analyzer.py
 
@@ -24,7 +25,8 @@ def analyze(
         min_time_ps: float = 0.0,
         max_time_ps: float | None = None,
         error_analysis_method: str = "bootstrap",
-        only_extract_data: bool = False
+        only_extract_data: bool = False,
+        num_error_samples: int | None = None
     ) -> mmvt_analyzer.Mmvt_analyzer | None:
     # TODO: create a more specific type for the return value above
     """
@@ -70,7 +72,8 @@ def analyze(
             model, stage_index=stage_index, skip_checks=skip_checks,
             min_time_ps=min_time_ps, max_time_ps=max_time_ps,
             error_analysis_method=error_analysis_method,
-            only_extract_data=only_extract_data
+            only_extract_data=only_extract_data,
+            num_error_samples=num_error_samples
         )
         return analysis
     
@@ -85,7 +88,8 @@ def analyze(
                 model, stage_index=stage_index, skip_checks=skip_checks,
                 min_time_ps=min_time_ps, max_time_ps=max_time_ps,
                 error_analysis_method=error_analysis_method,
-                only_extract_data=only_extract_data
+                only_extract_data=only_extract_data,
+                num_error_samples=num_error_samples
             )
             if found:
                 return analysis

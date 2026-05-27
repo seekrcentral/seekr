@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 modules/scales/brownian_dynamics/runner.py
 
@@ -74,10 +75,13 @@ def is_finished_bd_with_message(
     if stage_bd.completion_criteria.type == "number_of_trajectories":
         num_trajs_needed = stage_bd.completion_criteria.number_of_trajectories
         attained = num_trajs_so_far >= num_trajs_needed
+        progress = num_trajs_so_far / num_trajs_needed \
+            if num_trajs_needed > 0 else 1.0
         if use_json:
             message = {
                 "completion_criteria": stage_bd.completion_criteria.type,
                 "attained": attained,
+                "progress": round(progress, 4),
                 "trajectories_needed": num_trajs_needed,
                 "trajectories_completed": num_trajs_so_far
             }
@@ -87,6 +91,8 @@ def is_finished_bd_with_message(
     
     elif stage_bd.completion_criteria.type == "number_of_encounters":
         num_encounters_needed = stage_bd.completion_criteria.number_of_encounters
+        progress = num_trajs_so_far / num_encounters_needed \
+            if num_encounters_needed > 0 else 1.0
         if num_trajs_so_far == 0:
             min_b_surface_encounters = 0
         else:
@@ -102,6 +108,7 @@ def is_finished_bd_with_message(
             message = {
                 "completion_criteria": stage_bd.completion_criteria.type,
                 "attained": attained,
+                "progress": round(progress, 4),
                 "encounters_needed": num_encounters_needed,
                 "encounters_completed": min_b_surface_encounters,
                 "trajectories_completed": num_trajs_so_far
@@ -133,7 +140,8 @@ def choose_next_simulation_bd(
         stage_bd: structures_bd.Stage_bd,
         force_overwrite: bool,
         use_json: bool = True,
-        silent: bool = False
+        silent: bool = False,
+        benchmark: bool = False
         ) -> list:
     bd_engine = model.get_engine_by_scale_type("brownian_dynamics")
     # Device_index is currently irrelevant because no BD engine
@@ -143,6 +151,13 @@ def choose_next_simulation_bd(
     bulk_anchors = []
     for bulk_index in bulk_indices:
         bulk_anchors.append(model.anchors[bulk_index])
+
+    if benchmark:
+        if not force_overwrite:
+            # then do nothing
+            return []
+        if hasattr(stage_bd, "completion_criteria"):
+            stage_bd.completion_criteria.enable_benchmark_mode()
 
     if stage_bd.completion_criteria.type == "number_of_trajectories":
         num_trajs_needed = stage_bd.completion_criteria.number_of_trajectories
@@ -219,7 +234,8 @@ def do_run_instruction_bd(
         model: structures.Seekr_model,
         force_overwrite: bool,
         stage_index: int,
-        instruction: Run_instruction_bd
+        instruction: Run_instruction_bd,
+        benchmark: bool = False # Not used
     ) -> None:
     """
     Execute the run instructions for brownian dynamics.
@@ -245,4 +261,15 @@ def do_run_instruction_bd(
     logging.info(log_string)
     engines_runner.run_simulation(
         model, stage_index, restart, n_trajectories=trajs_to_go_min, 
-        force_overwrite=force_overwrite)
+        force_overwrite=force_overwrite, benchmark=benchmark)
+    if benchmark:
+        # If in benchmark mode, clear all the files afterwards for the
+        # True run.
+        bulk_indices = model.get_bulk_indices()
+        assert len(bulk_indices) > 0
+        bulk_anchors = []
+        for bulk_index in bulk_indices:
+            bulk_anchors.append(model.anchors[bulk_index])
+        for bulk_anchor in bulk_anchors:
+            engines_runner.cleanse_outputs_bd(
+                bulk_anchor, model, stage.set_name)

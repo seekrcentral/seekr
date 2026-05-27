@@ -1,3 +1,5 @@
+from __future__ import annotations
+from typing import Optional
 """
 modules/base.py
 
@@ -262,7 +264,7 @@ def make_tree(
     return
 
 # Otherwise Mypy has a problem with the str.lower method.
-def string_lower(string: str | None) -> str | None:
+def string_lower(string: Optional[str]) -> Optional[str]:
     if isinstance(string, str):
         return string.lower()
     elif string is None:
@@ -310,7 +312,7 @@ def get_plugin_str(
         require_runner: bool = False,
         require_openmm_interface: bool = True,
         skip_silently: bool = True
-        ) -> None | str:
+        ) -> Optional[str]:
     """
     Import a sub-module of a seekr plugin and check the necessary sub-modules.
     """
@@ -415,7 +417,7 @@ class State_point:
     """
     name: str = field(default="",
                         validator=validators.instance_of(str))
-    value: list[float | None] = field(default=Factory(list),)
+    value: list[Optional[float]] = field(default=Factory(list),)
                                 #validator=validators.deep_iterable(
                                 #    member_validator=validators.instance_of(float),
                                 #    iterable_validator=validators.instance_of(list),

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 modules/scales/molecular_dynamics/runner.py
 
@@ -156,9 +157,12 @@ def is_finished_md_with_message(
     elif completion_criteria.type == "number_of_steps":
         if use_json:
             # Use JSON-style message
+            progress = current_step / completion_criteria.number_of_steps \
+                if completion_criteria.number_of_steps > 0 else 1.0
             message = {
                 "completion_criteria": completion_criteria.type,
                 "attained": current_step >= completion_criteria.number_of_steps,
+                "progress": round(progress, 4),
                 "current_step": current_step,
                 "total_steps": completion_criteria.number_of_steps
             }
@@ -307,8 +311,13 @@ def choose_next_simulation_md(
         device_index: str | None = None,
         swarm_id_wanted: int | None = None,
         use_json: bool = True,
-        silent: bool = False
+        silent: bool = False,
+        benchmark: bool = False
         ) -> list:
+    if benchmark and not force_overwrite:
+        # Don't plan to run anything
+        return []
+    
     md_engine = model.get_engine_by_scale_type("molecular_dynamics")
     if device_index is not None:
         assert md_engine.platform_settings is not None
@@ -385,6 +394,7 @@ def do_run_instruction_md(
         stage_index: int,
         instruction: Run_instruction_md,
         device_index: str | None,
+        benchmark: bool = False
     ) -> None:
     """
     Execute the run instructions for molecular dynamics.
@@ -415,4 +425,4 @@ def do_run_instruction_md(
     engines_runner.run_simulation(
         model, stage_index, restart, anchor_index=anchor_index, 
         swarm_id=swarm_id, device_index=device_index, 
-        force_overwrite=force_overwrite)
+        force_overwrite=force_overwrite, benchmark=benchmark)

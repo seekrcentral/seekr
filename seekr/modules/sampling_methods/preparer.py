@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Inputs for different available sampling methods
 """

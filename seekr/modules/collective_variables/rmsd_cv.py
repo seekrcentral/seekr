@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 modules/collective_variables/rmsd_cv.py
 
@@ -32,12 +33,19 @@ class RMSD_CV(cv_base.Base_CV):
     and velocities along with the anchor cells and boundaries can be
     defined.
     """
-    index: int = field(validator=[validators.instance_of(int),
+    index: int = field(default=0,
+                        validator=[validators.instance_of(int),
                                   validators.ge(0)])
-    directory: str = field(validator=validators.instance_of(str))
-    group_rmsd_name: str = field(validator=validators.instance_of(str))
-    group_align_name: str = field(validator=validators.instance_of(str))
-    ref_structure: str = field(validator=validators.instance_of(str))
+    directory: str = field(default="",
+                           validator=validators.instance_of(str))
+    group_rmsd_name: str = field(default="",
+                                 validator=validators.instance_of(str))
+    group_align_name: str = field(default="",
+                                  validator=validators.instance_of(str))
+    ref_structure: str = field(default="",
+                               validator=validators.instance_of(str))
+    # NOTE: these are down here cause the ones above are assigned at init
+    type: typing.Literal["rmsd"] = "rmsd"
     name: str = field(default="",
                         validator=validators.instance_of(str))
     unit: str = field(default="nm",
@@ -47,7 +55,6 @@ class RMSD_CV(cv_base.Base_CV):
     periodic: bool = False
     min_value: float = 0.0
     max_value: float = 3.0
-    type: typing.Literal["rmsd"] = "rmsd"
     
     def is_periodic(self) -> bool:
         """
@@ -110,6 +117,7 @@ class RMSD_cv_input(cv_base.Base_CV_input):
     RMSD CV input resulting in concentric spherical anchors
     and milestones.
     """
+    type: typing.Literal["rmsd"] = "rmsd"
     name: str = field(default="",
                         validator=validators.instance_of(str))
     group_rmsd_name: str = field(default="",
@@ -118,7 +126,6 @@ class RMSD_cv_input(cv_base.Base_CV_input):
                              validator=validators.optional(validators.instance_of(str)))
     ref_structure: str = field(default="",
                              validator=validators.instance_of(str))
-    type: typing.Literal["rmsd"] = "rmsd"
     _index: int = field(default=0,
                           validator=validators.instance_of(int))
     min_value: float = field(default=0.0,

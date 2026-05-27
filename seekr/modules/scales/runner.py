@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 modules/scales/runner.py
 
@@ -138,7 +139,8 @@ def choose_next_simulation(
         force_overwrite: bool,
         swarm_id: int | None = None,
         use_json: bool = True,
-        silent: bool = False
+        silent: bool = False,
+        benchmark: bool = False
         ) -> list:
     """
     Choose the next simulation to run based on the stage scale, and return
@@ -149,11 +151,12 @@ def choose_next_simulation(
         device_index = choose_params["device_index"]
         run_instructions = md_runner.choose_next_simulation_md(
             model, stage, anchor_index_instruction, force_overwrite, 
-            device_index, swarm_id, use_json, silent=silent)
+            device_index, swarm_id, use_json, silent=silent, benchmark=benchmark)
     elif stage.scale_type == "brownian_dynamics":
         assert swarm_id is None, "Swarm ID is not used in BD simulations."
         run_instructions = bd_runner.choose_next_simulation_bd(
-            model, stage, force_overwrite, use_json, silent=silent)
+            model, stage, force_overwrite, use_json, silent=silent, 
+            benchmark=benchmark)
     elif stage.scale_type == "logistic":
         run_instructions = logistic_runner.choose_next_simulation_logistic(
             model, stage, force_overwrite, use_json, silent=silent)
@@ -168,7 +171,7 @@ def choose_next_simulation(
                 this_module_found, run_instructions \
                     = scales_module_run.choose_next_simulation(
                         model, stage, choose_params, force_overwrite, swarm_id, use_json, 
-                        silent)
+                        silent, benchmark)
                 if this_module_found:
                     found = True
                     break
@@ -214,20 +217,26 @@ def do_run_instruction(
         force_overwrite: bool,
         stage_index: int,
         instruction: list,
-        device_index: str | None
+        device_index: str | None,
+        benchmark: bool = False
     ) -> None:
     """
     Execute the run instructions for a given scale type.
     """
     stage = model.stages[stage_index]
+    if benchmark:
+        if hasattr(stage, "completion_criteria"):
+            stage.completion_criteria.enable_benchmark_mode()
+
     if stage.scale_type == "molecular_dynamics":
         md_runner.do_run_instruction_md(
             model, force_overwrite, stage_index=stage_index, 
-            instruction=instruction, device_index=device_index)
+            instruction=instruction, device_index=device_index, 
+            benchmark=benchmark)
     elif stage.scale_type == "brownian_dynamics":
         bd_runner.do_run_instruction_bd(
             model, force_overwrite, stage_index=stage_index, 
-            instruction=instruction)
+            instruction=instruction, benchmark=benchmark)
     elif stage.scale_type == "logistic":
         logistic_runner.do_run_instruction_logistic(
             model, force_overwrite, stage_index=stage_index, 
@@ -241,7 +250,8 @@ def do_run_instruction(
             if scales_module_str is not None:
                 scales_module_run = importlib.import_module(scales_module_str+".runner")
                 this_module_found = scales_module_run.do_run_instruction(
-                    model, force_overwrite, stage_index, instruction, device_index)
+                    model, force_overwrite, stage_index, instruction, device_index,
+                    benchmark=benchmark)
                 if this_module_found:
                     found = True
                     break

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Tests for modules/collective_variables/openmm_interface.py.
 """

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 modules/structures.py
 
@@ -863,6 +864,8 @@ class Seekr_model:
         for cv_file in cv_files:
             self.collective_variables.append(
                 cv_structures.load_cv_from_file(cv_file))
+        # Sort CVs by .index attribute
+        self.collective_variables.sort(key=lambda cv: cv.index)
         return
     
     def load_selections(
@@ -896,10 +899,12 @@ class Seekr_model:
         self.anchors = []
         for anchor_file in anchor_files:
             anchor = load_anchor_from_file(anchor_file)
-            self.anchors.append(anchor)
             for milestone in anchor.milestones:
                 milestone_indices.add(milestone.index)
-
+            self.anchors.append(anchor)
+            
+        # Sort anchors by .index attribute
+        self.anchors.sort(key=lambda anchor: anchor.index)
         self.num_anchors = len(self.anchors)
         self.num_milestones = len(milestone_indices)
         return

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 analyze.py
 
@@ -22,14 +23,16 @@ def analyze(
         min_time_ps: float = 0.0,
         max_time_ps: float | None = None,
         error_analysis_method: str = "bootstrap",
-        only_extract_data: bool = False
+        only_extract_data: bool = False,
+        num_error_samples: int | None = None
     ) -> mmvt_analyzer.Mmvt_analyzer:
     curdir = os.getcwd()
     analysis = analyzer.analyze(
         model, stage_index=stage_index, skip_checks=skip_checks,
         min_time_ps=min_time_ps, max_time_ps=max_time_ps,
         error_analysis_method=error_analysis_method,
-        only_extract_data=only_extract_data
+        only_extract_data=only_extract_data,
+        num_error_samples=num_error_samples
     )
     os.chdir(curdir)
     return analysis
@@ -68,6 +71,10 @@ if __name__ == "__main__":
         "Three options are currently available: 'bootstrap', "\
         "'resample', and 'montecarlo'. See online manual for explanation. "\
         "Default: 'bootstrap'.")
+    argparser.add_argument(
+        "-n", "--num_error_samples", dest="num_error_samples", default=None, type=int,
+        help="The number of samples to use for error analysis. If not provided, " \
+        "the default number of samples will be used.")
     args = argparser.parse_args()
     args = vars(args)
     model_file = args["model_file"]
@@ -76,13 +83,15 @@ if __name__ == "__main__":
     min_time_ps = args["minimum_time"]
     max_time_ps = args["maximum_time"]
     error_analysis_method = args["error_analysis_method"]
+    num_error_samples = args["num_error_samples"]
     model = structures.load_model(model_file)
     if not skip_checks:
         check.check_post_simulation_all(model)
     analysis = analyze(
         model, stage_index=stage, skip_checks=skip_checks, 
         min_time_ps=min_time_ps, max_time_ps=max_time_ps,
-        error_analysis_method=error_analysis_method)
+        error_analysis_method=error_analysis_method,
+        num_error_samples=num_error_samples)
     assert analysis is not None, "No analysis could be performed for any stages."
     analysis.print_results()
     print("All plots being saved to:", analyzer_base.DEFAULT_IMAGE_DIR)

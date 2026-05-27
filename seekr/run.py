@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 run.py
 
@@ -58,7 +59,8 @@ def run(
         anchor_arg: str = "any", 
         device_index: str | None = None, 
         force_overwrite: bool = False,
-        swarm_id: int | None = None
+        swarm_id: int | None = None,
+        benchmark: bool = False
         ) -> None:
     stage_index = extract_stage_index(model, stage_arg)
     assert stage_index is not None, \
@@ -84,10 +86,11 @@ def run(
     }
     while not complete:
         run_instructions = scales_runner.choose_next_simulation(
-            model, stage, choose_params, force_overwrite, swarm_id, use_json=False)
+            model, stage, choose_params, force_overwrite, swarm_id, use_json=False, 
+            benchmark=benchmark)
         for instruction in run_instructions:
             scales_runner.do_run_instruction(
-                model, force_overwrite, stage_index, instruction, device_index)
+                model, force_overwrite, stage_index, instruction, device_index, benchmark)
             
         if len(run_instructions) > 0:
             complete = False
@@ -124,7 +127,7 @@ if __name__ == "__main__":
         help="The name or index of the anchor whose simulation to start. "\
             "or restart. The argument 'any' is allowed - which will run "\
             "whichever anchors that still need to be finished for the "\
-            "specified anchor. Default: 'any'.")
+            "specified stage. Default: 'any'.")
     argparser.add_argument(
         "-s", "--swarm_id", dest="swarm_id", type=int, default=None,
         help="The swarm ID to run. This is only relevant for stages that "\
@@ -150,6 +153,14 @@ if __name__ == "__main__":
         help="If the simulation fails during The course of a single run, "\
             "attempt to restart the simulation this many number of times "\
             "before giving up. Default: 0.", type=int)
+    argparser.add_argument(
+        "-b", "--benchmark", dest="benchmark", default=False,
+        help="Toggle whether to run in benchmark mode. In this mode, the "\
+            "simulation will be run for a short amount of time (ex: 1 ps) "\
+            "to test the performance of the simulation engine. Warning: if "\
+            "run with the --anchor set to 'any', the benchmark mode will be "\
+            "applied to all anchors, and adequate inputs may not be "\
+            "generated for later stages.", action="store_true")
     argspace = argparser.parse_args()
     args = vars(argspace)
     model_file = args["model_file"]
@@ -159,12 +170,13 @@ if __name__ == "__main__":
     device_index = args["device_index"]
     force_overwrite = args["force_overwrite"]
     restart_attempts = args["restart_attempts"]
+    benchmark = args["benchmark"]
     model = structures.load_model(model_file)
     num_restart_attempts = 0
     success = False
     while not success:
         try:
-            run(model, stage, anchor, device_index, force_overwrite, swarm_id)
+            run(model, stage, anchor, device_index, force_overwrite, swarm_id, benchmark)
             success = True
         except Exception:
             if num_restart_attempts < restart_attempts:

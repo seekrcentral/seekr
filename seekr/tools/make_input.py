@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 This script produces input objects that will be used to
 make in input file that can be read and used to create
@@ -442,6 +443,7 @@ def create_host_guest_example_input(
     stage1_position_reporter.atom_subset = None
     stage1_position_reporter.extension = "dcd"
     stage1.reporters = [stage1_state_reporter, stage1_position_reporter]
+    stage1.input_stage_name = "initial"
     
     stage2 = md_preparer.Input_stage_md()
     if use_smd:
@@ -456,7 +458,7 @@ def create_host_guest_example_input(
     else:
         stage2.name = "metadynamics"
         stage2.sampling_method = sampling_preparer.Metadynamics_md_input()
-        stage2.sampling_method.gaussian_height = 1.0
+        stage2.sampling_method.gaussian_height = 1.5
         if use_rmsd_cv:
             stage2.sampling_method.cv_names = ["rmsd_host_guest"]
         else:
@@ -493,11 +495,13 @@ def create_host_guest_example_input(
     stage2_position_reporter.extension = "dcd"
     stage2.reporters = [stage2_reporter, stage2_state_reporter, 
                         stage2_position_reporter]
+    stage2.input_stage_name = "equilibration"
 
     stage3 = anchor_starting_structures_from_reporter_logistic_stage\
         .Input_stage_anchor_starting_structures_from_reporter()
     stage3.name = "anchor_structures_from_metaD"
     stage3.reporter_name = "my_anchor_reporter"
+    stage3.input_stage_name = "metadynamics"
     
     stage4 = md_preparer.Input_stage_md()
     stage4.name = "MMVT"
@@ -517,6 +521,7 @@ def create_host_guest_example_input(
     stage4_position_reporter.interval = 250
     stage4_position_reporter.atom_subset = "solute"
     stage4.reporters = [stage4_state_reporter, stage4_position_reporter]
+    stage4.input_stage_name = "anchor_structures_from_metaD"
 
     seekr_input.stages = [stage1, stage2, stage3, stage4]
 
@@ -530,6 +535,7 @@ def create_host_guest_example_input(
         stage5.completion_criteria.number_of_trajectories = 10000
         #stage5.completion_criteria = compl_crit_struct.Number_of_encounters_completion_criteria()
         #stage5.completion_criteria.number_of_encounters = 1000
+        stage5.input_stage_name = "initial"
         seekr_input.stages.append(stage5)
     
     seekr_input.partitions = [preparer.Partition_input()]

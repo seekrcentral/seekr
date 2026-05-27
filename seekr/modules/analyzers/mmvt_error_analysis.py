@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 modules/analyzers/mmvt_error_analysis.py
 
@@ -347,23 +348,21 @@ def monte_carlo_milestoning_error(
             new_data_sample.fill_N_R_alpha_from_matrices(
                 model, mmvt_Nij_list, mmvt_Ri_alpha)
             new_data_sample.fill_out_data_quantities(model)
-            #new_data_sample.compute_rate_matrix()
             new_data_sample.Q, new_data_sample.K = analyzers_base.compute_rate_matrix(
-                model.num_milestones, new_data_sample.N_ij, new_data_sample.R_i)
-            Q_raw, _ = analyzers_base.compute_rate_matrix(
                 model.num_milestones, new_data_sample.N_ij_unmodified,
                 new_data_sample.R_i_unmodified)
             new_data_sample.N_ij = main_data_sample.N_ij
             new_data_sample.R_i = main_data_sample.R_i
 
-            #if model.using_bd():
-            #    new_data_sample.parse_browndye_results(
-            #        bd_sample_from_normal=True)
             new_data_sample.p_i, new_data_sample.free_energy_milestones = \
                 analyzers_base.calculate_thermodynamics(
                     model.num_milestones, new_data_sample.Q,
-                    model.temperature, Q_raw=Q_raw
+                    model.temperature, Q_raw=new_data_sample.Q,
+                    N_ij=new_data_sample.N_ij_unmodified
             )
+            new_data_sample.Q, new_data_sample.K \
+                = analyzers_base.impute_missing_rates(
+                    new_data_sample.Q, new_data_sample.p_i)
             end_states, anchor_indices_by_name \
                 = mmvt_data_sample.make_end_states_dict_and_anchor_indices_by_name(model)
             new_data_sample.calculate_extra_thermodynamics(model)
@@ -372,7 +371,7 @@ def monte_carlo_milestoning_error(
             new_data_sample.milestone_to_milestone_probabilities = \
                 analyzers_base.calculate_kinetics(
                     model.num_milestones, new_data_sample.Q, new_data_sample.K, 
-                    end_states
+                    end_states, p_i=new_data_sample.p_i,
                 )
             new_data_sample.calculate_extra_kinetics(model, end_states)
             #new_data_sample.fill_out_k_off_and_k_on(anchor_indices_by_name)

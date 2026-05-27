@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 This module defines a stage (along with its structures, preparer, and 
 runner details) that reassigns the anchors of a model according to a 

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 status.py
 
@@ -75,7 +76,7 @@ def status(
                 }
             else:
                 message += f"  Stage {stage.index} ({stage.name}):\n" \
-                    + f"    Finished: {finished}\n    Message: {stage_message}"
+                    + f"    Finished: {finished}\n{stage_message}"
 
     if instruction in ["statistics", "all"]:
         analysis = analyze.analyze(model, stage_index=None, 

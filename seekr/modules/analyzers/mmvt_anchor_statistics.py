@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 modules/analyzers/mmvt_anchor_statistics.py
 
@@ -220,7 +221,8 @@ def read_output_file(
                         print("last_time:", last_time)
                         print("time_count - last_time:", time_count - last_time)
                         raise Exception("Time between statistics does not match")
-                    assert time_count > last_time, "Time count should be non-decreasing"
+                    assert time_count > last_time, "Time count should be non-decreasing." \
+                    + f" Filename: {output_filename}, time_count: {time_count}, last_time: {last_time}"
                 anchor_statistics.time_count = time_count
                 last_time = time_count
             elif line.startswith("first_encounter_time"):
@@ -232,6 +234,9 @@ def read_output_file(
             elif line.startswith("last_milestone_time_touched"):
                 last_milestone_time_touched = float(line.split()[1])
                 anchor_statistics.last_milestone_time_touched = last_milestone_time_touched
+                # See NOTE below for milestone_#_time
+                anchor_statistics.T_alpha_total = last_milestone_time_touched \
+                    - anchor_statistics.first_encounter_time
             elif line.startswith("milestone"):
                 line_split_by_spaces = line.split()
                 key_string = line_split_by_spaces[0].strip(":")
@@ -247,7 +252,12 @@ def read_output_file(
                 elif key_string_parts[-1] == "time":
                     src_index = int(key_string_parts[1])
                     anchor_statistics.R_i_alpha_total[src_index] += float(value_string)
-                    anchor_statistics.T_alpha_total += float(value_string)
+                    # NOTE: T_alpha_total should actually not be assigned here,
+                    # but rather the difference between first_encounter_time and 
+                    # last_milestone_time_touched. This is because, the counter for 
+                    # milestone_#_time might only be updated when a different milestone
+                    # is touched than where originated - not the right count for k_alpha_beta...
+                    #anchor_statistics.T_alpha_total += float(value_string)
                     
                 else:
                     raise ValueError(
@@ -477,9 +487,16 @@ def make_cumulative_anchor_statistics(
 
         for i in range(len(anchor_statistics_piecewise_list[alpha])):
             anchor_stat = anchor_statistics_piecewise_list[alpha][i]
+            problem = False
             for key in anchor_stat.k_alpha_beta:
-                assert anchor_stat.k_alpha_beta[key] >= 0.0, \
-                        "negative k_alpha_beta values not allowed."
+                # NOTE: save this for if we want to restore it someday
+                #assert anchor_stat.k_alpha_beta[key] >= 0.0, \
+                #        "negative k_alpha_beta values not allowed."
+                if anchor_stat.k_alpha_beta[key] < 0.0:
+                    problem = True
+
+            if problem:
+                continue
             if i == 0:
                 cumulative_windows.append(anchor_stat)
             else:

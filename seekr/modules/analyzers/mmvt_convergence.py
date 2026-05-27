@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 modules/analyzers/mmvt_convergence.py
 

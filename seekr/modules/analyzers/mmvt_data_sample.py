@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 modules/analyzers/mmvt_data_sample.py
 
@@ -170,18 +171,21 @@ class Mmvt_data_sample:
             ) -> None:
         """
         Computes the equilibrium probability quantities "pi_alpha" used
-        in MMVT theory. Uses a BFS spanning-tree approach in log-space,
-        which is numerically stable for any anchor connectivity graph
-        (including N-dimensional MMVT systems) and avoids ill-conditioning
-        issues inherent in solving the rate matrix as a linear system.
-
-        BFS is short for: breadth-first search.
+        in MMVT theory. Uses a log-space least-squares approach that is
+        numerically stable for any anchor connectivity graph (including
+        N-dimensional MMVT systems) and avoids both the ill-conditioning
+        of the rate matrix linear system and the path-dependence of a
+        BFS spanning tree.
 
         MMVT satisfies detailed balance: pi[i]*k[i->j] = pi[j]*k[j->i],
-        so log pi[j] = log pi[i] + log k[i->j] - log k[j->i]. This
-        relation is path-independent and is accumulated over a BFS
-        spanning tree of the anchor connectivity graph.
+        so log pi[j] - log pi[i] = log k[i->j] - log k[j->i]. In 2D/ND
+        systems with cycles in the anchor graph, the observed k values
+        from finite sampling do not exactly satisfy detailed balance. The
+        least-squares solution minimizes the total squared inconsistency
+        across all observed pairs simultaneously, giving the optimal
+        estimate that is independent of which spanning tree is chosen.
         """
+
         bulk_indices = []
         found_bulk = False
         for alpha, anchor in enumerate(model.anchors):
@@ -195,17 +199,12 @@ class Mmvt_data_sample:
         if len(bulk_indices) == 0:
             # No bulk anchor: append a synthetic pivot at the end.
             pivot_index = model.num_anchors
-            flux_matrix_dimension = model.num_anchors + 1
         else:
             pivot_index = bulk_indices[0]
-            flux_matrix_dimension = model.num_anchors - len(bulk_indices) + 1
 
         n_non_bulk = pivot_index  # number of non-bulk anchors
 
-        # Initialize log-probabilities to -inf (zero probability).
-        log_pi = np.full(n_non_bulk, -np.inf)
-
-        # Find the first anchor with any observed transitions as the BFS root.
+        # Find the first anchor with any observed transitions as the reference.
         root = None
         for alpha in range(n_non_bulk):
             if any(self.k_alpha_beta.get((alpha, beta), 0.0) > 0.0
@@ -213,21 +212,64 @@ class Mmvt_data_sample:
                 root = alpha
                 break
 
+        # Initialize log-probabilities to -inf (zero probability).
+        log_pi = np.full(n_non_bulk, -np.inf)
+
         if root is not None:
-            log_pi[root] = 0.0  # unnormalized reference
-            visited = {root}
-            queue = deque([root])
-            while queue:
-                i = queue.popleft()
-                for j in range(n_non_bulk):
-                    if j == i or j in visited:
-                        continue
+            # Collect all pairs (i,j) where both k_ij and k_ji are observed.
+            edges = []
+            for i in range(n_non_bulk):
+                for j in range(i + 1, n_non_bulk):
                     k_fwd = self.k_alpha_beta.get((i, j), 0.0)
                     k_bwd = self.k_alpha_beta.get((j, i), 0.0)
                     if k_fwd > 0.0 and k_bwd > 0.0:
-                        log_pi[j] = log_pi[i] + np.log(k_fwd) - np.log(k_bwd)
-                        visited.add(j)
-                        queue.append(j)
+                        edges.append((i, j, np.log(k_fwd) - np.log(k_bwd)))
+
+            if len(edges) > 0:
+                # Solve the overdetermined log-space system with weighted least
+                # squares. Weight each edge by the harmonic mean of its observed
+                # transition counts, which is proportional to 1/variance of the
+                # log-ratio (Poisson statistics). Low-count edges get low weight.
+                n_edges = len(edges)
+                A = np.zeros((n_edges + 1, n_non_bulk))
+                b_vec = np.zeros(n_edges + 1)
+                total_weight = 0.0
+                for row, (i, j, delta) in enumerate(edges):
+                    N_ij = self.N_alpha_beta.get((i, j), 1)
+                    N_ji = self.N_alpha_beta.get((j, i), 1)
+                    # Harmonic mean of counts ≈ 1/var(log k_ij/k_ji).
+                    denom = N_ij + N_ji
+                    w = (N_ij * N_ji / denom) if denom > 0 else 1.0
+                    sqrt_w = np.sqrt(max(w, 1e-12))
+                    total_weight += w
+                    A[row, j] = sqrt_w
+                    A[row, i] = -sqrt_w
+                    b_vec[row] = delta * sqrt_w
+                # Gauge constraint: log_pi[root] = 0.
+                gauge_w = np.sqrt(total_weight / n_edges) if n_edges > 0 else 1.0
+                A[n_edges, root] = gauge_w
+                b_vec[n_edges] = 0.0
+                log_pi_sol, _, _, _ = np.linalg.lstsq(A, b_vec, rcond=None)
+                log_pi_sol -= log_pi_sol[root]  # enforce gauge: log_pi[root] = 0
+
+                # BFS to find anchors reachable from root in the observed graph;
+                # isolated components stay at -inf.
+                reachable = {root}
+                queue = deque([root])
+                while queue:
+                    node = queue.popleft()
+                    for other in range(n_non_bulk):
+                        if other not in reachable:
+                            k_fwd = self.k_alpha_beta.get((node, other), 0.0)
+                            k_bwd = self.k_alpha_beta.get((other, node), 0.0)
+                            if k_fwd > 0.0 and k_bwd > 0.0:
+                                reachable.add(other)
+                                queue.append(other)
+                for idx in reachable:
+                    log_pi[idx] = log_pi_sol[idx]
+            else:
+                # No bidirectional edges: set the root as the only known state.
+                log_pi[root] = 0.0
 
         # Normalize using log-sum-exp for numerical stability.
         finite_mask = np.isfinite(log_pi)
@@ -242,6 +284,7 @@ class Mmvt_data_sample:
         if np.any(self.pi_alpha < 0.0):
             raise ValueError(
                 "Negative entries in pi_alpha: {}".format(self.pi_alpha))
+        
         return
     
     def fill_out_data_quantities(
@@ -309,26 +352,10 @@ class Mmvt_data_sample:
                         self.R_i[key] += 0.0
             else:
                 raise Exception("R_i_alpha should always be set.")
-
-        # Now we need to try and correct the zero entries
+        # Keep raw copies for thermodynamics; missing entries are now filled
+        # later via detailed balance using p_i (see impute_missing_rates).
         self.N_ij_unmodified = copy.deepcopy(self.N_ij)
         self.R_i_unmodified = copy.deepcopy(self.R_i)
-        for key in self.N_ij:
-            if self.N_ij[key] == 0.0:
-                i = key[0]
-                if self.R_i[i] == 0.0:
-                    # Then this milestone has no transitions out: give
-                    #  it a high N_ij
-                    self.N_ij[key] = analyzers_base.HIGH_N_IJ
-                else:
-                    # Then this milestone has other transitions out: give it
-                    #  a low N_IJ
-                    self.N_ij[key] = analyzers_base.LOW_N_IJ
-
-        for i in self.R_i:
-            if self.R_i[i] == 0.0:
-                self.R_i[i] = analyzers_base.DEFAULT_R_I
-            
         return
     
     def calculate_extra_thermodynamics(
@@ -346,6 +373,7 @@ class Mmvt_data_sample:
         end_anchor_indices = []
         self.free_energy_anchors = np.zeros(model.num_anchors)
         highest_pi_alpha = max(self.pi_alpha)
+        last_free_energy = 0.0
         for alpha in range(model.num_anchors):
             if model.anchors[alpha].bulk_anchor:
                 pi_alpha_val = self.pi_alpha[-1, 0]
@@ -356,6 +384,9 @@ class Mmvt_data_sample:
             free_energy = -analyzers_base.GAS_CONSTANT*model.temperature*np.log(
                 pi_alpha_val / highest_pi_alpha)
             self.free_energy_anchors[alpha] = free_energy
+            if model.anchors[alpha].bulk_anchor:
+                self.free_energy_anchors[alpha] = last_free_energy
+            last_free_energy = free_energy
 
         for i, anchor in enumerate(model.anchors):
             if anchor.end_anchor and not anchor.bulk_anchor:
@@ -385,6 +416,7 @@ class Mmvt_data_sample:
         Convert milestone kinetic quantities to anchor kinetic
         quantities.
         """
+        PROB_WEIGHT_LOWER_CUTOFF = 0.0 #1e-10
         anchor_src_to_anchor_dest_MFPTs = {}
         end_state_to_end_state_probabilities_anchor = {}
         for src_state_name, src_milestone_list in end_states.items():
@@ -393,7 +425,10 @@ class Mmvt_data_sample:
             for i, src_milestone in enumerate(src_milestone_list):
                 this_src_state_normalized_p_i[i] = self.p_i[src_milestone]
                 marginal_prob_src += self.p_i[src_milestone]
-            this_src_state_normalized_p_i /= marginal_prob_src
+            if marginal_prob_src == 0.0:
+                this_src_state_normalized_p_i = 0.0
+            else:
+                this_src_state_normalized_p_i /= marginal_prob_src
             #probability_check = 0.0
             for dest_state_name, dest_milestone_list in end_states.items():
                 if src_state_name == dest_state_name:
@@ -403,8 +438,14 @@ class Mmvt_data_sample:
                 anchor_src_to_anchor_dest_MFPTs[anchor_key] = 0.0
                 end_state_to_end_state_probabilities_anchor[anchor_key] = 0.0
                 milestone_to_milestone_probability_in_states = {}
+                milestone_prob_in_state = {}
                 state_marginal_prob = 0.0
                 for i, src_milestone in enumerate(src_milestone_list):
+                    prob_src = self.p_i[src_milestone]
+                    milestone_prob_in_state[src_milestone] = prob_src
+                    state_marginal_prob += prob_src
+
+                    dest_state_marginal_prob = 0.0
                     for j, dest_milestone in enumerate(dest_milestone_list):
                         if src_milestone == dest_milestone:
                             continue
@@ -412,24 +453,37 @@ class Mmvt_data_sample:
                         prob_src_to_dest = self.milestone_to_milestone_probabilities[\
                             (src_milestone, dest_milestone)]
                         milestone_to_milestone_probability_in_states[milestone_key] = prob_src_to_dest
-                        state_marginal_prob += prob_src_to_dest
+                        dest_state_marginal_prob += prob_src_to_dest
+
+                for i, src_milestone in enumerate(src_milestone_list):
+                    if state_marginal_prob > 0.0:
+                        milestone_prob_in_state[src_milestone] /= state_marginal_prob
+                    else:
+                        milestone_prob_in_state[src_milestone] = 0.0
 
                 for i, src_milestone in enumerate(src_milestone_list):
                     for j, dest_milestone in enumerate(dest_milestone_list):
                         if src_milestone == dest_milestone:
                             continue
                         milestone_key = (src_milestone, dest_milestone)
-                        milestone_to_milestone_probability_in_states[milestone_key] /= state_marginal_prob
-                        prob_weight = milestone_to_milestone_probability_in_states[milestone_key]
-
+                        prob_weight = milestone_prob_in_state[src_milestone] \
+                            * milestone_to_milestone_probability_in_states[milestone_key]
+                        if prob_weight < PROB_WEIGHT_LOWER_CUTOFF:
+                            # This is to eliminate the effect of very low-probability 
+                            # paths that have very high MFPTs and would otherwise 
+                            # dominate the average.
+                            prob_weight = 0.0
                         this_src_dest_time_weighted_by_prob =  \
                             prob_weight * self.milestone_to_milestone_MFPTs[milestone_key]
-                        this_src_dest_prob_weighted_by_prob =  \
-                            prob_weight * self.milestone_to_milestone_probabilities[milestone_key]
+                        this_src_dest_prob_weighted_by_prob = prob_weight
                         end_state_to_end_state_probabilities_anchor[anchor_key] \
                             += this_src_dest_prob_weighted_by_prob
                         anchor_src_to_anchor_dest_MFPTs[anchor_key] \
                             += this_src_dest_time_weighted_by_prob
+
+                if end_state_to_end_state_probabilities_anchor[anchor_key] > 0.0:
+                    anchor_src_to_anchor_dest_MFPTs[anchor_key] /= \
+                        end_state_to_end_state_probabilities_anchor[anchor_key]
 
                 """ # TODO: remove
                 for i, src_milestone in enumerate(src_milestone_list):
@@ -493,7 +547,10 @@ class Mmvt_data_sample:
                 marginal_prob += prob
         if marginal_prob > 0.0:
             MFPT_to_bulk = MFPT_to_bulk_non_normalized / marginal_prob
-            self.k_off = 1.0e12 / float(MFPT_to_bulk)
+            if MFPT_to_bulk > 0.0:
+                self.k_off = 1.0e12 / float(MFPT_to_bulk)
+            else:
+                self.k_off = 0.0
             
         return
 
@@ -505,26 +562,27 @@ class Mmvt_data_sample:
         Fill out quantities such as this data sample's Q and K matrices,
         as well as thermodynamics and kinetics quantities.
         """
+        # Build Q from the raw observed counts; thermodynamics uses this
+        # directly via its log-space LSQ + BFS-reachability logic.
         self.Q, self.K = analyzers_base.compute_rate_matrix(
-            model.num_milestones, self.N_ij, self.R_i
-        )
-        Q_raw, _ = analyzers_base.compute_rate_matrix(
             model.num_milestones, self.N_ij_unmodified, self.R_i_unmodified
         )
-        #if model.using_bd():
-        #    new_data_sample.parse_browndye_results(
-        #        bd_sample_from_normal=True)
         self.p_i, self.free_energy_milestones = \
             analyzers_base.calculate_thermodynamics(
-                model.num_milestones, self.Q, model.temperature, Q_raw=Q_raw
+                model.num_milestones, self.Q, model.temperature, Q_raw=self.Q,
+                N_ij=self.N_ij_unmodified
         )
+        # Fill in missing off-diagonal rates via detailed balance against
+        # p_i, so kinetics has a consistent Q without HIGH/LOW artifacts.
+        self.Q, self.K = analyzers_base.impute_missing_rates(self.Q, self.p_i)
         end_states, anchor_indices_by_name \
             = make_end_states_dict_and_anchor_indices_by_name(model)
         self.calculate_extra_thermodynamics(model)
         self.milestone_to_milestone_MFPTs, self.milestone_committor_functions,\
             self.milestone_to_milestone_probabilities = \
                 analyzers_base.calculate_kinetics(
-                    model.num_milestones, self.Q, self.K, end_states
+                    model.num_milestones, self.Q, self.K, end_states,
+                    p_i=self.p_i,
         )
         self.calculate_extra_kinetics(model, end_states)
         self.fill_out_k_off(anchor_indices_by_name)

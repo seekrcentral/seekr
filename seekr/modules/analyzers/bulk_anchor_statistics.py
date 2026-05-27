@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 modules/analyzers/bulk_anchor_statistics.py
 

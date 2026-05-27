@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 modules/sampling_methods/openmm_interface.py
 
@@ -52,7 +53,7 @@ def open_pdb_file_for_simulation(
     """
     pdb_obj = openmm_app.PDBFile(filename)
     box_vectors = pdb_obj.topology.getPeriodicBoxVectors()
-    simulation.context.setPositions(pdb_obj.getPositions())
+    simulation.context.setPositions(pdb_obj.getPositions(asNumpy=True))
     simulation.context.setPeriodicBoxVectors(*box_vectors)
     return
 
@@ -77,7 +78,7 @@ def write_pdb_file_from_simulation(
     """
     state = simulation.context.getState(getPositions=True,
                                         enforcePeriodicBox=True)
-    positions = state.getPositions()
+    positions = state.getPositions(asNumpy=True)
     box_vectors = state.getPeriodicBoxVectors()
     simulation.topology.setPeriodicBoxVectors(box_vectors)
     if image_molecules:
@@ -106,7 +107,7 @@ def write_txt_file_from_simulation(
     """
     state = simulation.context.getState(getPositions=True,
                                         enforcePeriodicBox=False)
-    positions = state.getPositions().value_in_unit(unit.nanometers)
+    positions = state.getPositions(asNumpy=True).value_in_unit(unit.nanometers)
     np.savetxt(filename, positions)
     return
 
