@@ -8,10 +8,6 @@ run stage.
 
 import numpy as np
 
-# TODO: one day, this module will import sampling
-#  methods added to this directory, but for now, they must be
-#  defined here
-
 import seekr.modules.structures as structures
 
 def find_anchor_value(
@@ -19,7 +15,7 @@ def find_anchor_value(
         anchor_index: int
         ) -> list[float]:
     """
-    
+    Find the value of the variables for a given anchor.
     """
     value = []
     anchor = model.anchors[anchor_index]

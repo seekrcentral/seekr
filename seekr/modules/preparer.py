@@ -236,7 +236,7 @@ class Seekr_input:
         
         last_stage_index_by_scale: dict[str, int] = defaultdict(int)
         last_any_stage_index: int = 0
-        stage_name_to_index: dict[str, int] = {}
+        stage_name_to_index: dict[str, int] = {"initial": 0}
         current_scopes = {}
         current_scope = "unpartitioned"
         if self.initial_scopes is None:

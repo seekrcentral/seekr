@@ -174,7 +174,8 @@ class Runner_openmm():
                 = md_engine.unpartitioned_settings\
                     .stage_parameters[input_stage_name]
             input_positions_filenames = md_engine.unpartitioned_settings\
-                .get_positions_full_paths(self.model.directory, input_stage_index, swarm_id)
+                .get_positions_full_paths(self.model.directory, input_stage_index, 
+                                          "dummy", swarm_id)
         elif stage_output.scope == "partitioned":
             assert anchor is not None
             input_stage_parameter = anchor.stage_parameters[input_stage_name]
@@ -383,6 +384,8 @@ class Runner_openmm():
             else:
                 preparer.cleanse_outputs_stage(
                     self.model, anchor, self.stage_output_index, self.swarm_id)
+        
+        self.sampling_method_interface.post_simulation_procedures(swarm_id=self.swarm_id)
         return
     
 def run_simulation(

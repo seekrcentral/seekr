@@ -7,6 +7,8 @@ Perform runner functions specific to logistic stages.
 
 import cattrs
 import logging
+import importlib
+import importlib.util
 
 import seekr.modules.base as base
 import seekr.modules.structures as structures
@@ -39,7 +41,24 @@ def is_finished_logistic_with_message(
             .is_finished_anchor_starting_structures_from_reporter_logistic_with_message(
                 model, stage, use_json=use_json)
     else:
-        raise Exception(f"Logistic stage type not recognized: {stage.type}.")
+        # Run through plugins
+        for plugin_name in model.plugins:
+            spec = importlib.util.find_spec(plugin_name)
+            if spec is None:
+                raise ImportError(f"Plugin '{plugin_name}' not found. Please install "\
+                                  "it or check the spelling.")
+            runner_module_name = plugin_name+".modules.scales.logistic.runner"
+            if importlib.util.find_spec(runner_module_name) is None:
+                continue
+            plugin_module_scales_logistic_runner = importlib.import_module(
+                runner_module_name)
+            found, completed, message = plugin_module_scales_logistic_runner\
+                .is_finished_logistic_with_message(
+                    model, stage, use_json=use_json)
+            if found:
+                return completed, message
+        
+    raise Exception(f"Logistic stage type not recognized: {stage.type}.")
 
 def choose_next_simulation_logistic(
         model: structures.Seekr_model, 
@@ -48,6 +67,7 @@ def choose_next_simulation_logistic(
         use_json: bool = True,
         silent: bool = False
         ) -> list:
+    instructions = None
     if stage.type == "reassign_anchors_stage":
         instructions = reassign_anchors_logistic_stage\
             .choose_next_simulation_reassign_anchors_logistic(
@@ -57,6 +77,24 @@ def choose_next_simulation_logistic(
             .choose_next_simulation_anchor_starting_structures_from_reporter_logistic(
                 model, stage, force_overwrite, use_json, silent=silent)
     else:
+        # Run through plugins
+        for plugin_name in model.plugins:
+            spec = importlib.util.find_spec(plugin_name)
+            if spec is None:
+                raise ImportError(f"Plugin '{plugin_name}' not found. Please install "\
+                                  "it or check the spelling.")
+            runner_module_name = plugin_name+".modules.scales.logistic.runner"
+            if importlib.util.find_spec(runner_module_name) is None:
+                continue
+            plugin_module_scales_logistic_runner = importlib.import_module(
+                runner_module_name)
+            found, instructions = plugin_module_scales_logistic_runner\
+                .choose_next_simulation_logistic(
+                    model, stage, force_overwrite, use_json=use_json, silent=silent)
+            if found:
+                break
+
+    if instructions is None:
         raise Exception(f"Logistic stage type not recognized: {stage.type}.")
     
     if not silent:
@@ -87,5 +125,20 @@ def do_run_instruction_logistic(
                 model, force_overwrite, stage_index=stage_index,
                 instruction=instruction)
     else:
-        raise Exception(f"Logistic stage type not recognized: {stage.type}.")
+        # Run through plugins
+        for plugin_name in model.plugins:
+            spec = importlib.util.find_spec(plugin_name)
+            if spec is None:
+                raise ImportError(f"Plugin '{plugin_name}' not found. Please install "\
+                                  "it or check the spelling.")
+            runner_module_name = plugin_name+".modules.scales.logistic.runner"
+            if importlib.util.find_spec(runner_module_name) is None:
+                continue
+            plugin_module_scales_logistic_runner = importlib.import_module(
+                runner_module_name)
+            found = plugin_module_scales_logistic_runner\
+                .do_run_instruction_logistic(
+                    model, force_overwrite, stage_index, instruction)
+            if found:
+                break
     return

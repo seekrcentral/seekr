@@ -970,6 +970,25 @@ def load_plugins(
         
     return
 
+def plugins_register_hooks(
+        plugin_list: list[str],
+        converter: cattrs.Converter
+        ) -> None:
+    """
+    Register any structure hooks that are needed for plugins.
+    """
+    for plugin_name in plugin_list:
+        scales_module_str = base.get_plugin_str(
+            plugin_name, submodule_name="scales", require_openmm_interface=False,
+            require_runner=True)
+        if scales_module_str is not None:
+            scales_module_struct = importlib.import_module(
+                scales_module_str+".structures")
+            if hasattr(scales_module_struct, "register_structure_hooks"):
+                scales_module_struct.register_structure_hooks(converter)
+        
+    return
+
 def load_model(
         filename: str
         ) -> Seekr_model:
@@ -1049,6 +1068,8 @@ def load_model(
         lambda t: t is scales_base.Base_stage, struct_stage)
     
     scales_structures.register_structure_hooks(converter)
+    plugins_register_hooks(json_string['plugins'], converter)
+
     model: Seekr_model = converter.structure(json_string, Seekr_model)
     if model.directory == ".":
         model_dir = os.path.dirname(filename)

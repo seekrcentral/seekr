@@ -525,7 +525,7 @@ class MD_unpartitioned_settings:
             self,
             root_directory: str,
             input_stage_index: int,
-            set_name: str,
+            dummy_set_name: str | None = None,
             swarm_id: int | None = None
             ) -> list[str]:
         """
@@ -557,7 +557,7 @@ class MD_unpartitioned_settings:
             self,
             root_directory: str,
             input_stage_index: int,
-            set_name: str
+            dummy_set_name: str
             ) -> list[int]:
         """
         Return the number of frames within a starting structure
@@ -567,7 +567,7 @@ class MD_unpartitioned_settings:
         # anchors, which are ambiguously lumped with unpartitioned settings 
         # in some contexts. So, we just pass it
         pdb_full_paths = self.get_positions_full_paths(
-            root_directory, input_stage_index, set_name)
+            root_directory, input_stage_index)
         #num_frames = len(pdb_full_paths)
         #return num_frames
         swarm_ids = []

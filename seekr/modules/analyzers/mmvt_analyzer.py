@@ -692,7 +692,7 @@ class Mmvt_analyzer:
         # TODO: modify these plot functions to be individual for calling
         # from a jupyter notebook. But also pass an arg to save to file
         # and then close to save memory.
-        
+        print("All plots being saved to:", analyzers_base.DEFAULT_IMAGE_DIR)
         if len(self.model.anchors[0].variables) == 1:
             self.plot_pi_alpha_1d(
                 image_directory, return_plot=False)

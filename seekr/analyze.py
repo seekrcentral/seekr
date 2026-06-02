@@ -94,6 +94,5 @@ if __name__ == "__main__":
         num_error_samples=num_error_samples)
     assert analysis is not None, "No analysis could be performed for any stages."
     analysis.print_results()
-    print("All plots being saved to:", analyzer_base.DEFAULT_IMAGE_DIR)
     analysis.make_image_directory(analyzer_base.DEFAULT_IMAGE_DIR)
     analysis.save_plots(analyzer_base.DEFAULT_IMAGE_DIR)

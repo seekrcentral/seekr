@@ -7,6 +7,8 @@ of the SEEKR calculation.
 """
 
 import os
+import sys
+import shlex
 import argparse
 import logging
 
@@ -174,6 +176,10 @@ if __name__ == "__main__":
     model = structures.load_model(model_file)
     num_restart_attempts = 0
     success = False
+    # Log the command line arguments for reproducibility
+    synopsis_filename = model.get_synopsis_filename(model.directory)
+    base.configure_file_only_logger(synopsis_filename, False)
+    logging.info(f"Command line: {shlex.join(sys.argv)}")
     while not success:
         try:
             run(model, stage, anchor, device_index, force_overwrite, swarm_id, benchmark)
@@ -182,6 +188,8 @@ if __name__ == "__main__":
             if num_restart_attempts < restart_attempts:
                 log_string = "Simulation failure. Attempting restart "\
                       f"{num_restart_attempts} of {restart_attempts}"
+                base.configure_file_and_stdout_logger(synopsis_filename, False)
+                logging.warning(log_string)
                 num_restart_attempts += 1
             else:    
                 raise

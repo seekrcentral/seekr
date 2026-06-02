@@ -317,7 +317,6 @@ def choose_next_simulation_md(
     if benchmark and not force_overwrite:
         # Don't plan to run anything
         return []
-    
     md_engine = model.get_engine_by_scale_type("molecular_dynamics")
     if device_index is not None:
         assert md_engine.platform_settings is not None
@@ -349,7 +348,7 @@ def choose_next_simulation_md(
             stage_md.set_name)
         log_filename = os.path.join(calculation_dir, "run.log")
         base.configure_file_and_stdout_logger(
-            log_filename, overwrite=force_overwrite)
+            log_filename, overwrite=False)
         for swarm_id in swarm_ids:
             if (swarm_id_wanted is not None) and (swarm_id != swarm_id_wanted):
                 continue
@@ -420,7 +419,7 @@ def do_run_instruction_md(
         stage.set_name)
     log_filename = os.path.join(calculation_dir, "run.log")
     base.configure_file_and_stdout_logger(
-        log_filename, overwrite=force_overwrite)
+        log_filename, overwrite=False)
     logging.info(log_string)
     engines_runner.run_simulation(
         model, stage_index, restart, anchor_index=anchor_index, 

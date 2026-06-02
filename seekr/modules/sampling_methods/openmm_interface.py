@@ -274,9 +274,18 @@ class Base_md_openmm_interface:
     def pre_simulation_preparations(
             self, 
             **kwargs: typing.Any
-            ):
+            ) -> None:
         """
         Perform any necessary preparations before the simulation starts.
+        """
+        return
+    
+    def post_simulation_procedures(
+            self, 
+            **kwargs: typing.Any
+            ) -> None:
+        """
+        Perform any necessary procedures after the simulation ends.
         """
         return
     

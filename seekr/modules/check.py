@@ -229,9 +229,10 @@ def get_first_available_anchor_md_stage_structure(
                     structure_paths = anchor.get_positions_full_paths(
                         model.directory, stage.input_stage_index, stage.set_name, 0)
                     if len(structure_paths) > 0:
-                        return (md_engine.unpartitioned_settings, stage)
+                        return (anchor, stage)
                     
-    raise Exception("No available anchors or structures found in model.")
+    if model.using_scale("molecular_dynamics"):
+        raise Exception("No available anchors or structures found in model.")
 
 def check_pre_sim_MD_and_BD_salt_concentration(
         model: structures.Seekr_model
@@ -253,6 +254,10 @@ def check_pre_sim_MD_and_BD_salt_concentration(
             bd_ionic_strength += 0.5 * ion.concentration * ion.charge**2
     else:
         # No BD to check
+        return True
+    
+    if not model.using_scale("molecular_dynamics"):
+        # No MD to check
         return True
     
     anchor_or_unpartitioned, stage \
@@ -415,6 +420,9 @@ def check_atom_selections_on_same_molecule(
     sites or unclosed loops."""
     warnstr2 = """CHECK FAILURE: the atom index {} for collective variable
     (CV) number {} does not exist in the structure for anchor {}."""
+    if not model.using_scale("molecular_dynamics"):
+        # Skip this test if no MD.
+        return True
     anchor_or_unpartitioned, stage = get_first_available_anchor_md_stage_structure(model)
     structure = load_structure_with_parmed(model, anchor_or_unpartitioned, stage)
     if structure is None:
@@ -502,6 +510,10 @@ def check_atom_selections_MD_BD(
                     return False
     else:
         # No BD to check
+        return True
+    
+    if not model.using_scale("molecular_dynamics"):
+        # No MD to check
         return True
     
     anchor_or_unpartitioned, stage \

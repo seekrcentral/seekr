@@ -58,6 +58,8 @@ def analyze(
     if stage_index is None:
         assert len(model.stages) > 0, "Model has no stages to analyze."
         for test_stage_index in range(len(model.stages) - 1, -1, -1):
+            if model.stages[test_stage_index].scale_type == "logistic":
+                continue
             if model.stages[test_stage_index].sampling_method.type in available_analyzers:
                 stage_index = test_stage_index+1
                 break
