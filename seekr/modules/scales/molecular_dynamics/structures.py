@@ -116,6 +116,8 @@ class Stage_md(scales_base.Base_stage):
     scope: str = field(default="unpartitioned",
                        validator=validators.in_(
                            ["unpartitioned", "partitioned"]))
+    timestep: float | None = field(
+        default=None, validator=validators.optional(validators.instance_of(float)))
     
     def get_directory_name(self) -> str:
         """

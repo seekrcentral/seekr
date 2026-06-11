@@ -60,7 +60,8 @@ def status(
             if finished_tmp:
                 if len(run_instructions) > 0:
                     finished = False
-                    stage_message = run_instructions[0].message + "\n"
+                    #stage_message = str(run_instructions[0].message) + "\n"
+                    stage_message = stage_message_tmp
                 else:
                     finished = True
                     stage_message = stage_message_tmp

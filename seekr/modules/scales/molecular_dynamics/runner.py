@@ -33,29 +33,77 @@ def is_finished_md(
         model: structures.Seekr_model,
         stage: md_structures.Stage_md,
         anchor_or_unpartitioned: engines_structures.MD_unpartitioned_settings | structures.Anchor,
-        current_step: int,
-        swarm_id: int = 0,
+        swarm_id: int | None = None,
     ) -> bool:
     """
     Check if the simulation is finished.
     """
-    ending, _ = is_finished_md_with_message(model, stage, anchor_or_unpartitioned, current_step)
+    ending, _ = is_finished_md_with_message(
+        model, stage, anchor_or_unpartitioned, swarm_id)
     return ending
 
 def is_finished_md_with_message(
         model: structures.Seekr_model,
         stage: md_structures.Stage_md,
         anchor_or_unpartitioned: engines_structures.MD_unpartitioned_settings | structures.Anchor,
-        current_step: int,
-        swarm_id: int = 0,
+        swarm_id: int | None = None,
         use_json: bool = True
     ) -> tuple[bool, typing.Union[None, str, dict]]:
     """
     Check if the simulation is finished and return with message.
+
+    If swarm_id is None, aggregate over every swarm of this
+    anchor/unpartitioned: the stage is finished only if every swarm is
+    finished, and the reported progress is the mean of the per-swarm progress.
+    If swarm_id is an integer, only that single swarm is evaluated.
     """
     completion_criteria: completion_criteria_structures.MD_completion_criteria = \
         stage.completion_criteria
     message = None
+
+    if swarm_id is None:
+        # Aggregate the progress over every swarm of this anchor/unpartitioned.
+        swarm_ids = anchor_or_unpartitioned.get_starting_structure_swarm_ids(
+            model.directory, stage.input_stage_index, stage.set_name)
+        if len(swarm_ids) == 0:
+            no_swarms_msg = "no starting structures (swarms) found yet"
+            if use_json:
+                return False, {
+                    "completion_criteria": completion_criteria.type,
+                    "attained": False,
+                    "progress": 0.0,
+                    "num_swarms": 0,
+                    "error": no_swarms_msg,
+                }
+            return False, no_swarms_msg
+        finished_all = True
+        progress_sum = 0.0
+        swarm_messages = {}
+        for this_swarm_id in swarm_ids:
+            this_finished, this_message = is_finished_md_with_message(
+                model, stage, anchor_or_unpartitioned, swarm_id=this_swarm_id,
+                use_json=True)
+            if not this_finished:
+                finished_all = False
+            progress_sum += this_message.get("progress", 0.0)
+            swarm_messages[this_swarm_id] = this_message
+        progress = progress_sum / len(swarm_ids)
+        if use_json:
+            return finished_all, {
+                "completion_criteria": completion_criteria.type,
+                "attained": finished_all,
+                "progress": round(progress, 4),
+                "num_swarms": len(swarm_ids),
+                "swarms": swarm_messages,
+            }
+        return finished_all, (
+            f"progress: {progress:.3f} across {len(swarm_ids)} swarm(s)")
+
+    # A single, specific swarm is being evaluated.
+    current_step = get_current_md_step(
+        anchor_or_unpartitioned, stage.index, swarm_id, model.directory,
+        stage.set_name)
+
     if completion_criteria.type == "reporter_progress":
         # Resolve the JSON file written by the reporter on disk.
         # Reporter filenames follow the pattern:
@@ -70,6 +118,11 @@ def is_finished_md_with_message(
         if reporter_index is None:
             message = {"completion_criteria": "reporter_progress",
                        "attained": False,
+                       "timed_out": False,
+                       "progress": 0.0,
+                       "threshold": completion_criteria.reporter_progress_threshold,
+                       "current_step": current_step,
+                       "maximum_steps": completion_criteria.max_number_of_steps,
                        "error": f"reporter '{reporter_name}' not found in stage"}
             return False, message
         from seekr.modules.engines import runner as _eng_runner
@@ -136,6 +189,14 @@ def is_finished_md_with_message(
         max_steps = completion_criteria.max_number_of_steps
         attained = progress >= threshold
         timed_out = current_step >= max_steps
+        if timed_out and not attained:
+            logging.warning(
+                f"Simulation has reached the maximum number of steps "
+                f"({current_step} >= {max_steps}) without attaining the "
+                f"reporter progress threshold ({progress:.3f} < {threshold:.3f})."
+            )
+            raise RuntimeError("Simulation has timed out without attaining the "\
+                               "reporter progress threshold.")
         ending = attained or timed_out
         if use_json:
             message = {
@@ -186,7 +247,8 @@ def is_finished_md_with_message(
                 plugin_name+".modules.scales.molecular_dynamics.runner")
             found, completed, message = plugin_module_scales_md_runner\
                 .is_finished_md_with_message(
-                    model, stage, anchor_or_unpartitioned, current_step, swarm_id)
+                    model, stage, anchor_or_unpartitioned, swarm_id,
+                    use_json=use_json)
             if found:
                 return completed, message
 
@@ -325,6 +387,30 @@ def choose_next_simulation_md(
     
     anchor_or_unpartitioned_index_list = construct_anchor_or_unpartitioned_index_list(
         model, stage_md, anchor_index)
+    if force_overwrite:
+        # Eagerly delete all outputs in the targeted scope up front, so that a
+        # separate status check reports the correct (reset) progress for every
+        # anchor/swarm that is about to be overwritten - rather than reading
+        # stale outputs that would otherwise be deleted one instruction at a
+        # time as each simulation runs. The targeted scope is identical to the
+        # run scope: the anchor filter is already encoded in
+        # anchor_or_unpartitioned_index_list, and the swarm filter is applied
+        # via swarm_id_wanted below.
+        import seekr.modules.preparer as preparer
+        for cleanse_index in anchor_or_unpartitioned_index_list:
+            if cleanse_index is None:
+                assert md_engine.unpartitioned_settings is not None
+                cleanse_target = md_engine.unpartitioned_settings
+            else:
+                cleanse_target = model.anchors[cleanse_index]
+            cleanse_swarm_ids = cleanse_target.get_starting_structure_swarm_ids(
+                model.directory, stage_md.input_stage_index, stage_md.set_name)
+            for cleanse_swarm_id in cleanse_swarm_ids:
+                if (swarm_id_wanted is not None) \
+                        and (cleanse_swarm_id != swarm_id_wanted):
+                    continue
+                preparer.cleanse_outputs_stage(
+                    model, cleanse_target, stage_md.index - 1, cleanse_swarm_id)
     run_instructions_unsorted: list[typing.NamedTuple] = []
     anchor_or_unpartitioned: engines_structures.MD_unpartitioned_settings \
         | structures.Anchor
@@ -368,7 +454,7 @@ def choose_next_simulation_md(
             
             if not force_overwrite:
                 run_finished, message = is_finished_md_with_message(
-                    model, stage_md, anchor_or_unpartitioned, current_step, swarm_id,
+                    model, stage_md, anchor_or_unpartitioned, swarm_id,
                     use_json=use_json)
             else:
                 run_finished = False

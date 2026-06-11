@@ -430,6 +430,10 @@ def create_host_guest_example_input(
     stage1.checkpoint_interval = 1000
     stage1.ensemble = base.NVT_ensemble()
     stage1.sampling_method = sampling_preparer.Conventional_md_input()
+    # Test the heat ramp
+    stage1.sampling_method.heat_ramp_temperatures = np.arange(100.0, 300.0, 10.0)
+    stage1.sampling_method.heat_ramp_step_interval = 1000
+
     stage1.completion_criteria = compl_crit_struct.Number_of_steps_completion_criteria()
     stage1.completion_criteria.number_of_steps = 100000
     pairwise_restraint_input = restraints_preparer.Pairwise_restraint_input()

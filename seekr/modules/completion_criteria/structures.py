@@ -95,7 +95,7 @@ class Reporter_progress_completion_criteria(Base_completion_criteria):
         default=250, validator=[validators.instance_of(int),
                                 validators.gt(0)])
     max_number_of_steps: int = field(
-        default=2000000, validator=[validators.instance_of(int),
+        default=2000000000, validator=[validators.instance_of(int),
                                        validators.gt(0)]) # ~4 ns
     # NOTE: these functions are needed for chunking in runner modules
     def get_min_sim_len(self) -> int:

@@ -43,6 +43,8 @@ BUFFER_FRAMES = 1 # How many positions variables to store for encounter position
 INITIAL_BENCHMARK_STEPS = 100 # Number of steps to take for the initial benchmark.
 NUM_SMD_WINDOWS = 10 # Number of windows to use for SMD.
 
+kB = unit.BOLTZMANN_CONSTANT_kB * unit.AVOGADRO_CONSTANT_NA
+
 # TODO: put into a lower-level module?
 def open_pdb_file_for_simulation(
         filename: str,
@@ -71,7 +73,7 @@ def open_txt_file_for_simulation(
 def write_pdb_file_from_simulation(
         filename: str,
         simulation: openmm_app.Simulation,
-        image_molecules: bool = True
+        image_molecules: bool = False # True
         ) -> None:
     """
     Write a PDB file with the current state of the system.
@@ -81,6 +83,7 @@ def write_pdb_file_from_simulation(
     positions = state.getPositions(asNumpy=True)
     box_vectors = state.getPeriodicBoxVectors()
     simulation.topology.setPeriodicBoxVectors(box_vectors)
+    # NOTE: imaging function is highly flawed for triclinic boxes.
     if image_molecules:
         mdtraj_top = mdtraj.Topology.from_openmm(simulation.topology)
         positions_np = np.array(positions.value_in_unit(unit.nanometers), dtype=np.float32)
@@ -88,7 +91,7 @@ def write_pdb_file_from_simulation(
             xyz=positions_np[np.newaxis, :, :], 
             topology=mdtraj_top)
         traj.unitcell_vectors=np.array(
-            box_vectors.value_in_unit(unit.nanometers), dtype=np.float32).T[np.newaxis, :, :]
+            box_vectors.value_in_unit(unit.nanometers), dtype=np.float32)[np.newaxis, :, :]
         traj.image_molecules(inplace=True)
         positions = traj.xyz[0] * unit.nanometers
 
@@ -109,6 +112,19 @@ def write_txt_file_from_simulation(
                                         enforcePeriodicBox=False)
     positions = state.getPositions(asNumpy=True).value_in_unit(unit.nanometers)
     np.savetxt(filename, positions)
+    return
+
+def write_state_file_from_simulation(
+        filename: str,
+        simulation: openmm_app.Simulation
+        ) -> None:
+    """
+    Write a state XML file with the current state of the system.
+    """
+    state = simulation.context.getState(
+        getPositions=True, getVelocities=True, enforcePeriodicBox=False)
+    with open(filename, "w") as f:
+        f.write(openmm.XmlSerializer.serialize(state))
     return
 
 def make_list_from_ambig_entry(value, num_elements):
@@ -132,6 +148,7 @@ class Base_md_openmm_interface:
     _system_obj: openmm.System | None = None
     _simulation_obj: openmm_app.Simulation | None = None
     _steps_between_evals: int = 0
+    _random_seed: int = 0
     _model: structures.Seekr_model | None = None
     _openmm_cv_list: list[typing.Any] | None = None
     _cv_interface_list: list[collective_variables_openmm_interface\
@@ -344,16 +361,12 @@ class Base_md_openmm_interface:
                 completion_criteria_openmm_interface\
                     .Completion_criteria_openmm_interface,
             do_initial_benchmark: bool = True,
-            needs_cv_values: bool = False
+            needs_cv_values: bool = False,
+            run_minimization: bool = False
             ) -> int:
         """
         Run the simulation.
         """
-        # TODO: handle minimizations if step == 0, and print the following warning for
-        # certain sampling methods: 
-        #  Warning: running minimizations. It is recommended that structures are minimized and 
-        #  verified by the user before running SEEKR, since minimizations might cause the system 
-        #  to drift out of the MMVT cell.
         # TODO: need to save checkpoint reproducibility files.
         self._steps_between_evals = steps_between_evals
         if steps_between_evals == 0:
@@ -366,6 +379,7 @@ class Base_md_openmm_interface:
         assert self._simulation_obj is not None
         steps_to_take_after_benchmark = 0
         finish_benchmark = False
+        
         while not stopping:
             criteria_satisfied = False
             early_simulation_abort = False
@@ -383,10 +397,15 @@ class Base_md_openmm_interface:
             else:
                 steps_to_take = steps_until_eval
                 make_eval = True
+            
             if num_steps == 0:
                 if needs_cv_values:
                     self.create_openmm_cv_list()
                     self.create_openmm_cv_object()
+                # NOTE: if this causes problems with the velocities, extract
+                # them, set to zero, and then restore.
+                if run_minimization:
+                    self._simulation_obj.minimizeEnergy()
                 if do_initial_benchmark:
                     if INITIAL_BENCHMARK_STEPS < steps_to_take:
                         steps_to_take_after_benchmark = steps_to_take - INITIAL_BENCHMARK_STEPS
@@ -422,6 +441,7 @@ class Base_md_openmm_interface:
                     make_checkpoint = True
                 if make_eval:
                     stopping = self.perform_eval(restart_index, swarm_id)
+                    
                     # NOTE: an logging update is printed every checkpoint. Is this right?
                     if needs_cv_values:
                         #cv_values = self._openmm_cv_object.getCollectiveVariableValues(
@@ -444,8 +464,7 @@ class Base_md_openmm_interface:
             elif criteria_satisfied:
                 if on_step >= min_steps:
                     stopping = True
-                    
-            
+
         self._simulation_obj.saveCheckpoint(checkpoint_filename)
         engines_structures.write_checkpoint_information_file(
             on_step, restart_index, timestep, cv_values, checkpoint_info_filename)
@@ -486,7 +505,14 @@ class Base_md_openmm_interface:
         return current_anchor_index
     
     def get_evaluation_interval(self) -> int:
-        return 0       
+        return 0      
+
+    def set_random_seed(self, seed: int) -> None:
+        self._random_seed = seed
+        return
+
+    def get_random_seed(self) -> int:
+        return self._random_seed 
     
             
 
@@ -501,6 +527,7 @@ class Conventional_md_openmm_interface(Base_md_openmm_interface):
     _system_obj: openmm.System | None = None
     _simulation_obj: openmm_app.Simulation | None = None
     _steps_between_evals: int = 0
+    _random_seed: int = 0
     _model: structures.Seekr_model | None = None
     _openmm_cv_list: list[typing.Any] | None = None
     _cv_interface_list: list[collective_variables_openmm_interface\
@@ -517,7 +544,73 @@ class Conventional_md_openmm_interface(Base_md_openmm_interface):
         """
         model: structures.Seekr_model = kwargs["model"]
         self._model = model
+        
         return
+    
+    def perform_early_simulation_eval(
+            self, 
+            restart_index: int, 
+            swarm_id: int
+            ) -> None:
+        """
+        Perform an evaluation once at an early point in the simulation.
+        """
+        if self.sampling_method.heat_ramp_temperatures is not None \
+                and self.sampling_method.heat_ramp_step_interval is not None:
+            step_interval = self.sampling_method.heat_ramp_step_interval
+            self._steps_between_evals = step_interval
+            new_temperature = self.sampling_method.heat_ramp_temperatures[0]
+            integrator = self._simulation_obj.context.getIntegrator()
+            try:
+                thermal_energy = kB*new_temperature*unit.kelvin
+                integrator.setGlobalVariableByName(
+                    "thermal_energy", thermal_energy)
+            except Exception:
+                # It's probably a Verlet integrator or something.
+                pass
+            self._simulation_obj.context.setVelocitiesToTemperature(
+                new_temperature * unit.kelvin,
+                self._random_seed)
+
+    
+    def perform_eval(
+            self, 
+            _restart_index: int, 
+            _swarm_id: int
+            ) -> bool:
+        """
+        Perform an evaluation at a certain point in the simulation. If returning
+        True, the simulation will stop. In this case, see if a heat ramp
+        is being used.
+        """
+        if self._steps_between_evals > 0 \
+                and self.sampling_method.heat_ramp_temperatures is not None \
+                and self.sampling_method.heat_ramp_step_interval is not None:
+            
+            current_step = self._simulation_obj.currentStep
+            # If heat ramp is being used, determine the temperature to set
+            eval_number = int(current_step / self._steps_between_evals) - 1
+            if eval_number < len(self.sampling_method.heat_ramp_temperatures):
+                new_temperature = self.sampling_method\
+                    .heat_ramp_temperatures[eval_number]
+            else:
+                # finish off the simulation with the last temperature
+                # in the heat ramp.
+                new_temperature = self.sampling_method\
+                    .heat_ramp_temperatures[-1]
+            integrator = self._simulation_obj.context.getIntegrator()
+            try:
+                thermal_energy = kB*new_temperature*unit.kelvin
+                integrator.setGlobalVariableByName(
+                    "thermal_energy", thermal_energy)
+            except Exception:
+                # It's probably a Verlet integrator or something.
+                pass
+            self._simulation_obj.context.setVelocitiesToTemperature(
+                new_temperature * unit.kelvin,
+                self._random_seed + current_step)
+
+        return False
     
 @define
 class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
@@ -530,6 +623,7 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
     _system_obj: openmm.System | None = None
     _simulation_obj: openmm_app.Simulation | None = None
     _steps_between_evals: int = 0
+    _random_seed: int = 0
     _model: structures.Seekr_model | None = None
     _openmm_cv_list: list[typing.Any] | None = None
     _cv_interface_list: list[collective_variables_openmm_interface\
@@ -624,6 +718,7 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
             biasFactor=metadyn_biasfactor, height=metadyn_height, 
             frequency=steps_per_metadyn_update, 
             saveFrequency=save_frequency, biasDir=metadyn_bias_dir)
+        
         self._simulation_obj.context.reinitialize(preserveState=True)
         return
     
@@ -632,6 +727,9 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
             ) -> list | None:
         cv_values = self._metadynamics_obj.getCollectiveVariables(
             self._simulation_obj)
+        for i in range(len(cv_values)):
+            assert np.isfinite(cv_values[i]), \
+                f"CV value {cv_values[i]} is not finite."
         return cv_values
 
     def perform_eval(
@@ -667,6 +765,7 @@ class Steered_md_openmm_interface(Base_md_openmm_interface):
     _system_obj: openmm.System | None = None
     _simulation_obj: openmm_app.Simulation | None = None
     _steps_between_evals: int = 0
+    _random_seed: int = 0
     _model: structures.Seekr_model | None = None
     _openmm_cv_list: list[typing.Any] | None = None
     _cv_interface_list: list[collective_variables_openmm_interface\
@@ -1024,6 +1123,7 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
     _system_obj: openmm.System | None = None
     _simulation_obj: openmm_app.Simulation | None = None
     _steps_between_evals: int = 0
+    _random_seed: int = 0
     _model: structures.Seekr_model | None = None
     _openmm_cv_list: list[typing.Any] | None = None
     _cv_interface_list: list[collective_variables_openmm_interface\

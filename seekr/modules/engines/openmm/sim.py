@@ -434,7 +434,8 @@ class Sim_openmm:
             sampling_method_interface: sampling_openmm_interface.Sampling_md_openmm_interface,
             completion_criteria_interface: completion_openmm_interface\
                 .Completion_criteria_openmm_interface,
-            restart: bool
+            restart: bool,
+            timestep: float | None = None
             ) -> None:
         """
         Assign the proper integrator to this OpenMM simulation.
@@ -451,7 +452,8 @@ class Sim_openmm:
         else:
             anchor = model.anchors[anchor_index]
         integrator_settings = md_engine.integrator_settings
-        timestep = model.get_timestep_by_type("molecular_dynamics")
+        if timestep is None:
+            timestep = model.get_timestep_by_type("molecular_dynamics")
         rigid_constraint_tolerance = integrator_settings.rigid_tolerance
         self.timestep = timestep
         integrator = openmm.CustomIntegrator(timestep * unit.picoseconds)
@@ -680,6 +682,11 @@ class Sim_openmm:
                 self.simulation.context.setVelocitiesToTemperature(
                     md_engine.initial_temperature * unit.kelvin,
                     self.random_seed+RANDOM_VEL_SEED_FACTOR)
+                state = self.simulation.context.getState(getVelocities=True, getPositions=True)
+                positions = state.getPositions(asNumpy=True)
+                assert np.all(np.isfinite(positions)), "Positions contain non-finite values."
+                velocities = state.getVelocities(asNumpy=True)
+                assert np.all(np.isfinite(velocities)), "Velocities contain non-finite values."
             else:
                 self.simulation.context.setVelocities(velocities)
         if self.box_vectors is not None:
@@ -740,7 +747,8 @@ def create_sim_openmm(
         completion_criteria_interface: completion_openmm_interface.Completion_criteria_openmm_interface,
         restraints_interfaces: list[restraints_openmm_interface.Base_restraint_openmm_interface],
         swarm_id: int,
-        restart: bool
+        restart: bool,
+        timestep: float | None = None
         ) -> Sim_openmm:
     """
     Generate an OpenMM simulation and other objects for a given
@@ -765,7 +773,7 @@ def create_sim_openmm(
     # A sampling method of None will be conventional MD.
     sim_openmm.add_integrator(
         model, anchor_index, ensemble, sampling_method_interface,
-        completion_criteria_interface, restart)
+        completion_criteria_interface, restart, timestep)
     if ensemble is not None:
         sim_openmm.add_barostat(model, ensemble)
     sim_openmm.add_platform(model)

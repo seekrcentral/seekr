@@ -260,7 +260,7 @@ class Seekr_input:
             settings = settings_by_scale[scale_type]
             if scale_type == "logistic":
                 stage, new_scope = stage_input.make_model_stage(
-                    i+1, current_scope, settings)
+                    i+1, current_scope, settings, self.directory)
                 if new_scope is not None:
                     assert i + 1 < len(self.stages), \
                         "A scope-changing logistic stage cannot be the last stage."
@@ -276,7 +276,8 @@ class Seekr_input:
                 if stage_input.name in scope_future:
                     current_scopes[scale_type] = scope_future[stage_input.name]
                 current_scope = current_scopes[scale_type]
-                stage = stage_input.make_model_stage(i+1, current_scope, settings)
+                stage = stage_input.make_model_stage(i+1, current_scope, settings, 
+                                                     self.directory)
                 stage.input_stage_index = last_stage_index_by_scale[scale_type]
                 if stage_input.input_stage_name is not None:
                     stage.input_stage_index = stage_name_to_index[stage_input.input_stage_name]

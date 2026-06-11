@@ -527,7 +527,6 @@ class Anchor_reporter(object):
         if self._topology is None:
             self._topology = simulation.topology
             self._dt = simulation.integrator.getStepSize()
-
         cv_values = self._sampling_method_interface.get_cv_values()
         anchor_index = self._sampling_method_interface\
             .find_current_anchor_index(cv_values)

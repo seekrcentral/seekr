@@ -32,22 +32,35 @@ class Base_md_sampling_method:
             ) -> list[str]:
         raise NotImplementedError("Subclasses must implement this method.")
     
-    def get_final_pdb_output_basename(
+    def get_final_output_basename(
             self, 
             toy_mode: bool,
             frame_number: int | None = None,
             ) -> str:
-        raise NotImplementedError("Subclasses must implement this method.")
+        #if toy_mode:
+        #    extension = "txt"
+        #else:
+        #    extension = "pdb"
+        extension = "state"
+        if frame_number is None:
+            return f"{self.type}.{extension}"
+        else:
+            return f"{self.type}.swarm_{frame_number}.{extension}"
     
     def get_output_md_parameters_topology(self) -> None:
         raise NotImplementedError("Subclasses must implement this method.")
 
+# TODO: implement a heating ramp!
 @define
 class Conventional_md_sampling_method(Base_md_sampling_method):
     """
     A conventional MD sampling method.
     """
     type: typing.Literal["conventional"] = "conventional"
+    heat_ramp_temperatures: list | None = field(default=None)
+    heat_ramp_step_interval: int | None = field(
+        default=None, validator=validators.optional(
+            validators.instance_of(int),))
 
     def needs_to_be_in_anchor(self) -> bool:
         return False
@@ -65,19 +78,22 @@ class Conventional_md_sampling_method(Base_md_sampling_method):
         swarm_string = f"swarm_{swarm_id}"
         return [f"conventional*{swarm_string}*.pdb", f"conventional*{swarm_string}*.txt"]
 
-    def get_final_pdb_output_basename(
+    """
+    def get_final_output_basename(
             self, 
             toy_mode: bool,
             frame_number: int | None = None,
             ) -> str:
-        if toy_mode:
-            extension = "txt"
-        else:
-            extension = "pdb"
+        #if toy_mode:
+        #    extension = "txt"
+        #else:
+        #    extension = "pdb"
+        extension = "state"
         if frame_number is None:
             return f"conventional.{extension}"
         else:
             return f"conventional.swarm_{frame_number}.{extension}"
+        """
     
     def get_output_md_parameters_topology(self) -> None:
         return None
@@ -121,19 +137,22 @@ class Metadynamics_md_sampling_method(Base_md_sampling_method):
         swarm_string = f"swarm_{swarm_id}"
         return [f"metadynamics*{swarm_string}*.pdb", f"metadynamics*{swarm_string}*.txt"]
 
-    def get_final_pdb_output_basename(
+    """
+    def get_final_output_basename(
             self, 
             toy_mode: bool,
             frame_number: int | None = None,
             ) -> str:
-        if toy_mode:
-            extension = "txt"
-        else:
-            extension = "pdb"
+        #if toy_mode:
+        #    extension = "txt"
+        #else:
+        #    extension = "pdb"
+        extension = "state"
         if frame_number is None:
             return f"metadynamics.{extension}"
         else:
             return f"metadynamics.swarm_{frame_number}.{extension}"
+        """
         
     def get_output_md_parameters_topology(self) -> None:
         return None
@@ -169,19 +188,22 @@ class Steered_md_sampling_method(Base_md_sampling_method):
         swarm_string = f"swarm_{swarm_id}"
         return [f"steered*{swarm_string}*.pdb", f"steered*{swarm_string}*.txt"]
 
-    def get_final_pdb_output_basename(
+    """
+    def get_final_output_basename(
             self, 
             toy_mode: bool,
             frame_number: int | None = None,
             ) -> str:
-        if toy_mode:
-            extension = "txt"
-        else:
-            extension = "pdb"
+        #if toy_mode:
+        #    extension = "txt"
+        #else:
+        #    extension = "pdb"
+        extension = "state"
         if frame_number is None:
             return f"steered.{extension}"
         else:
             return f"steered.swarm_{frame_number}.{extension}"
+        """
         
     def get_output_md_parameters_topology(self) -> None:
         return None
@@ -209,20 +231,6 @@ class MMVT_md_sampling_method(Base_md_sampling_method):
             ) -> list[str]:
         swarm_string = f"swarm_{swarm_id}"
         return [f"mmvt*{swarm_string}*.pdb", f"mmvt*{swarm_string}*.txt"]
-
-    def get_final_pdb_output_basename(
-            self, 
-            toy_mode: bool,
-            frame_number: int | None = None,
-            ) -> str:
-        if toy_mode:
-            extension = "txt"
-        else:
-            extension = "pdb"
-        if frame_number is None:
-            return f"mmvt.{extension}"
-        else:
-            return f"mmvt.swarm_{frame_number}.{extension}"
 
     def get_output_md_parameters_topology(self) -> None:
         return None

@@ -209,7 +209,8 @@ class Input_stage_reassign_anchors(logistic_scale_base.Input_stage_logistic):
             self, 
             index: int,
             dummy_scope: str,
-            dummy_settings: typing.Any = None
+            dummy_settings: typing.Any = None,
+            dummy_running_dir: str = "",
             ) -> typing.Tuple[Stage_reassign_anchors, str]:
         """
         Given this input stage object, create the model's Stage object.

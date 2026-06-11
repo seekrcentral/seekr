@@ -53,7 +53,8 @@ class Input_stage_bd(scales_base.Base_input_stage):
             self, 
             index: int,
             scope: str,
-            bd_settings: BD_settings_input
+            bd_settings: BD_settings_input,
+            dummy_running_dir: str = "",
             ) -> scale_bd.Stage_bd:
         """
         Given this input stage object, create the model's Stage object.

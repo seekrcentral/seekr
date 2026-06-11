@@ -206,7 +206,8 @@ class Input_stage_anchor_starting_structures_from_reporter(logistic_scale_base.I
             self, 
             index: int,
             dummy_scope: str,
-            dummy_settings: typing.Any = None
+            dummy_settings: typing.Any = None,
+            dummy_running_dir: str = "",
             ) -> typing.Tuple[Stage_anchor_starting_structures_from_reporter, str]:
         """
         Given this input stage object, create the model's Stage object.
@@ -240,8 +241,10 @@ def _get_topology_file(
     else:
         input_positions_filenames = md_engine.unpartitioned_settings\
             .get_positions_full_paths(
-                model.directory, input_stage.input_stage_index, 
-                input_stage.set_name, swarm_id=0)
+                #model.directory, input_stage.input_stage_index, 
+                #input_stage.set_name, swarm_id=0)
+                model.directory, 0, "main", swarm_id=0)
+                
         assert len(input_positions_filenames) > 0, \
             "No input positions/topology file found for DCD loading."
         return input_positions_filenames[0]

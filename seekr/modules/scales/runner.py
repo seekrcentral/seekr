@@ -47,13 +47,8 @@ def is_finished_with_message(
             else:
                 anchor_or_unpartitioned \
                     = model.anchors[anchor_or_unpartitioned_index]
-            current_step = md_runner.get_current_md_step(
-                anchor_or_unpartitioned, stage.index, 0, model.directory,
-                stage.set_name
-            )
             tmp_finished, message = md_runner.is_finished_md_with_message(
-                model, stage, anchor_or_unpartitioned, current_step, 
-                use_json=use_json)
+                model, stage, anchor_or_unpartitioned, use_json=use_json)
             if not tmp_finished:
                 finished = False
             if use_json:

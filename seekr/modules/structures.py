@@ -299,7 +299,6 @@ class Anchor:
         positions_full_paths = base.glob_or(glob_base, glob_path)
         return positions_full_paths
 
-    #def get_starting_structure_num_swarms(
     def get_starting_structure_swarm_ids(
             self,
             root_directory: str,
@@ -315,13 +314,13 @@ class Anchor:
         # TODO: fix docstring
         # NOTE: this used to be the code to handle multiple frames
         #  in a single PDB file
-        pdb_full_paths = self.get_positions_full_paths(
+        struct_full_paths = self.get_positions_full_paths(
             root_directory, input_stage_index, set_name)
         swarm_ids = []
         # Loop through the paths, and use the re module to extract
         #  instances where .swarm_123456. is in the filename
-        for pdb_full_path in pdb_full_paths:
-            match = re.search(r"swarm_(\d+)", pdb_full_path)
+        for struct_full_path in struct_full_paths:
+            match = re.search(r"swarm_(\d+)", struct_full_path)
             if match:
                 swarm_id = int(match.group(1))
                 swarm_ids.append(swarm_id)

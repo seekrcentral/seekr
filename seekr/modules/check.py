@@ -287,12 +287,16 @@ def check_pre_sim_MD_and_BD_salt_concentration(
                     +f"index: {index} and name: {atom.name}. "\
                     +"Charge is uncertain. Assuming its contribution to "\
                     "solvent ionic strength is zero.")
+    if stage.scope == "unpartitioned":
+        anchor_or_unpartitioned_str = "unpartitioned settings"
+    else:
+        anchor_or_unpartitioned_str = f"anchor {anchor_or_unpartitioned.index}"
     if not np.isclose(md_ionic_strength, bd_ionic_strength, 
                     rtol=RELATIVE_TOLERANCE, atol=ABSOLUTE_TOLERANCE):
         print("CHECK FAILURE: BD simulation has significantly different "\
         f"ionic strength of {bd_ionic_strength:.3f} M*e^2 than MD simulation "\
-        f"ionic strength of {md_ionic_strength:.3f} M*e^2 for anchor "\
-        f"{anchor_or_unpartitioned.index}. Please check the ion concentrations in the "\
+        f"ionic strength of {md_ionic_strength:.3f} M*e^2 for "\
+        f"{anchor_or_unpartitioned_str}. Please check the ion concentrations in the "\
         "BD simulation settings, and also count the number of ions "\
         "in the MD simulations. Counterions added to neutralize the protein in an "\
         "MD simulation may also trigger this failure. If that is the case, simply "\
@@ -533,29 +537,29 @@ def check_atom_selections_MD_BD(
                         md_error_str = "{} atom(s)".format(len(md_atom_group))
                         print(warnstr2.format(bd_error_str, md_error_str))
                         return False
-                    md_atomic_name_dict = collections.defaultdict(int)
-                    bd_atomic_name_dict = collections.defaultdict(int)
+                    md_atomic_element_dict = collections.defaultdict(int)
+                    bd_atomic_element_dict = collections.defaultdict(int)
                     for md_atom_idx in md_atom_group:
                         md_atom = md_structure.atoms[md_atom_idx]
-                        md_atomic_name_dict[md_atom.name] += 1
+                        md_atomic_element_dict[md_atom.element] += 1
                     
                     pqr_structure = pqr_structures[bd_mol_index]
                     for bd_atom_idx in bd_atom_group:
                         bd_atom = pqr_structure.atoms[bd_atom_idx]
-                        bd_atomic_name_dict[bd_atom.name] += 1
+                        bd_atomic_element_dict[bd_atom.element] += 1
                     
-                    if md_atomic_name_dict != bd_atomic_name_dict:
+                    if md_atomic_element_dict != bd_atomic_element_dict:
                         bd_err_str = ""
-                        for key in bd_atomic_name_dict:
-                            this_str = "{} atoms with atomic name {}".format(
-                                bd_atomic_name_dict[key], key)
+                        for key in bd_atomic_element_dict:
+                            this_str = "{} atoms with atomic element {}".format(
+                                bd_atomic_element_dict[key], key)
                             if bd_err_str != "":
                                 bd_err_str += " and "
                             bd_err_str += this_str
                         md_err_str = ""
-                        for key in md_atomic_name_dict:
-                            this_str = "{} atoms with atomic name {}".format(
-                                md_atomic_name_dict[key], key)
+                        for key in md_atomic_element_dict:
+                            this_str = "{} atoms with atomic element {}".format(
+                                md_atomic_element_dict[key], key)
                             if md_err_str != "":
                                 md_err_str += " and "
                             md_err_str += this_str

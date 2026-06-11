@@ -41,6 +41,8 @@ class Runner_openmm():
         self.start_step: int = 0
         self.min_steps: int = 0
         self.max_steps: int = 0
+        self.run_minimization: bool = False
+        self.timestep: float | None = None
 
     def get_ensemble(self) -> base.Ensemble:
         assert self.ensemble is not None, "The ensemble is not set."
@@ -117,10 +119,11 @@ class Runner_openmm():
         stage_output_directory = next_stage_params["directory"]
         assert stage_output.type == "md_stage"
         self.ensemble = stage_output.ensemble
+        self.run_minimization = stage_output.run_minimization
         self.needs_cv_values = False
         # Sampling method interfaces
         sampling_method = stage_output.sampling_method
-        self.output_positions_basename = sampling_method.get_final_pdb_output_basename(
+        self.output_positions_basename = sampling_method.get_final_output_basename(
             toy_mode=self.model.using_toy(),
             frame_number=swarm_id)
         self.sampling_method_interface = sampling_openmm_interface\
@@ -215,6 +218,8 @@ class Runner_openmm():
             raise Exception("Invalid scope type: "\
                 f"{stage_output.scope}.")
 
+        if stage_output.timestep is not None:
+            self.timestep = stage_output.timestep
             
         self.swarm_id = swarm_id
         self.swarm_string = ""
@@ -234,7 +239,8 @@ class Runner_openmm():
             self.running_directory, restart_checkpoint_basename)
         if restart:
             assert os.path.exists(self.checkpoint_information_filename), \
-                "Previous checkpoint information file does not exist: cannot run restart."
+                "Previous checkpoint information file does not exist: cannot run "\
+                "restart. You will probably need to run with --force_overwrite."
             checkpoint_information = engines_runner.load_checkpoint_information(
                 self.checkpoint_information_filename)
             restart_index = checkpoint_information.restart_index + 1
@@ -255,15 +261,6 @@ class Runner_openmm():
                 else:
                     for output_file in output_files_list:
                         os.remove(output_file)
-                    
-            if force_overwrite:
-                if anchor is None:
-                    preparer.cleanse_outputs_stage(
-                        self.model, md_engine.unpartitioned_settings, 
-                        self.stage_output_index, swarm_id)
-                else:
-                    preparer.cleanse_outputs_stage(
-                        self.model, anchor, self.stage_output_index, swarm_id)
 
         return restart_index
     
@@ -355,7 +352,8 @@ class Runner_openmm():
             lock_filename=lock_filename,
             completion_openmm_interface=self.completion_criteria_interface,
             do_initial_benchmark=True,
-            needs_cv_values=self.needs_cv_values)
+            needs_cv_values=self.needs_cv_values,
+            run_minimization=self.run_minimization)
         total_time = time.time() - start_time
         ns_per_day = num_steps * self.sim_openmm.timestep * 1e-3 \
             * 86400 / total_time
@@ -364,12 +362,15 @@ class Runner_openmm():
         if self.output_positions_basename is not None:
             final_positions_filename = os.path.join(
                 self.running_directory, self.output_positions_basename)
-            if self.model.using_toy():
-                sampling_openmm_interface.write_txt_file_from_simulation(
-                    final_positions_filename, simulation)
-            else:
-                sampling_openmm_interface.write_pdb_file_from_simulation(
-                    final_positions_filename, simulation)
+            #if self.model.using_toy():
+            #    sampling_openmm_interface.write_txt_file_from_simulation(
+            #        final_positions_filename, simulation)
+            #else:
+            #    sampling_openmm_interface.write_pdb_file_from_simulation(
+            #        final_positions_filename, simulation)
+            sampling_openmm_interface.write_state_file_from_simulation(
+                final_positions_filename, simulation)
+            
         if self.benchmark:
             # Delete all outputs if this was benchmark mode.
             if self.anchor_index is None:
@@ -435,7 +436,8 @@ def run_simulation(
             completion_criteria_interface=runner.completion_criteria_interface, 
             restraints_interfaces=runner.restraints_interfaces,
             swarm_id=swarm_id,
-            restart=restart
+            restart=restart,
+            timestep=runner.timestep
             )
             
     runner.run(sim_openmm_obj, restart, restart_index)

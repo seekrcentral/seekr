@@ -89,8 +89,10 @@ class RMSD_CV(cv_base.Base_CV):
         group_align_atom_indices = model.md_engine.get_atom_indices_by_selection_name(
             self.group_align_name)
         #if ref_positions is None:
+        # TODO: need to correct this path.
         ref_traj_filename = os.path.join(
-            model.directory, self.directory, self.ref_structure)
+            model.directory, "collective_variable_sets", self.directory, 
+            self.ref_structure)
         ref_traj = mdtraj.load(ref_traj_filename)
         traj.superpose(ref_traj, atom_indices=group_align_atom_indices)
         ref_xyz = ref_traj.xyz[0]

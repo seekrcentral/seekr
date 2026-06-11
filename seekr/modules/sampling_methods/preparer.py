@@ -26,12 +26,20 @@ class Conventional_md_input(Base_md_sampling_method_input):
     A conventional MD sampling method input.
     """
     type: typing.Literal["conventional"] = "conventional"
+    heat_ramp_temperatures: list | None = field(default=None)
+    heat_ramp_step_interval: int | None = field(
+        default=None, validator=validators.optional(
+            validators.instance_of(int),))
 
     def make_model_sampling_method(self):
         """
         Make the model sampling method object for this input.
         """
-        return sampling_method_structures.Conventional_md_sampling_method()
+        sampling_method = sampling_method_structures\
+            .Conventional_md_sampling_method()
+        sampling_method.heat_ramp_temperatures = self.heat_ramp_temperatures
+        sampling_method.heat_ramp_step_interval = self.heat_ramp_step_interval
+        return sampling_method
 
 @define
 class Metadynamics_md_input(Base_md_sampling_method_input):
