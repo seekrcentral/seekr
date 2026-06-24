@@ -8,12 +8,19 @@ free energies, convergence, and other properties and plots.
 
 import os
 import argparse
+import logging
 
+import seekr._version as seekr_version
+import seekr.modules.base as base
 import seekr.modules.structures as structures
 import seekr.modules.check as check
 import seekr.modules.analyzers.base as analyzer_base
 import seekr.modules.analyzers.analyzer as analyzer
 import seekr.modules.analyzers.mmvt_analyzer as mmvt_analyzer
+
+logger = logging.getLogger(__name__)
+
+__version__ = seekr_version.__version__
 
 # TODO: correct typing return here
 def analyze(
@@ -85,6 +92,13 @@ if __name__ == "__main__":
     error_analysis_method = args["error_analysis_method"]
     num_error_samples = args["num_error_samples"]
     model = structures.load_model(model_file)
+    synopsis_filename = model.get_synopsis_filename(model.directory)
+    base.configure_logging(synopsis_filename)
+    logger.info(
+        f"Analyzing stage {stage} (error_analysis_method: "
+        f"{error_analysis_method}, num_error_samples: {num_error_samples}, "
+        f"min_time_ps: {min_time_ps}, max_time_ps: {max_time_ps}).")
+    base.log_invocation_metadata(__version__)
     if not skip_checks:
         check.check_post_simulation_all(model)
     analysis = analyze(

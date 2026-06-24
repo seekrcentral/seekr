@@ -84,6 +84,8 @@ def run_compute_rate_constant(compute_rate_constant_program,
         dictionary whose keys are various milestoning states and
         whose values are the probabilities of reaching those states
         from the b-surface.
+
+logger = logging.getLogger(__name__)
     
     reaction_probability_errors : defaultdict
         dictionary whose keys are various milestoning states and
@@ -106,7 +108,7 @@ def run_compute_rate_constant(compute_rate_constant_program,
     for results_filename in results_filename_list:
         cmd = "%s < %s" % (compute_rate_constant_program, 
                            results_filename)
-        logging.info("running command: " + cmd)
+        logger.info("running command: " + cmd)
         output_string = subprocess.check_output(cmd, shell=True)
         # TODO: validate output string somehow to catch errors
         # Sep 26, 2025: This is not an error so far, so I will wait

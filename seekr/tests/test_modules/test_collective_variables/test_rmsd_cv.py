@@ -16,7 +16,7 @@ import seekr.modules.collective_variables.rmsd_cv as rmsd_cv
 def _make_cv(group_rmsd="lig", group_align="rec"):
     return rmsd_cv.RMSD_CV(
         index=0,
-        directory="",
+        directory="collective_variable_0",
         group_rmsd_name=group_rmsd,
         group_align_name=group_align,
         ref_structure="ref.pdb",
@@ -58,7 +58,10 @@ def test_get_min_max_value():
 
 def _mock_model(tmp_path, ref_traj):
     """Write ref.pdb to tmp_path and return a mock model pointing there."""
-    ref_traj.save_pdb(str(tmp_path / "ref.pdb"))
+    pdb_path = tmp_path / "collective_variable_sets" / "main" \
+        / "collective_variable_0" / "ref.pdb"
+    pdb_path.parent.mkdir(parents=True, exist_ok=True)
+    ref_traj.save_pdb(str(pdb_path))
     mock_engine = MagicMock()
     # atom 0 = align group, atom 1 = RMSD group
     mock_engine.get_atom_indices_by_selection_name.side_effect = (

@@ -17,6 +17,8 @@ import seekr.modules.base as base
 import seekr.modules.engines.browndye.base as browndye_base
 import seekr.modules.engines.structures as engines_structures
 
+logger = logging.getLogger(__name__)
+
 @define
 class Browndye_molecule:
     name: str = field(default="", 
@@ -48,7 +50,7 @@ class Browndye_molecule:
         # NOTE: to filter out CRYST and other problematic lines
         #pqr2xml_command = "grep -e ATOM -e HETATM " + input_pqr_filename + " | " \
         #    + pqr2xml_binary + " > " + output_xml_filename
-        logging.info("running command: " + pqr2xml_command)
+        logger.info("running command: " + pqr2xml_command)
         os.system(pqr2xml_command)
         assert os.path.exists(output_xml_filename), "Problem generating XML from "\
             f"PQR file: file not created: {output_xml_filename}"

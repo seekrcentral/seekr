@@ -121,9 +121,9 @@ class Mmvt_converger:
             if data_window.pi_alpha is not None:
                 for pi_alpha_key in range(len(data_window.pi_alpha)):
                     self.pi_alpha_conv[pi_alpha_key][window_index] \
-                        = data_window.pi_alpha[pi_alpha_key]
+                        = data_window.pi_alpha[pi_alpha_key, 0]
                     self.pi_alpha_conv_err[pi_alpha_key][window_index] \
-                        = data_window.pi_alpha_err[pi_alpha_key]
+                        = data_window.pi_alpha_err[pi_alpha_key, 0]
             for alpha, N_i_j_alpha_subdict in enumerate(data_window.main_data_sample.N_i_j_alpha):
                 for N_ij_alpha_key in N_i_j_alpha_subdict:
                     new_key = (N_ij_alpha_key[0], N_ij_alpha_key[1], alpha)

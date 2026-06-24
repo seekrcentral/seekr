@@ -10,6 +10,8 @@ import os
 import time
 import logging
 
+logger = logging.getLogger(__name__)
+
 INFORMATION_CHECKPOINT_FILENAME_NOEXT = "checkpoint_information"
 INFORMATION_CHECKPOINT_FILENAME_EXT = ".json"
 RESTART_CHECKPOINT_FILENAME_NOEXT = "backup"
@@ -66,7 +68,7 @@ def update_lock(
                         "processes will be killed. You must force this "\
                         "anchor to restart from the beginning to obtain "\
                         "correct results."
-        logging.critical(abort_str)
+        logger.critical(abort_str)
         raise Exception(abort_str)
     # otherwise all is well
     lock_string = make_lock_string()

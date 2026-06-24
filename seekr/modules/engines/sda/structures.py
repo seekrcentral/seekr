@@ -19,6 +19,8 @@ import seekr.modules.engines.sda.base as sda_base
 import seekr.modules.engines.structures as engines_structures
 import seekr.modules.engines.sda.sda_structures as sda_structures
 
+logger = logging.getLogger(__name__)
+
 @define
 class SDA_molecule:
     """
@@ -177,7 +179,7 @@ class SDA_molecule:
         apbs_input_filename, apbs_output_grid_filename = apbs_input.write()
         apbs_output_filename = os.path.splitext(apbs_input_filename)[0] + ".out"
         run_apbs_command = f"apbs {apbs_input_filename} > {apbs_output_filename}"
-        logging.info("Running APBS with command: " + run_apbs_command)
+        logger.info("Running APBS with command: " + run_apbs_command)
         os.system(run_apbs_command)
         assert os.path.exists(apbs_output_grid_filename), "Problem running " \
             "apbs - APBS UHBD file not found: " + apbs_output_grid_filename
@@ -190,7 +192,7 @@ class SDA_molecule:
             = f"{sda_convert_bin} {apbs_output_grid_filename} " \
               f"{electric_potential_filename}  -scale 0.6 -convert > " \
               f"apbs_grid_conversion_{self.name}.out"
-        logging.info("Running SDA convert grid with command: " \
+        logger.info("Running SDA convert grid with command: " \
                      + run_sda_convert_command)
         os.system(run_sda_convert_command)
         assert os.path.exists(electric_potential_filename), \
@@ -291,7 +293,7 @@ class SDA_molecule:
                           f"{self.pqr_filename} > tcha_{self.name}.out"
             
         if test_charge_command != None:
-            logging.info("running command: " + test_charge_command)
+            logger.info("running command: " + test_charge_command)
             os.system(test_charge_command)
             # Check test charges
             if not os.path.exists(test_charge_filename):
@@ -312,10 +314,10 @@ class SDA_molecule:
                     "it be 'non_protein'?")
 
         if surface_test_charge_command != None:
-            logging.info("running command: " + surface_test_charge_command)
+            logger.info("running command: " + surface_test_charge_command)
             os.system(surface_test_charge_command)
         if protein_surface_test_charge_command != None:
-            logging.info("running command: " \
+            logger.info("running command: " \
                          + protein_surface_test_charge_command)
             os.system(f"mv {test_charge_filename} tmp.tcha")
             os.system(protein_surface_test_charge_command)
@@ -327,7 +329,7 @@ class SDA_molecule:
         effective_charge_command \
             = f"{effective_charge_bin} {effective_charge_input_filename}"\
              +f" > ecm_{self.name}.out"
-        logging.info("running command: " + effective_charge_command)
+        logger.info("running command: " + effective_charge_command)
         os.system(effective_charge_command)
         
         edhdlj_bin = os.path.join(binary_directory, "make_edhdlj_grid")
@@ -342,7 +344,7 @@ class SDA_molecule:
                 = f"{edhdlj_bin} -ed {electric_desolvation_input_filename} "\
                  +f"-hd {hydrophobic_desolvation_input_filename} "\
                  +f"> edhdlj_{self.name}.out"
-        logging.info("running command: " + edhdlj_command)
+        logger.info("running command: " + edhdlj_command)
         os.system(edhdlj_command)
         
         return
@@ -371,7 +373,7 @@ class SDA_molecule:
             full_hydropro_command \
                 = f"{hydropro_command} {hydropro_filename} {self.pdb_noh_filename}"\
                 +f" > {self.name}_noh-hydropro.out"
-            logging.info("Running hydropro with command: " + full_hydropro_command)
+            logger.info("Running hydropro with command: " + full_hydropro_command)
             os.system(full_hydropro_command)
 
             # Find and read hydropro output

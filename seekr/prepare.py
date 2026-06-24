@@ -8,12 +8,9 @@ the entire filetree.
 """
 
 import os
-import sys
 import argparse
 import logging
 import typing
-import getpass
-import socket
 
 import seekr._version as seekr_version
 import seekr.modules.base as base
@@ -21,6 +18,8 @@ import seekr.modules.structures as structures
 import seekr.modules.preparer as preparer
 import seekr.modules.scales.preparer as scale_preparer
 import seekr.modules.check as check
+
+logger = logging.getLogger(__name__)
 
 __version__ = seekr_version.__version__
 
@@ -42,11 +41,9 @@ def prepare(
     log_directory = model.get_log_directory(directory)
     preparer.generate_directory(log_directory)
     synopsis_filename = model.get_synopsis_filename(directory)
-    base.configure_file_only_logger(synopsis_filename, overwrite=False)
-    full_command = " ".join(sys.argv)
-    logging.info(f"Preparing new model with command: {full_command}")
-    logging.info(f"hostname: {socket.gethostname()}. username: {getpass.getuser()}. "\
-                 f"SEEKR version: {__version__}")
+    base.configure_logging(synopsis_filename, console=False)
+    logger.info("Preparing new model.")
+    base.log_invocation_metadata(__version__)
     file_path = os.path.join(directory, "model.json")
     if len(seekr_input.partitions) > 0:
         preparer.prepare_model_cvs_and_anchors(
@@ -57,7 +54,7 @@ def prepare(
         raise Exception("Partition must be defined in input file, "\
                         "empty partitions are not yet implemented.")
     
-    base.configure_file_and_stdout_logger(synopsis_filename, overwrite=False)
+    base.configure_logging(synopsis_filename)
     for engine_settings in seekr_input.engine_settings_list:
         assert model.get_engine_by_scale_type(engine_settings.scale_type) is not None, \
             f"Engine for scale type {engine_settings.scale_type} is not defined."

@@ -7,14 +7,17 @@ of the SEEKR calculation.
 """
 
 import os
-import sys
-import shlex
 import argparse
 import logging
 
+import seekr._version as seekr_version
 import seekr.modules.base as base
 import seekr.modules.structures as structures
 import seekr.modules.scales.runner as scales_runner
+
+logger = logging.getLogger(__name__)
+
+__version__ = seekr_version.__version__
 
 # Max number of times to check for remaining instructions this stage
 MAX_ITER = 999
@@ -110,8 +113,8 @@ def run(
             "If this is unexpected, make sure that all relevant unpartitioned "\
             "or anchors have assigned starting coordinates (ex: PDB file)."
         synopsis_filename = model.get_synopsis_filename(model.directory)
-        base.configure_file_and_stdout_logger(synopsis_filename, False)
-        logging.warning(log_string)
+        base.configure_logging(synopsis_filename)
+        logger.warning(log_string)
 
     return
 
@@ -178,8 +181,12 @@ if __name__ == "__main__":
     success = False
     # Log the command line arguments for reproducibility
     synopsis_filename = model.get_synopsis_filename(model.directory)
-    base.configure_file_only_logger(synopsis_filename, False)
-    logging.info(f"Command line: {shlex.join(sys.argv)}")
+    base.configure_logging(synopsis_filename, console=False)
+    logger.info(
+        f"Running stage {stage} (anchor: {anchor}, device: {device_index}, "
+        f"swarm: {swarm_id}, force_overwrite: {force_overwrite}, "
+        f"restart_attempts: {restart_attempts}, benchmark: {benchmark}).")
+    base.log_invocation_metadata(__version__)
     while not success:
         try:
             run(model, stage, anchor, device_index, force_overwrite, swarm_id, benchmark)
@@ -188,8 +195,8 @@ if __name__ == "__main__":
             if num_restart_attempts < restart_attempts:
                 log_string = "Simulation failure. Attempting restart "\
                       f"{num_restart_attempts} of {restart_attempts}"
-                base.configure_file_and_stdout_logger(synopsis_filename, False)
-                logging.warning(log_string)
+                base.configure_logging(synopsis_filename)
+                logger.exception(log_string)
                 num_restart_attempts += 1
-            else:    
+            else:
                 raise

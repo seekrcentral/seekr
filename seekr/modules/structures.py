@@ -39,6 +39,8 @@ import seekr.modules.scales.logistic\
 import seekr.modules.scales.logistic.reassign_anchors_logistic_stage \
     as reassign_anchors_logistic_stage
 
+logger = logging.getLogger(__name__)
+
 #BD_engine = typing.Union[browndye_structures.Browndye_bd_engine,
 #                         sda_structures.SDA_bd_engine]
 BD_unpartitioned_settings = typing.Union[
@@ -834,10 +836,10 @@ class Seekr_model:
             new_pre_model_filename: str = model_base.format(num_globs)
             new_pre_model_path: str = os.path.join(self.directory, 
                                                    new_pre_model_filename)
-            logging.info("Renaming model.json to {}".format(new_pre_model_filename))
+            logger.info("Renaming model.json to {}".format(new_pre_model_filename))
             copyfile(model_path, new_pre_model_path)
-            
-        logging.info("Saving new model.json")
+
+        logger.info("Saving new model.json")
         old_rootdir: str = self.directory
         self.directory = "."
         self.save(model_path)
@@ -1105,7 +1107,6 @@ def structure_float_or_list_type_union(
     for how to unpack a union of possible types that are used
     to describe a set of positions.
     """
-    print("structuring object:", data)
     if isinstance(data, list):
         # This is a list of parameters for a MetaD calc, probably
         return data

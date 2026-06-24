@@ -491,7 +491,7 @@ class Anchor_reporter(object):
         self._buffered_box_vectors = [None] * n_anchors
         self._topology = None
         self._dt = None
-
+        
     def __del__(self):
         self.finalize()
 
@@ -530,7 +530,6 @@ class Anchor_reporter(object):
         cv_values = self._sampling_method_interface.get_cv_values()
         anchor_index = self._sampling_method_interface\
             .find_current_anchor_index(cv_values)
-
         if anchor_index is None or anchor_index not in self._md_anchor_indices:
             return
 

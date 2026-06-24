@@ -14,6 +14,8 @@ import logging
 import seekr.modules.engines.sda.base as sda_base
 import seekr.modules.structures as structures
 
+logger = logging.getLogger(__name__)
+
 def cleanse_bd_outputs(directory, results_glob, check_mode=True):
     """
     Check for simulation outputs in an existing directory, optionally
@@ -235,5 +237,5 @@ def run_simulation(
                        force_overwrite=force_overwrite)
     total_time = time.time() - start_time
     trajs_per_day = int(n_trajectories * 86400 / total_time)
-    logging.info(f"Final benchmark (trajectories/day): {trajs_per_day}")
+    logger.info(f"Final benchmark (trajectories/day): {trajs_per_day}")
     return

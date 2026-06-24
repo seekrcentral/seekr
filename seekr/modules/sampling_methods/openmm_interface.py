@@ -36,12 +36,23 @@ import seekr.modules.completion_criteria.openmm_interface \
 import seekr.modules.collective_variables.openmm_interface \
     as collective_variables_openmm_interface
 
+logger = logging.getLogger(__name__)
+
 BIAS_DIR_NAME = "metad_bias"
 #METADYN_NAME = "metadynamics.{}.swarm_{}"
 #SMD_NAME = "steered.{}.swarm_{}"
 BUFFER_FRAMES = 1 # How many positions variables to store for encounter positions.
 INITIAL_BENCHMARK_STEPS = 100 # Number of steps to take for the initial benchmark.
 NUM_SMD_WINDOWS = 10 # Number of windows to use for SMD.
+# Number of prior committed (non-bounce) states retained in the ring buffer
+# used to recover from MMVT velocity-reversal bounces. On each consecutive
+# bounce, the system is restored to a progressively older state in this buffer,
+# which (together with the thermostat noise on the following step) breaks the
+# deterministic re-crossing that can trap a system at a milestone boundary.
+RING_BUFFER_SIZE = 2 #10
+# If the system bounces off a milestone boundary this many times in a row, it is
+# considered permanently trapped and the simulation is aborted.
+MAX_CONSECUTIVE_BOUNCES = 1000
 
 kB = unit.BOLTZMANN_CONSTANT_kB * unit.AVOGADRO_CONSTANT_NA
 
@@ -427,7 +438,7 @@ class Base_md_openmm_interface:
                 if not early_simulation_abort:
                     ns_per_day = steps_to_take * timestep * 1e-3 \
                         * 86400 / total_time
-                    logging.info(f"Initial benchmark (ns/day): {ns_per_day}")
+                    logger.info(f"Initial benchmark (ns/day): {ns_per_day}")
                     self._step(steps_to_take_after_benchmark)
                     num_steps += steps_to_take_after_benchmark
                     on_step += steps_to_take_after_benchmark
@@ -714,7 +725,8 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
         
         assert self._simulation_obj is not None
         self._metadynamics_obj = openmm_app.Metadynamics(
-            system, variables=metaD_force_biases, temperature=model.temperature,
+            system, variables=metaD_force_biases, 
+            temperature=model.temperature,
             biasFactor=metadyn_biasfactor, height=metadyn_height, 
             frequency=steps_per_metadyn_update, 
             saveFrequency=save_frequency, biasDir=metadyn_bias_dir)
@@ -900,15 +912,15 @@ class Steered_md_openmm_interface(Base_md_openmm_interface):
 
         self._procedure = sampling_methods_runner.get_smd_procedure(
             self._model, filled_anchor_indices, unfilled_anchor_indices, cv_values)
-        logging.info("Steered MD procedure summary:")
+        logger.info("Steered MD procedure summary:")
         for step in self._procedure:
-            logging.info(f"anchor {step[0]} to anchor {step[1]}")
+            logger.info(f"anchor {step[0]} to anchor {step[1]}")
         if self._procedure:
             new_source_anchor_index = \
                 self._procedure[self._current_step_in_procedure][0]
             self._load_anchor_from_cache(new_source_anchor_index)
         else:
-            logging.info("All anchors already filled; no SMD steps needed.")
+            logger.info("All anchors already filled; no SMD steps needed.")
 
         return
     
@@ -926,7 +938,7 @@ class Steered_md_openmm_interface(Base_md_openmm_interface):
         target_anchor: structures.Anchor = self._model.anchors[target_anchor_index]
         windows_list_unzipped = []
         total_sq_distance = 0.0
-        logging.info(f"Assigning a new set of windows for SMD:")
+        logger.info(f"Assigning a new set of windows for SMD:")
         for variable_key in source_anchor.variables:
             if not variable_key.startswith("value_"):
                 continue
@@ -951,7 +963,7 @@ class Steered_md_openmm_interface(Base_md_openmm_interface):
                 start_value = cv_values[var_cv]
                 last_value = target_anchor.variables[variable_key]
                 cv_name = self._model.collective_variables[var_cv].name
-                logging.info(
+                logger.info(
                     f"Running CV {cv_name} steered MD from value {start_value} to "
                     f"{last_value}")
                 windows = np.linspace(start_value, last_value, num_smd_windows)
@@ -988,7 +1000,7 @@ class Steered_md_openmm_interface(Base_md_openmm_interface):
         Uses the in-memory cache when available; otherwise reads the
         Anchor_reporter trajectory from disk (restart-safe).
         """
-        logging.info(f"Loading positions for anchor {anchor_index}.")
+        logger.info(f"Loading positions for anchor {anchor_index}.")
         if anchor_index not in self._anchor_positions_cache:
             self._load_anchor_from_reporter_file(anchor_index)
             return
@@ -1093,7 +1105,7 @@ class Steered_md_openmm_interface(Base_md_openmm_interface):
             self._on_window += 1
         else:
             # The destination is reached
-            logging.info(f"Reached anchor {target_anchor_index}.")
+            logger.info(f"Reached anchor {target_anchor_index}.")
             self._current_step_in_procedure += 1
             #self.save_to_current_anchor(target_anchor_index, cv_values, SMD_NAME)
             self._save_to_anchor_cache(target_anchor_index)
@@ -1169,6 +1181,10 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
         integrator.addGlobalVariable("encounter_this_step", 0)
         integrator.addGlobalVariable("bitvar", 0)
         integrator.addGlobalVariable("threshold", 0)
+        integrator.addGlobalVariable("bounce_streak", 0)
+        # Sink for a throwaway energy evaluation used to resync virtual sites
+        # after a ring-buffer restore (see post_integration_instructions).
+        integrator.addGlobalVariable("dummy", 0)
         return None
     
     def add_per_DOF_variables_integrator(
@@ -1184,6 +1200,12 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
         integrator: openmm.Integrator = kwargs["integrator"]
         for i in range(BUFFER_FRAMES):
             integrator.addPerDofVariable(f"encounter_pos_{i}", 0)
+        # Ring buffer of prior committed (non-bounce) states, used to recover
+        # from milestone velocity-reversal bounces (see
+        # post_integration_instructions).
+        for i in range(RING_BUFFER_SIZE):
+            integrator.addPerDofVariable(f"buf_x_{i}", 0)
+            integrator.addPerDofVariable(f"buf_v_{i}", 0)
         return None
     
     def pre_integration_instructions(
@@ -1256,10 +1278,54 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
             integrator.endBlock() # End If collision_{alias_index_i} > 0
             integrator.addComputeGlobal(f"collision_{alias_index_i}", "0")
 
-        # If using MMVT, then reverse velocities.
-        integrator.beginIfBlock(f"encounter_this_step = 1")
-        integrator.addComputePerDof("v", "-old_v")
-        integrator.addComputePerDof("x", "old_x")
+        # On the first step, seed every ring-buffer slot with the initial
+        # synchronized state so that all slots hold a valid in-cell state.
+        integrator.beginIfBlock("step_count = 0")
+        for d in range(RING_BUFFER_SIZE):
+            integrator.addComputePerDof(f"buf_x_{d}", "old_x")
+            integrator.addComputePerDof(f"buf_v_{d}", "old_v")
+        integrator.endBlock()
+
+        # If a milestone was crossed, reverse the velocity and restore the
+        # system to a prior committed (non-bounce) state. The consecutive-bounce
+        # counter (bounce_streak) selects how far back to restore: the longer
+        # the system stays trapped, the deeper into the ring buffer it backs
+        # off, saturating at the oldest retained state.
+        integrator.beginIfBlock("encounter_this_step = 1")
+        integrator.addComputeGlobal("bounce_streak", "bounce_streak + 1")
+        for d in range(RING_BUFFER_SIZE):
+            if d < RING_BUFFER_SIZE - 1:
+                integrator.beginIfBlock(f"bounce_streak = {d + 1}")
+            else:
+                # Saturate at the oldest slot for any deeper streak.
+                integrator.beginIfBlock(f"bounce_streak > {d}")
+            integrator.addComputePerDof("x", f"buf_x_{d}")
+            integrator.addComputePerDof("v", f"-buf_v_{d}")
+            integrator.endBlock()
+        # Reapply constraints to the restored state. The buffered state was
+        # stored constraint-satisfying, so this is a near no-op, but it guards
+        # against any drift.
+        integrator.addConstrainPositions()
+        integrator.addConstrainVelocities()
+        # Reading "energy" forces a force/energy evaluation, which recomputes
+        # virtual-site positions from the just-restored parent atoms. Without
+        # this, virtual sites (e.g. TIP4P M-sites) retain stale coordinates
+        # from before the restore until the next step's force evaluation, which
+        # can make a reporter's periodic-box imaging produce NaNs on a frame
+        # written immediately after a bounce. The result is discarded.
+        integrator.addComputeGlobal("dummy", "energy")
+        integrator.endBlock()
+
+        # Otherwise this was a committed step: reset the bounce counter and push
+        # the current synchronized state (old_x, old_v) into the ring buffer,
+        # shifting older states deeper.
+        integrator.beginIfBlock("encounter_this_step = 0")
+        integrator.addComputeGlobal("bounce_streak", "0")
+        for d in range(RING_BUFFER_SIZE - 1, 0, -1):
+            integrator.addComputePerDof(f"buf_x_{d}", f"buf_x_{d - 1}")
+            integrator.addComputePerDof(f"buf_v_{d}", f"buf_v_{d - 1}")
+        integrator.addComputePerDof("buf_x_0", "old_x")
+        integrator.addComputePerDof("buf_v_0", "old_v")
         integrator.endBlock()
 
         integrator.addComputeGlobal("step_count", "step_count + 1")
@@ -1382,7 +1448,17 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
         """
         assert self._model is not None
         assert self._simulation_obj is not None
+        abort = False
         integrator: openmm.Integrator = self._simulation_obj.context.getIntegrator()
+        bounce_streak = int(integrator.getGlobalVariableByName("bounce_streak"))
+        if bounce_streak > MAX_CONSECUTIVE_BOUNCES:
+            logger.critical(
+                f"MMVT simulation exceeded {MAX_CONSECUTIVE_BOUNCES} consecutive "
+                "velocity-reversal bounces: the system is trapped at a milestone "
+                "boundary. Aborting. This can occur with aggressive hydrogen mass "
+                "repartitioning combined with constraints; consider reducing the "
+                "timestep or the repartitioned hydrogen mass.")
+            abort = True
         anchor = self._anchor_obj
         stage_name = self._model.stages[self._stage_index].name
         stage_set_name = self._model.stages[self._stage_index].set_name
@@ -1418,7 +1494,7 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
             milestone_count_dict=milestone_count_dict,
             milestone_time_dict=milestone_time_dict
         )
-        return False
+        return abort
     
     def perform_early_simulation_eval(
             self, 
@@ -1430,10 +1506,14 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
         """
         abort = False
         integrator = self._simulation_obj.context.getIntegrator()
-        first_step_encounter=int(integrator.getGlobalVariableByName("first_step_encounter"))
+        first_step_encounter=int(integrator.getGlobalVariableByName(
+            "first_step_encounter"))
         if first_step_encounter == 1:
-            logging.critical("Milestoning simulation encounter on first step: the system is trapped "\
-            "behind a boundary. Check and revise milestone boundary definitions and atomic positions.")
+            logger.critical(
+                f"Anchor {self._anchor_obj.index}: milestoning simulation "\
+                "encounter on first step: the system is trapped behind a "\
+                "boundary. Check and revise milestone boundary definitions "\
+                "and atomic positions.")
             abort = True
             
         return abort

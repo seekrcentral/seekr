@@ -23,6 +23,8 @@ import seekr.modules.structures as structures
 import seekr.modules.engines.structures as engines_structures
 import seekr.modules.engines.preparer as engines_preparer
 
+logger = logging.getLogger(__name__)
+
 def find_voronoi_anchor_neighbors(
         anchors: list[structures.Anchor]
         ) -> dict[int, set[int]]:
@@ -120,8 +122,9 @@ def make_milestone_between_two_voronoi_cell_anchors(
             neighbor_anchor.milestones.append(milestone2)
             milestone_index += 1
         else:
-            logging.error("found milestone already at anchor:", anchor.index, \
-                          "with neighbor:", neighbor_index)
+            logger.error(
+                f"found milestone already at anchor: {anchor.index} "\
+                f"with neighbor: {neighbor_index}")
         
         return milestone_index
 

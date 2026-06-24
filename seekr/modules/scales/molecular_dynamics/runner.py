@@ -19,6 +19,8 @@ import seekr.modules.completion_criteria.structures as completion_criteria_struc
 import seekr.modules.scales.molecular_dynamics.structures as md_structures
 import seekr.modules.engines.runner as engines_runner
 
+logger = logging.getLogger(__name__)
+
 Run_instruction_md = namedtuple(
     "Run_instruction_md",
     [
@@ -190,7 +192,7 @@ def is_finished_md_with_message(
         attained = progress >= threshold
         timed_out = current_step >= max_steps
         if timed_out and not attained:
-            logging.warning(
+            logger.warning(
                 f"Simulation has reached the maximum number of steps "
                 f"({current_step} >= {max_steps}) without attaining the "
                 f"reporter progress threshold ({progress:.3f} < {threshold:.3f})."
@@ -433,8 +435,7 @@ def choose_next_simulation_md(
             anchor_or_unpartitioned, stage_md.index-1, model.directory,
             stage_md.set_name)
         log_filename = os.path.join(calculation_dir, "run.log")
-        base.configure_file_and_stdout_logger(
-            log_filename, overwrite=False)
+        base.configure_logging(log_filename)
         for swarm_id in swarm_ids:
             if (swarm_id_wanted is not None) and (swarm_id != swarm_id_wanted):
                 continue
@@ -460,7 +461,7 @@ def choose_next_simulation_md(
                 run_finished = False
                 message = "Force overwrite."
             if not silent:
-                logging.info(f"{partition_name}{swarm_string}: {message}")
+                logger.info(f"{partition_name}{swarm_string}: {message}")
             if not run_finished:
                 run_instruction = Run_instruction_md(
                     current_step, anchor_or_unpartitioned_index, restart, swarm_id, 
@@ -504,9 +505,8 @@ def do_run_instruction_md(
         anchor_or_unpartitioned, stage_index, model.directory,
         stage.set_name)
     log_filename = os.path.join(calculation_dir, "run.log")
-    base.configure_file_and_stdout_logger(
-        log_filename, overwrite=False)
-    logging.info(log_string)
+    base.configure_logging(log_filename)
+    logger.info(log_string)
     engines_runner.run_simulation(
         model, stage_index, restart, anchor_index=anchor_index, 
         swarm_id=swarm_id, device_index=device_index, 

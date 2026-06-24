@@ -475,6 +475,7 @@ def create_host_guest_example_input(
     stage2_reporter.name = "my_anchor_reporter"
     stage2_reporter.interval = 10
     stage2_reporter.extension = "dcd"
+    stage2_reporter.enforce_periodic_box = False
     stage2.completion_criteria = compl_crit_struct.Reporter_progress_completion_criteria()
     stage2.completion_criteria.reporter_name = "my_anchor_reporter"
     stage2.completion_criteria.interval = 10
@@ -497,6 +498,7 @@ def create_host_guest_example_input(
     stage2_position_reporter.interval = 500
     stage2_position_reporter.atom_subset = "solute"
     stage2_position_reporter.extension = "dcd"
+    stage2_position_reporter.enforce_periodic_box = True
     stage2.reporters = [stage2_reporter, stage2_state_reporter, 
                         stage2_position_reporter]
     stage2.input_stage_name = "equilibration"

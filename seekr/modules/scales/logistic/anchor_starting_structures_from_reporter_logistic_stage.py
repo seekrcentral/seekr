@@ -22,6 +22,8 @@ from attrs import define, field, validators, Factory
 import seekr.modules.base as base
 import seekr.modules.scales.logistic.base as logistic_scale_base
 
+logger = logging.getLogger(__name__)
+
 OUTPUT_POSITIONS_BASENAME_NOEXT = "position"
 
 @define
@@ -172,9 +174,8 @@ class Stage_anchor_starting_structures_from_reporter(
         """
         for instruction in instructions:
             log_filename = model.get_synopsis_filename()
-            base.configure_file_and_stdout_logger(
-                log_filename, overwrite=False)
-            logging.info(instruction.message)
+            base.configure_logging(log_filename)
+            logger.info(instruction.message)
     
 @define
 class Input_stage_anchor_starting_structures_from_reporter(logistic_scale_base.Input_stage_logistic):
@@ -300,7 +301,7 @@ def _process_anchor_reporter(
             model.directory, "anchor_sets", stage.get_output_set_name())
     for anchor in model.anchors:
         if anchor.index not in anchor_to_traj_frame:
-            logging.warning(
+            logger.warning(
                 f"Anchor {anchor.index} was not visited by the Anchor_reporter. "
                 "No starting structure assigned.")
             continue
@@ -309,7 +310,7 @@ def _process_anchor_reporter(
             anchor_set_directory, anchor.directory, stage_dir_name,
             stage.output_positions_basename_noext + ".swarm_0" + output_ext)
         _write_frame(traj, frame_num, output_path, model.using_toy())
-        logging.info(
+        logger.info(
             f"Assigned starting structure for anchor {anchor.index}: {output_path}")
     return
 
@@ -331,7 +332,7 @@ def _compute_cv_values_from_frame(
         os.chdir(model.directory)
         for cv in model.collective_variables:
             if not hasattr(cv, "get_mdtraj_cv_value"):
-                logging.warning(
+                logger.warning(
                     f"CV '{cv.name}' does not support get_mdtraj_cv_value(); "
                     "cannot validate frame against anchor milestones.")
                 return None
@@ -400,7 +401,7 @@ def _process_cv_value_reporter(
                 continue
             anchor_to_traj_frame[anchor_index] = (traj, frame_index)
     if not anchor_to_traj_frame:
-        logging.warning("CV_value_reporter: no frames could be assigned to any anchor.")
+        logger.warning("CV_value_reporter: no frames could be assigned to any anchor.")
         return
     output_ext = ".txt" if model.using_toy() else ".pdb"
     stage_dir_name = stage.get_directory_name()
@@ -408,7 +409,7 @@ def _process_cv_value_reporter(
             model.directory, "anchor_sets", stage.get_output_set_name())
     for anchor in model.anchors:
         if anchor.index not in anchor_to_traj_frame:
-            logging.warning(
+            logger.warning(
                 f"Anchor {anchor.index} has no frame validated by milestone geometry. "
                 "No starting structure assigned.")
             continue
@@ -417,7 +418,7 @@ def _process_cv_value_reporter(
             anchor_set_directory, anchor.directory, stage_dir_name,
             stage.output_positions_basename_noext + ".swarm_0" + output_ext)
         _write_frame(traj, frame_num, output_path, model.using_toy())
-        logging.info(
+        logger.info(
             f"Assigned starting structure for anchor {anchor.index}: {output_path}")
     return
 

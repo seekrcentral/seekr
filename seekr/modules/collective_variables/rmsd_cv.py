@@ -90,8 +90,9 @@ class RMSD_CV(cv_base.Base_CV):
             self.group_align_name)
         #if ref_positions is None:
         # TODO: need to correct this path.
+        print("self.directory:", self.directory)
         ref_traj_filename = os.path.join(
-            model.directory, "collective_variable_sets", self.directory, 
+            model.directory, "collective_variable_sets", "main", self.directory, 
             self.ref_structure)
         ref_traj = mdtraj.load(ref_traj_filename)
         traj.superpose(ref_traj, atom_indices=group_align_atom_indices)
@@ -155,15 +156,19 @@ class RMSD_cv_input(cv_base.Base_CV_input):
             name = self.name
         if self.group_align_name is None:
             self.group_align_name = self.group_rmsd_name
+        cv_sets_main_directory = os.path.join(root_directory, "collective_variable_sets",
+                                              "main")
+        os.makedirs(cv_sets_main_directory, exist_ok=True)
+        cv_tree = {directory: {}}
+        base.make_tree(cv_sets_main_directory, cv_tree)
+        rmsd_ref_pdb = f"rmsd_reference_cv_{index}.pdb"
+        absolute_RMSD_ref_pdb = os.path.join(cv_sets_main_directory, directory, rmsd_ref_pdb)
         cv = RMSD_CV(index, directory, self.group_rmsd_name, self.group_align_name,
-                      self.ref_structure)
+                     rmsd_ref_pdb)
         cv.name = name
         cv.min_value = self.min_value
         cv.max_value = self.max_value
-        cv_tree = {cv.directory: {}}
-        base.make_tree(root_directory, cv_tree)
-        rmsd_ref_pdb = f"rmsd_reference_cv_{index}.pdb"
-        absolute_RMSD_ref_pdb = os.path.join(root_directory, cv.directory, rmsd_ref_pdb)
+        
         assert os.path.exists(self.ref_structure), \
             f"RMSD CV Reference structure file {self.ref_structure} does not exist."
         shutil.copyfile(self.ref_structure, absolute_RMSD_ref_pdb)

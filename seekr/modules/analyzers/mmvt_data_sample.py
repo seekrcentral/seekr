@@ -304,7 +304,7 @@ class Mmvt_data_sample:
                 break
             if self.T_alpha[alpha] == 0.0:
                 continue
-            this_anchor_pi_alpha = self.pi_alpha[alpha]
+            this_anchor_pi_alpha = float(self.pi_alpha[alpha][0])
             sum_pi_alpha_over_T_alpha += this_anchor_pi_alpha \
                 / self.T_alpha[alpha]
                 
@@ -313,7 +313,7 @@ class Mmvt_data_sample:
         for alpha, anchor in enumerate(model.anchors):
             if anchor.bulk_anchor:
                 break
-            this_anchor_pi_alpha = float(self.pi_alpha[alpha])
+            this_anchor_pi_alpha = float(self.pi_alpha[alpha][0])
             T_alpha = self.T_alpha[alpha]
             assert T_alpha >= 0.0, \
                 "T_alpha should be positive: {}".format(T_alpha)
@@ -372,13 +372,13 @@ class Mmvt_data_sample:
         anchor_to_anchor_energies = defaultdict(float)
         end_anchor_indices = []
         self.free_energy_anchors = np.zeros(model.num_anchors)
-        highest_pi_alpha = max(self.pi_alpha)
+        highest_pi_alpha = float(max(self.pi_alpha[:,0]))
         last_free_energy = 0.0
         for alpha in range(model.num_anchors):
             if model.anchors[alpha].bulk_anchor:
-                pi_alpha_val = self.pi_alpha[-1, 0]
+                pi_alpha_val = float(self.pi_alpha[-1, 0])
             else:
-                pi_alpha_val = self.pi_alpha[alpha, 0]
+                pi_alpha_val = float(self.pi_alpha[alpha, 0])
             if pi_alpha_val == 0.0:
                 pi_alpha_val = LOW_PROBABILITY
             free_energy = -analyzers_base.GAS_CONSTANT*model.temperature*np.log(
@@ -542,7 +542,7 @@ class Mmvt_data_sample:
             key1, key2 = key
             if key2 == "bulk":
                 alpha = anchor_indices_by_name[key1]
-                prob = self.pi_alpha[alpha]
+                prob = float(self.pi_alpha[alpha, 0])
                 MFPT_to_bulk_non_normalized += MFPT * prob
                 marginal_prob += prob
         if marginal_prob > 0.0:

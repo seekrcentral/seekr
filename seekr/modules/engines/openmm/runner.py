@@ -20,6 +20,8 @@ import seekr.modules.completion_criteria.openmm_interface as completion_openmm_i
 import seekr.modules.restraints.openmm_interface as restraints_openmm_interface
 import seekr.modules.reporters.openmm_interface as reporters_openmm_interface
 
+logger = logging.getLogger(__name__)
+
 class Runner_openmm():
     """
     Prepare and run SEEKR2 simulation using the OpenMM simulation 
@@ -130,6 +132,7 @@ class Runner_openmm():
             .assign_sampling_method_interface(
                 self.stage_output_index, sampling_method, md_engine,
                 self.model.plugins)
+        self.sampling_method_interface.set_random_seed(self.model.get_random_seed())
         # Reporters interfaces.
         self.reporters_interfaces = []
         for reporter in stage_output.reporters:
@@ -250,8 +253,11 @@ class Runner_openmm():
                 # if not force_overwrite and not umbrella_restart_mode:
                 # TODO: extract something from sampling method to avoid restarts?
                 if not force_overwrite:
-                    logging.critical(
-                        "This anchor already has existing output files "\
+                    anchor_str = "unpartitioned" \
+                        if self.anchor_index is None \
+                        else f"anchor {self.anchor_index}"
+                    logger.critical(
+                        f"{anchor_str} already has existing output files "\
                         "and the entered command would overwrite them. "\
                         "If you desire to overwrite the existing files, "\
                         "then use the --force_overwrite (-f) option, and "\
@@ -292,7 +298,7 @@ class Runner_openmm():
             self.start_step = currentStep 
 
             simulation.currentStep = currentStep
-            logging.info(
+            logger.info(
                   "restarting from saved checkpoint:"\
                 +f"{self.restart_checkpoint_filename} at step: {currentStep}")
             # see how many restart files have already been created
@@ -357,7 +363,7 @@ class Runner_openmm():
         total_time = time.time() - start_time
         ns_per_day = num_steps * self.sim_openmm.timestep * 1e-3 \
             * 86400 / total_time
-        logging.info(f"Final benchmark (ns/day): {ns_per_day}")
+        logger.info(f"Final benchmark (ns/day): {ns_per_day}")
         # Write final PDB file
         if self.output_positions_basename is not None:
             final_positions_filename = os.path.join(

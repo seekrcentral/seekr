@@ -47,6 +47,8 @@ import seekr.modules.scales.logistic\
 import seekr.modules.scales.logistic.reassign_anchors_logistic_stage \
     as reassign_anchors_logistic_stage
 
+logger = logging.getLogger(__name__)
+
 engine_inputs: typing.Dict[str, typing.Type[engines_structures.Base_engine]] \
         = {"browndye": browndye_preparer.Browndye_settings_input,
            "sda": sda_preparer.SDA_settings_input,
@@ -316,8 +318,8 @@ def generate_directory(
     
     """
     if empty_dir and os.path.isdir(directory):
-        logging.info("Deleting all subdirectories/files in directory:", 
-                     directory)
+        logger.info(
+            f"Deleting all subdirectories/files in directory: {directory}")
         shutil.rmtree(directory)
         
     if not os.path.isdir(directory):
@@ -1082,8 +1084,8 @@ def resolve_modifications_and_filetree(
         old_model.load_cvs("main")
         old_model.load_selections("main")
         old_model.load_anchor_set("main")
-        logging.info("Model file already existed at this location. "\
-                     "Modified the existing model.")
+        logger.info("Model file already existed at this location. "\
+                    "Modified the existing model.")
         model.set_random_seeds(old_model.get_random_seed())
         modify_model(old_model, model, root_directory, force_overwrite)
     

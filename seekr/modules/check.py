@@ -320,22 +320,21 @@ def check_systems_within_Voronoi_cells(
     curdir = os.getcwd()
     os.chdir(model.directory)
     
-    for anchor in model.anchors:
-        if "molecular_dynamics" not in anchor.scale_types:
-            continue
-        
-        for stage_id, stage in enumerate(model.stages):
+    for stage_id, stage in enumerate(model.stages):
+        stage.load_sets_into_model(model)
+        for anchor in model.anchors:
+            if "molecular_dynamics" not in anchor.scale_types:
+                continue
+
             if stage.name not in anchor.stage_parameters:
                 continue
             stage_parameter = anchor.stage_parameters[stage.name]
             if not stage.type == "md_stage":
                 continue
-
             if not stage.sampling_method.type == "mmvt":
                 continue
             if stage_parameter is None:
                 continue
-
             full_directory = os.path.join(
                 model.directory, anchor.directory,
                 anchor.stage_parameters[stage.name]["directory"])
@@ -456,11 +455,15 @@ def check_atom_selections_on_same_molecule(
                         elif in_molecule == mol_id:
                             index_found = True
                         else:
+                            if hasattr(anchor_or_unpartitioned, "index"):
+                                anchor_index = anchor_or_unpartitioned.index
+                            else:
+                                anchor_index = "unpartitioned settings"
                             print(warnstr1.format(
                                 cv.index, atom_index, 
                                 structure.atoms[atom_index].name, 
                                 structure.atoms[atom_index].number, 
-                                anchor_or_unpartitioned.index))
+                                anchor_index))
                             return False
                 if not index_found:
                     print(warnstr2.format(atom_index, cv.index, 
@@ -671,6 +674,7 @@ def check_mmvt_in_Voronoi_cell(
     """
     
     for stage in model.stages:
+        stage.load_sets_into_model(model)
         if stage.scale_type != "molecular_dynamics":
             continue
         if stage.sampling_method.type != "mmvt":

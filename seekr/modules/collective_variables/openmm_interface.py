@@ -76,6 +76,9 @@ class Distance_cv_openmm_interface:
         group2 = force.addGroup(self.group2_atom_indices)
         group_list = [group1, group2]
         force.addBond(group_list, [])
+        # NOTE: without this, the CVs will sometimes suffer from 
+        # jumps caused by periodic boundary affects.
+        force.setUsesPeriodicBoundaryConditions(True)
         return
 
     def get_cv_value(self, context: openmm.Context) -> unit.Quantity:
