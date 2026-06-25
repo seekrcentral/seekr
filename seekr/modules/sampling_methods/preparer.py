@@ -17,7 +17,7 @@ class Base_md_sampling_method_input(typing.Protocol):
     """
     Base class for all MD sampling method inputs.
     """
-    type: typing.Literal["base"] = "base"
+    type: typing.Literal["base_md_sampling_method"] = "base_md_sampling_method"
     pass
 
 @define
@@ -129,6 +129,7 @@ class Base_bd_sampling_method_input(typing.Protocol):
     """
     Base class for all BD sampling method inputs.
     """
+    type: typing.Literal["base_bd_sampling_method"] = "base_bd_sampling_method"
     pass
 
 @define
