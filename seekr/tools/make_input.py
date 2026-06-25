@@ -633,7 +633,8 @@ if __name__ == "__main__":
     if use_rmsd_cv:
         bd = False
     else:
-        bd = True
+        #bd = True
+        bd = False
 
     if toy_mode:
         if use_smd:

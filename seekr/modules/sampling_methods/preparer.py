@@ -129,6 +129,7 @@ class Base_bd_sampling_method_input(typing.Protocol):
     """
     Base class for all BD sampling method inputs.
     """
+    type: typing.Literal["base"] = "base"
     pass
 
 @define

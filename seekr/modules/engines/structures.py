@@ -647,7 +647,7 @@ class Base_engine(typing.Protocol):
     """
     Base class for all engines.
     """
-    type: typing.Literal["base"] = "base"
+    type: typing.Literal["base_engine"] = "base_engine"
     
     def can_handle_toy(self) -> bool: ...
 
@@ -663,5 +663,5 @@ class Base_engine_settings_input(typing.Protocol):
     """
     Base engine settings class for all engines.
     """
-    type: typing.Literal["base"] = "base"
+    type: typing.Literal["base_engine_input"] = "base_engine_input"
 
