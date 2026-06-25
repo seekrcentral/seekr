@@ -110,5 +110,6 @@ def register_structure_hooks(
     """
     Register the structure hooks for all scales and their sampling methods.
     """
-    converter.register_structure_hook(sampling_methods_preparer.Base_bd_sampling_method_input,
-                                        struct_bd_sampling_method_inputs)
+    converter.register_structure_hook_func(
+        lambda t: t is sampling_methods_preparer.Base_bd_sampling_method_input,
+        struct_bd_sampling_method_inputs)
