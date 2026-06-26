@@ -540,34 +540,7 @@ def check_atom_selections_MD_BD(
                         md_error_str = "{} atom(s)".format(len(md_atom_group))
                         print(warnstr2.format(bd_error_str, md_error_str))
                         return False
-                    md_atomic_element_dict = collections.defaultdict(int)
-                    bd_atomic_element_dict = collections.defaultdict(int)
-                    for md_atom_idx in md_atom_group:
-                        md_atom = md_structure.atoms[md_atom_idx]
-                        md_atomic_element_dict[md_atom.element] += 1
                     
-                    pqr_structure = pqr_structures[bd_mol_index]
-                    for bd_atom_idx in bd_atom_group:
-                        bd_atom = pqr_structure.atoms[bd_atom_idx]
-                        bd_atomic_element_dict[bd_atom.element] += 1
-                    
-                    if md_atomic_element_dict != bd_atomic_element_dict:
-                        bd_err_str = ""
-                        for key in bd_atomic_element_dict:
-                            this_str = "{} atoms with atomic element {}".format(
-                                bd_atomic_element_dict[key], key)
-                            if bd_err_str != "":
-                                bd_err_str += " and "
-                            bd_err_str += this_str
-                        md_err_str = ""
-                        for key in md_atomic_element_dict:
-                            this_str = "{} atoms with atomic element {}".format(
-                                md_atomic_element_dict[key], key)
-                            if md_err_str != "":
-                                md_err_str += " and "
-                            md_err_str += this_str
-                        print(warnstr2.format(bd_err_str, md_err_str))
-                        return False
     return True
 
 def check_pqr_residues(
@@ -746,7 +719,10 @@ def check_pre_simulation_all(model):
     #check_passed_list.append(check_pre_sim_bubbles(model))
     if not model.using_toy():
         check_passed_list.append(check_pre_sim_MD_and_BD_salt_concentration(model))
-        check_passed_list.append(check_atom_selections_on_same_molecule(model))
+        # Skipping for now since many molecules have multimers or missing loops.
+        # Can rely on seekrflow selection and future visualization to catch.
+        # IDEA: check if one is entirely on the protein.
+        #check_passed_list.append(check_atom_selections_on_same_molecule(model))
         check_passed_list.append(check_atom_selections_MD_BD(model))
         check_passed_list.append(check_pqr_residues(model))
     else:

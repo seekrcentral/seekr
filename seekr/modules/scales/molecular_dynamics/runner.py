@@ -144,7 +144,8 @@ def is_finished_md_with_message(
                 anchor_or_unpartitioned.directory,
                 stage_directory)
 
-        checkpoint_info_basename = _eng_runner.get_checkpoint_information_basename(swarm_id)
+        checkpoint_info_basename = _eng_runner\
+            .get_checkpoint_information_basename(swarm_id)
         basename = stage.sampling_method.get_output_positions_basename_noext()
         swarm_string = f".swarm_{swarm_id}"
         reporter_ext = stage.reporters[reporter_index].get_reporter_extension()
