@@ -23,7 +23,7 @@ requires-python = ">=3.10"
 dependencies = [
     "attrs",
     "cattrs",
-    "numpy<2.0", # Until a new parmed version is released that supports this numpy
+    "numpy",
     "scipy",
     "matplotlib",
     "mdtraj",
