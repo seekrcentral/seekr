@@ -18,22 +18,27 @@ import seekr.modules.analyzers.mmvt_data_window as mmvt_data_window
 import seekr.modules.analyzers.bulk_anchor_statistics as bulk_anchor_statistics
 
 def resample_anchor_statistics(
-        anchor_stats_alpha_list: list[list[mmvt_anchor_statistics.Mmvt_anchor_statistics]],
+        anchor_stats_alpha_list: list[list[mmvt_anchor_statistics\
+                                           .Mmvt_anchor_statistics]],
         ) -> list[list[mmvt_anchor_statistics.Mmvt_anchor_statistics]]:
     """
     Resample the anchor statistics for each data window.
     """
     new_anchor_stats_alpha_list = []
     for alpha, anchor_stats_windows in enumerate(anchor_stats_alpha_list):
-        single_window_step_count = anchor_stats_windows[0].step_count
+        if anchor_stats_windows is None:
+            # It's a bulk anchor
+            continue
         single_window_time_count = anchor_stats_windows[0].time_count
+        single_window_step_count = anchor_stats_windows[0].step_count
         dt = single_window_time_count / single_window_step_count
         new_anchor_stats_list = []
         for window_id, anchor_stats in enumerate(anchor_stats_windows):
             # For each data window, reconstruct the anchor statistics by
             #  resampling the MMVT anchor statistics from the probabilities
             #  predicted by the window's main data sample
-            new_anchor_stats = mmvt_anchor_statistics.Mmvt_anchor_statistics(alpha)
+            new_anchor_stats = mmvt_anchor_statistics\
+                .Mmvt_anchor_statistics(alpha)
             new_anchor_stats.first_encounter_time = 0.0
 
             # Construct a new sequence of transitions from a Markov matrix made
@@ -51,6 +56,11 @@ def resample_anchor_statistics(
             for key in ordered_keys:
                 sequence_length += anchor_stats.N_alpha_beta[key]
             
+            # TODO: consider if this is a problem - all avg times are 
+            # equal among the keys. Perhaps we should sum N_alpha_beta[key]
+            # over all betas to get N_alpha, and then divide T_alpha_total 
+            # by the proportion of N_alpha / sequence length to get the
+            # true average time.
             for key in ordered_keys:
                 avg_times_alpha_beta[key] = anchor_stats.T_alpha_total / \
                     sequence_length \
@@ -96,9 +106,27 @@ def resample_anchor_statistics(
                 for j in range(count_matrix.shape[1]):
                     markov_trans_matrix[i, j] = count_matrix[i, j] / row_sum
 
-            current_state = np.random.choice(len(initial_prob_vector), p=initial_prob_vector)
-            sequence = [current_state]
-            for _ in range(int(sequence_length)-1):
+            # Simulate the milestone-touch sequence one step at a time,
+            # sampling an exponential dwell time at each step and stopping
+            # once the window's total time is reached. Stopping on elapsed
+            # time (rather than after a fixed number of transitions) lets
+            # the transition count fluctuate with the correct Poisson-like
+            # variance, and sampling the dwell times (rather than using
+            # their constant means) restores the temporal variance.
+            new_N_alpha_beta = defaultdict(int)
+            new_N_i_j_alpha = defaultdict(int)
+            new_R_i_alpha_total = defaultdict(float)
+            new_T_alpha_total = 0.0
+            current_state = np.random.choice(
+                len(initial_prob_vector), p=initial_prob_vector)
+            # Safety cap on iterations; the time-based stop terminates
+            # almost surely, this only guards against pathological input.
+            max_iterations = 100 * int(sequence_length) + 100
+            iteration = 0
+            while sequence_length > 0 \
+                    and new_T_alpha_total < anchor_stats.T_alpha_total \
+                    and iteration < max_iterations:
+                iteration += 1
                 probabilities = markov_trans_matrix[current_state]
                 if (probabilities < 0).any():
                     print("alpha: ", alpha, " window_id: ", window_id)
@@ -120,25 +148,17 @@ def resample_anchor_statistics(
                     print("probabilities: ", probabilities)
                     raise Exception("Probabilities do not sum to 1.0")
                 next_state = np.random.choice(len(markov_trans_matrix), p=probabilities)
-                current_state = next_state
-                sequence.append(current_state)
-            
-            # First: N_alpha_beta, k_alpha_beta
-            new_N_alpha_beta = defaultdict(int)
-            new_N_i_j_alpha = defaultdict(int)
-            new_R_i_alpha_total = defaultdict(float)
-            new_T_alpha_total = 0.0
-            for state_index in range(1, len(sequence)):
-                prev_state = sequence[state_index-1]
-                current_state = sequence[state_index]
-                current_milestone_index = ordered_keys[current_state]
-                previous_milestone_index = ordered_keys[prev_state]
+                previous_milestone_index = ordered_keys[current_state]
+                current_milestone_index = ordered_keys[next_state]
                 new_N_alpha_beta[current_milestone_index] += 1
-                if prev_state != current_state:
-                    new_N_i_j_alpha[(previous_milestone_index, current_milestone_index)] += 1
-                    new_R_i_alpha_total[previous_milestone_index] += avg_times_i_j[prev_state]
-                
-                new_T_alpha_total += avg_times_alpha_beta[previous_milestone_index]
+                if current_state != next_state:
+                    new_N_i_j_alpha[
+                        (previous_milestone_index, current_milestone_index)] += 1
+                    new_R_i_alpha_total[previous_milestone_index] \
+                        += np.random.exponential(avg_times_i_j[current_state])
+                new_T_alpha_total += np.random.exponential(
+                    avg_times_alpha_beta[previous_milestone_index])
+                current_state = next_state
 
             new_anchor_stats.N_alpha_beta = new_N_alpha_beta
             new_anchor_stats.N_i_j_alpha = new_N_i_j_alpha
@@ -147,7 +167,7 @@ def resample_anchor_statistics(
             new_anchor_stats.step_count = int(np.ceil(new_T_alpha_total / dt))
             new_anchor_stats.time_count = new_anchor_stats.step_count * dt
             new_anchor_stats.compute_k_alpha_beta()
-            new_anchor_stats.last_milestone_alias_touched = ordered_keys[sequence[-1]]
+            new_anchor_stats.last_milestone_alias_touched = ordered_keys[current_state]
             new_anchor_stats.last_milestone_time_touched = new_anchor_stats.T_alpha_total
             new_anchor_stats_list.append(new_anchor_stats)
             

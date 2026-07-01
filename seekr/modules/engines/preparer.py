@@ -17,6 +17,8 @@ import seekr.modules.base as base
 import seekr.modules.structures as structures
 import seekr.modules.engines.structures as engines_structures
 
+logger = logging.getLogger(__name__)
+
 POSITIONS_BASENAME = "positions"
 
 @define
@@ -77,7 +79,7 @@ class MD_unpartitioned_settings_input:
                 for frame_id, frame_positions in enumerate(self.positions):
                     full_positions_path = os.path.join(unpartitioned_initial_directory,
                                                     f"{POSITIONS_BASENAME}.swarm_{frame_id}.txt")
-                    logging.info(f"Writing positions file: {full_positions_path} with "
+                    logger.info(f"Writing positions file: {full_positions_path} with "
                                  "positions taken directly from input file.")
                     np.savetxt(full_positions_path, np.array(frame_positions))
 
@@ -97,7 +99,7 @@ class MD_unpartitioned_settings_input:
                         output_pdb_full_path = os.path.join(
                             unpartitioned_initial_directory,
                             f"{POSITIONS_BASENAME}.swarm_{frame_id}.pdb")
-                        logging.info(f"Writing positions file: {output_pdb_full_path} "
+                        logger.info(f"Writing positions file: {output_pdb_full_path} "
                                      f"by extracting frame from input PDB named: {self.positions}.")
                         mdtraj_obj[frame_id].save(output_pdb_full_path)
 

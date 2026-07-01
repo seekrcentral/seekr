@@ -6,7 +6,9 @@ Analyze the results of a SEEKR MMVT calculation.
 """
 
 import os
+import io
 import math
+import contextlib
 
 from attrs import define, field, validators
 import numpy as np
@@ -134,25 +136,13 @@ class Mmvt_analyzer:
             piecewise_anchors_statistics = mmvt_anchor_statistics\
                 .make_piecewise_anchor_statistics(
                     self.anchor_stats_alpha_list)
-            num_anchors = len(piecewise_anchors_statistics)
             if num_error_samples is None:
                 num_error_samples = analyzers_base.NUM_BOOTSTRAP_SAMPLES
             for _ in range(num_error_samples):
-                bootstrap_anchors_statistics_piecewise = []
-                for alpha in range(num_anchors):
-                    if piecewise_anchors_statistics[alpha] is None:
-                        bootstrap_anchors_statistics_piecewise.append(None)
-                        continue
-                    N = len(piecewise_anchors_statistics[alpha])
-                    indices = np.random.choice(np.arange(N), size=N, replace=True)
-                    bootstrap_anchor_statistics_piecewise \
-                        = [piecewise_anchors_statistics[alpha][i] for i in indices]
-                    bootstrap_anchors_statistics_piecewise.append(
-                        bootstrap_anchor_statistics_piecewise)
-                
                 bootstrap_anchors_statistics_cumulative \
-                    = mmvt_anchor_statistics.make_cumulative_anchor_statistics(
-                        bootstrap_anchors_statistics_piecewise)
+                    = mmvt_anchor_statistics\
+                    .make_bootstrap_cumulative_anchor_statistics(
+                        piecewise_anchors_statistics)
                 
                 if self.bulk_stats is not None:
                     resampled_bulk_stats = bulk_anchor_statistics\
@@ -167,12 +157,14 @@ class Mmvt_analyzer:
             if num_error_samples is None:
                 num_error_samples = analyzers_base.NUM_RESAMPLES
             for _ in range(num_error_samples):
-                resampled_anchors_statistics_piecewise = mmvt_error_analysis\
+                # Parametrically re-simulate each cumulative window directly.
+                # Each window is simulated from its own full statistics, so
+                # the result is already cumulative -- re-cumulating here would
+                # double-count, and re-cumulating piecewise blocks would make
+                # each simulated window too sparse to yield a valid pi_alpha.
+                resampled_anchors_statistics_cumulative = mmvt_error_analysis\
                     .resample_anchor_statistics(
                         self.anchor_stats_alpha_list)
-                resampled_anchors_statistics_cumulative \
-                    =   mmvt_anchor_statistics.make_cumulative_anchor_statistics(
-                        resampled_anchors_statistics_piecewise)
                 if self.bulk_stats is not None:
                     resampled_bulk_stats = bulk_anchor_statistics\
                         .resample_bulk_anchor_statistics(self.bulk_stats)
@@ -202,7 +194,23 @@ class Mmvt_analyzer:
             data_window.fill_out_errors_from_data_samples()
 
     def print_results(self):
-        """Print all results of the analysis calculation."""
+        """
+        Print all results of the analysis calculation to stdout and write
+        the same output to <log_directory>/analyze.out.
+        """
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self._emit_results()
+        text = buf.getvalue()
+        print(text, end="")
+        log_dir = self.model.get_log_directory(self.model.directory)
+        os.makedirs(log_dir, exist_ok=True)
+        with open(os.path.join(log_dir, "analyze.out"), "w") as f:
+            f.write(text)
+        return
+
+    def _emit_results(self):
+        """Emit results via print(); used by print_results to tee output."""
         print("Printing results from MMVT SEEKR calculation")
         if self.main_data_window.k_off is not None:
             print("k_off (1/s):", analyzers_base.pretty_string_value_error(
@@ -692,7 +700,7 @@ class Mmvt_analyzer:
         # TODO: modify these plot functions to be individual for calling
         # from a jupyter notebook. But also pass an arg to save to file
         # and then close to save memory.
-        
+        print("All plots being saved to:", analyzers_base.DEFAULT_IMAGE_DIR)
         if len(self.model.anchors[0].variables) == 1:
             self.plot_pi_alpha_1d(
                 image_directory, return_plot=False)

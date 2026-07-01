@@ -15,12 +15,17 @@ import re
 import json
 import glob
 import typing
+import shlex
+import socket
+import getpass
 import logging
 import importlib
 
 from attrs import define, field, validators, Factory
 import numpy.typing as nptyping
 import mdtraj
+
+logger = logging.getLogger(__name__)
 
 XML_ROOT = "seekr_model"
 INITIAL_DIRECTORY = "stage_0_initial"
@@ -110,52 +115,54 @@ class NoIndentListEncoder(json.JSONEncoder):
         
         return result
 
-def configure_file_only_logger(
-        logname: str, 
-        overwrite: bool=False) -> None:
-    """
-    Set the file-only logger for the seekr program.
-    """
-    logger = logging.getLogger()
-    while logger.hasHandlers():
-        logger.removeHandler(logger.handlers[0])
-    if overwrite:
-        filemode = 'w'
-    else:
-        filemode = 'a'
-    logging.basicConfig(
-        filename=logname, filemode=filemode,
-        format="%(asctime)s,%(msecs)03d %(name)s %(levelname)s %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
-    return
+SEEKR_LOGGER_NAME = "seekr"
 
-def configure_file_and_stdout_logger(
-        logname: str,
-        overwrite: bool=False
+def configure_logging(
+        file: Optional[str] = None,
+        *,
+        console: bool = True,
+        overwrite: bool = False,
+        level: int = logging.INFO,
         ) -> None:
     """
-    Set the file and stdout logger for the seekr program.
+    Configure the seekr package logger ("seekr"). Any handlers from a
+    prior call are removed and replaced, so re-invoking with a different
+    file path swaps the destination cleanly.
+
+    The seekr package logger is configured (not the root logger), so
+    third-party libraries are not affected and do not write into seekr
+    log files.
     """
-    configure_file_only_logger(logname, overwrite)
-    console = logging.StreamHandler(stream=sys.stdout)
-    console.setLevel(logging.INFO)
-    formatter = logging.Formatter("%(message)s")
-    console.setFormatter(formatter)
-    logging.getLogger().addHandler(console)
+    logger = logging.getLogger(SEEKR_LOGGER_NAME)
+    logger.setLevel(level)
+    logger.propagate = False
+    while logger.handlers:
+        logger.removeHandler(logger.handlers[0])
+    if file is not None:
+        file_handler = logging.FileHandler(
+            file, mode="w" if overwrite else "a")
+        file_handler.setFormatter(logging.Formatter(
+            "%(asctime)s,%(msecs)03d %(name)s %(levelname)s %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S"))
+        logger.addHandler(file_handler)
+    if console:
+        stream_handler = logging.StreamHandler(stream=sys.stdout)
+        stream_handler.setFormatter(logging.Formatter("%(message)s"))
+        logger.addHandler(stream_handler)
     return
 
-def configure_stdout_only_logger() -> None:
+def log_invocation_metadata(seekr_version: str) -> None:
     """
-    Set the file and stdout logger for the seekr program.
+    Log SEEKR version, Python version, hostname, username, and the
+    command line. Intended to be called once per entry-point invocation
+    (prepare/run/analyze) to capture reproducibility context.
     """
-    logger = logging.getLogger()
-    logger.setLevel(logging.INFO)
-    while logger.hasHandlers():
-        logger.removeHandler(logger.handlers[0])
-    console = logging.StreamHandler(stream=sys.stdout)
-    formatter = logging.Formatter("%(message)s")
-    console.setFormatter(formatter)
-    logger.addHandler(console)
+    logger.info(
+        f"SEEKR version: {seekr_version}; "
+        f"Python: {sys.version.split()[0]}; "
+        f"hostname: {socket.gethostname()}; "
+        f"user: {getpass.getuser()}; "
+        f"command: {shlex.join(sys.argv)}")
     return
 
 def order_files_numerically(
@@ -334,7 +341,7 @@ def get_plugin_str(
     submodule_spec = importlib.util.find_spec(plugin_name+f".modules{dot_submodule_name}")
     if submodule_spec is None:
         if skip_silently:
-            logging.warning(f"Plugin '{plugin_name}' does not have a '{submodule_name}' module. Skipping.")
+            logger.warning(f"Plugin '{plugin_name}' does not have a '{submodule_name}' module. Skipping.")
             return None
         else:
             raise ImportError(f"Directory '{submodule_name}' not found for plugin '{plugin_name}'.")

@@ -53,6 +53,9 @@ class Input_stage_md(scales_base.Base_input_stage):
     completion_criteria: compl_crit_struct.Base_completion_criteria | None = None
     restraints: list[restraints_preparer.Base_restraint_input] = field(default=Factory(list))
     reporters: list[reporters_preparer.Base_reporter_input] = field(default=Factory(list))
+    # NOTE: left at None, the MD_settings value will be used for timestep
+    timestep: float | None = field(
+        default=None, validator=validators.optional(validators.instance_of(float)))
     
     def get_scale_type(self) -> str:
         return "molecular_dynamics"
@@ -61,7 +64,8 @@ class Input_stage_md(scales_base.Base_input_stage):
             self, 
             index: int,
             scope: str,
-            md_settings: MD_settings_input
+            md_settings: MD_settings_input,
+            root_directory: str
             ) -> scale_md.Stage_md:
         """
         Given this input stage object, create the model's Stage object.
@@ -85,7 +89,8 @@ class Input_stage_md(scales_base.Base_input_stage):
             
         stage.scope = scope
         for restraint_input in self.restraints:
-            restraint = restraint_input.make_restraint(unpartitioned_settings_input)
+            restraint = restraint_input.make_restraint(unpartitioned_settings_input,
+                                                       root_directory)
             stage.restraints.append(restraint)
         for reporter_input in self.reporters:
             reporter = reporter_input.make_reporter(unpartitioned_settings_input)
@@ -101,6 +106,7 @@ class Input_stage_md(scales_base.Base_input_stage):
         reporter_names = [reporter.name for reporter in stage.reporters]
         assert len(reporter_names) == len(set(reporter_names)), \
             f"Reporter names must be unique within a stage."
+        stage.timestep = self.timestep
         return stage
     
 def struct_md_sampling_method_inputs(
@@ -116,7 +122,7 @@ def register_structure_hooks(
     """
     Register the structure hooks for all scales and their sampling methods.
     """
-    converter.register_structure_hook(
-        sampling_methods_preparer.Base_md_sampling_method_input,
+    converter.register_structure_hook_func(
+        lambda t: t is sampling_methods_preparer.Base_md_sampling_method_input,
         struct_md_sampling_method_inputs
     )

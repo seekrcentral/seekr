@@ -497,18 +497,52 @@ def make_cumulative_anchor_statistics(
 
             if problem:
                 continue
-            if i == 0:
+            # Index the last element actually appended (not the loop index),
+            # so that skipped windows do not desync the cumulative sum.
+            if len(cumulative_windows) == 0:
                 cumulative_windows.append(anchor_stat)
             else:
                 cumulative_windows.append(
                     add_two_anchor_statistics(
-                        cumulative_windows[i - 1],
+                        cumulative_windows[-1],
                         anchor_stat
                     )
                 )
             
         cumulative_anchor_statistics.append(cumulative_windows)
     
+    return cumulative_anchor_statistics
+
+def make_bootstrap_cumulative_anchor_statistics(
+        anchor_statistics_piecewise_list: list[list[Mmvt_anchor_statistics]]
+        ) -> list[list[Mmvt_anchor_statistics]]:
+    """
+    Construct a bootstrap-resampled cumulative anchor statistics list.
+
+    For each window i, the cumulative statistics are formed by resampling
+    (with replacement) only from the i+1 piecewise blocks that were
+    available up to that window. This keeps each convergence window's
+    error estimate unbiased, since it never draws from blocks that were
+    accrued after that window.
+    """
+    cumulative_anchor_statistics = []
+    for alpha in range(len(anchor_statistics_piecewise_list)):
+        if anchor_statistics_piecewise_list[alpha] is None:
+            cumulative_anchor_statistics.append(None)
+            continue
+        piecewise = anchor_statistics_piecewise_list[alpha]
+        num_windows = len(piecewise)
+        cumulative_windows = []
+        for i in range(num_windows):
+            indices = np.random.choice(
+                np.arange(i + 1), size=i + 1, replace=True)
+            window_stat = piecewise[indices[0]]
+            for j in indices[1:]:
+                window_stat = add_two_anchor_statistics(
+                    window_stat, piecewise[j])
+            cumulative_windows.append(window_stat)
+        cumulative_anchor_statistics.append(cumulative_windows)
+
     return cumulative_anchor_statistics
 
 def pare_down_anchor_statistics(

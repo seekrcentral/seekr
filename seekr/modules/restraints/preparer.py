@@ -5,8 +5,12 @@ modules/restraints/preparer.py
 Prepare the restraints inputs for simulations.
 """
 
+import os
+import shutil
 import typing
-from attrs import define, field, validators, Factory
+
+from attrs import define, field, validators
+import numpy as np
 
 import seekr.modules.restraints.structures as restraints_structures
 import seekr.modules.engines.preparer as engines_preparer
@@ -37,10 +41,14 @@ class Positional_restraint_input(Base_restraint_input):
     force_constant: float = field(default=400.0, validator=[
         validators.instance_of(float), validators.gt(0)
     ])
+    coordinates_filename: typing.Optional[str] = field(
+        default=None,
+        validator=validators.optional(validators.instance_of(str)))
 
     def make_restraint(
             self, 
-            unpartitioned_settings: engines_preparer.MD_unpartitioned_settings_input
+            unpartitioned_settings: engines_preparer.MD_unpartitioned_settings_input,
+            root_directory: str
             ) -> restraints_structures.Positional_restraint:
         """
         Make the restraint object for the model.
@@ -50,6 +58,20 @@ class Positional_restraint_input(Base_restraint_input):
         restraint = restraints_structures.Positional_restraint()
         restraint.atom_indices = atom_indices
         restraint.force_constant = self.force_constant
+        if self.coordinates_filename is not None:
+            # Check that coordinates and atom_indices align.
+            positions = np.loadtxt(self.coordinates_filename, ndmin=2)
+
+            assert positions.shape[0] == len(atom_indices), \
+                f"Number of coordinate sets ({positions.shape[0]}) "\
+                f"in {self.coordinates_filename} does not "\
+                f"match number of atom indices ({len(atom_indices)})"
+            coordinates_basename = os.path.basename(self.coordinates_filename)
+            coordinates_destination = os.path.join(root_directory, coordinates_basename)
+            if not os.path.samefile(self.coordinates_filename, coordinates_destination):
+                shutil.copyfile(self.coordinates_filename, coordinates_destination)
+            restraint.coordinates_filename = coordinates_basename
+
         return restraint
 
 @define
@@ -66,7 +88,8 @@ class Pairwise_restraint_input(Base_restraint_input):
 
     def make_restraint(
             self, 
-            unpartitioned_settings: engines_preparer.MD_unpartitioned_settings_input
+            unpartitioned_settings: engines_preparer.MD_unpartitioned_settings_input,
+            root_directory: str
             ) -> restraints_structures.Pairwise_restraint:
         """
         Make the restraint object for the model.
@@ -104,7 +127,8 @@ class Proximity_restraint_input(Base_restraint_input):
 
     def make_restraint(
             self, 
-            unpartitioned_settings: engines_preparer.MD_unpartitioned_settings_input
+            unpartitioned_settings: engines_preparer.MD_unpartitioned_settings_input,
+            root_directory: str
             ) -> restraints_structures.Proximity_restraint:
         """
         Make the restraint object for the model.
@@ -141,7 +165,8 @@ class Cylinder_restraint_input(Base_restraint_input):
 
     def make_restraint(
             self, 
-            unpartitioned_settings: engines_preparer.MD_unpartitioned_settings_input
+            unpartitioned_settings: engines_preparer.MD_unpartitioned_settings_input,
+            root_directory: str
             ) -> restraints_structures.Cylinder_restraint:
         """
         Make the restraint object for the model.

@@ -18,6 +18,8 @@ import cattrs
 
 import seekr.modules.base as base
 
+logger = logging.getLogger(__name__)
+
 # NOTE: this one seems only to be used by modules/structures.py and
 # some engines structures.py modules, so it seems best placed here for
 # now, even though it's not exclusive to engines.
@@ -261,7 +263,7 @@ class Amber_parameters_topology:
         anchor_prmtop_full_path = os.path.join(dest_directory,
                                             prmtop_basename)
         full_prmtop_filename = os.path.expanduser(self.prmtop_filename)
-        logging.info(f"Copying Amber prmtop file: {full_prmtop_filename} "
+        logger.info(f"Copying Amber prmtop file: {full_prmtop_filename} "
                         f"to anchor directory: {anchor_prmtop_full_path}.")
         copyfile(full_prmtop_filename, anchor_prmtop_full_path)
         new_md_parameters_topology.prmtop_filename = prmtop_basename
@@ -301,7 +303,7 @@ class Gromacs_parameters_topology:
         anchor_top_full_path = os.path.join(dest_directory,
                                             top_basename)
         full_top_filename = os.path.expanduser(self.top_filename)
-        logging.info(f"Copying Gromacs top file: {full_top_filename} "
+        logger.info(f"Copying Gromacs top file: {full_top_filename} "
                         f"to anchor directory: {anchor_top_full_path}.")
         copyfile(full_top_filename, anchor_top_full_path)
         new_md_parameters_topology.top_filename = top_basename
@@ -309,7 +311,7 @@ class Gromacs_parameters_topology:
         anchor_gro_full_path = os.path.join(dest_directory,
                                             gro_basename)
         full_gro_filename = os.path.expanduser(self.gro_filename)
-        logging.info(f"Copying Gromacs gro file: {full_gro_filename} "
+        logger.info(f"Copying Gromacs gro file: {full_gro_filename} "
                         f"to anchor directory: {anchor_gro_full_path}.")
         copyfile(full_gro_filename, anchor_gro_full_path)
         new_md_parameters_topology.gro_filename = gro_basename
@@ -353,7 +355,7 @@ class Charmm_parameters_topology:
         anchor_psf_full_path = os.path.join(dest_directory,
                                             psf_basename)
         full_psf_filename = os.path.expanduser(self.psf_filename)
-        logging.info(f"Copying Charmm psf file: {full_psf_filename} "
+        logger.info(f"Copying Charmm psf file: {full_psf_filename} "
                         f"to anchor directory: {anchor_psf_full_path}.")
         copyfile(full_psf_filename, anchor_psf_full_path)
         new_md_parameters_topology.psf_filename = psf_basename
@@ -363,7 +365,7 @@ class Charmm_parameters_topology:
             anchor_param_full_path = os.path.join(dest_directory,
                                                 param_basename)
             full_param_filename = os.path.expanduser(param_filename)
-            logging.info(f"Copying Charmm parameter file: {full_param_filename} "
+            logger.info(f"Copying Charmm parameter file: {full_param_filename} "
                             f"to anchor directory: {anchor_param_full_path}.")
             copyfile(full_param_filename, anchor_param_full_path)
             new_md_parameters_topology.param_filename_list.append(param_basename)
@@ -415,7 +417,7 @@ class Forcefield_parameters:
             anchor_forcefield_full_path = os.path.join(
                 dest_directory, forcefield_basename)
             full_forcefield_filename = os.path.expanduser(forcefield_filename)
-            logging.info(f"Copying OpenMM forcefield file: {full_forcefield_filename} "
+            logger.info(f"Copying OpenMM forcefield file: {full_forcefield_filename} "
                             f"to anchor directory: {anchor_forcefield_full_path}.")
             copyfile(full_forcefield_filename, anchor_forcefield_full_path)
             new_md_parameters_topology.built_in_forcefield_filenames.append(
@@ -427,7 +429,7 @@ class Forcefield_parameters:
             anchor_forcefield_full_path = os.path.join(dest_directory,
                                                     forcefield_basename)
             full_forcefield_filename = os.path.expanduser(forcefield_filename)
-            logging.info(f"Copying OpenMM forcefield file: {full_forcefield_filename} "
+            logger.info(f"Copying OpenMM forcefield file: {full_forcefield_filename} "
                             f"to anchor directory: {anchor_forcefield_full_path}.")
             copyfile(full_forcefield_filename, anchor_forcefield_full_path)
             new_md_parameters_topology.custom_forcefield_filenames.append(
@@ -466,7 +468,7 @@ class Openmm_system:
         anchor_system_full_path = os.path.join(dest_directory,
                                             system_basename)
         full_system_filename = os.path.expanduser(self.system_filename)
-        logging.info(f"Copying OpenMM system file: {full_system_filename} "
+        logger.info(f"Copying OpenMM system file: {full_system_filename} "
                         f"to anchor directory: {anchor_system_full_path}.")
         copyfile(full_system_filename, anchor_system_full_path)
         new_md_parameters_topology.system_filename = system_basename
@@ -525,7 +527,7 @@ class MD_unpartitioned_settings:
             self,
             root_directory: str,
             input_stage_index: int,
-            set_name: str,
+            dummy_set_name: str | None = None,
             swarm_id: int | None = None
             ) -> list[str]:
         """
@@ -543,21 +545,22 @@ class MD_unpartitioned_settings:
             input_stage_index)["directory"]
         if swarm_id is None:
             glob_base = [f"{positions_base_noext}*.pdb", 
-                         f"{positions_base_noext}*.txt"]
+                         f"{positions_base_noext}*.txt",
+                         f"{positions_base_noext}*.state",]
         else:
             glob_base = [f"{positions_base_noext}*.swarm_{swarm_id}.pdb",
-                         f"{positions_base_noext}*.swarm_{swarm_id}.txt"]
+                         f"{positions_base_noext}*.swarm_{swarm_id}.txt",
+                         f"{positions_base_noext}*.swarm_{swarm_id}.state",]
         glob_path = os.path.join(
             root_directory, self.directory, input_stage_dir)
         positions_full_paths = base.glob_or(glob_base, glob_path)
         return positions_full_paths
 
-    #def get_starting_structure_num_swarms(
     def get_starting_structure_swarm_ids(
             self,
             root_directory: str,
             input_stage_index: int,
-            set_name: str
+            dummy_set_name: str
             ) -> list[int]:
         """
         Return the number of frames within a starting structure
@@ -566,15 +569,13 @@ class MD_unpartitioned_settings:
         # NOTE: set_name isn't used here, but needs to be an argument for
         # anchors, which are ambiguously lumped with unpartitioned settings 
         # in some contexts. So, we just pass it
-        pdb_full_paths = self.get_positions_full_paths(
-            root_directory, input_stage_index, set_name)
-        #num_frames = len(pdb_full_paths)
-        #return num_frames
+        struct_full_paths = self.get_positions_full_paths(
+            root_directory, input_stage_index)
         swarm_ids = []
         # Loop through the paths, and use the re module to extract
         #  instances where .swarm_123456. is in the filename
-        for pdb_full_path in pdb_full_paths:
-            match = re.search(r"swarm_(\d+)", pdb_full_path)
+        for struct_full_path in struct_full_paths:
+            match = re.search(r"swarm_(\d+)", struct_full_path)
             if match:
                 swarm_id = int(match.group(1))
                 swarm_ids.append(swarm_id)

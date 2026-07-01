@@ -430,6 +430,10 @@ def create_host_guest_example_input(
     stage1.checkpoint_interval = 1000
     stage1.ensemble = base.NVT_ensemble()
     stage1.sampling_method = sampling_preparer.Conventional_md_input()
+    # Test the heat ramp
+    stage1.sampling_method.heat_ramp_temperatures = np.arange(100.0, 300.0, 10.0)
+    stage1.sampling_method.heat_ramp_step_interval = 1000
+
     stage1.completion_criteria = compl_crit_struct.Number_of_steps_completion_criteria()
     stage1.completion_criteria.number_of_steps = 100000
     pairwise_restraint_input = restraints_preparer.Pairwise_restraint_input()
@@ -471,6 +475,7 @@ def create_host_guest_example_input(
     stage2_reporter.name = "my_anchor_reporter"
     stage2_reporter.interval = 10
     stage2_reporter.extension = "dcd"
+    stage2_reporter.enforce_periodic_box = False
     stage2.completion_criteria = compl_crit_struct.Reporter_progress_completion_criteria()
     stage2.completion_criteria.reporter_name = "my_anchor_reporter"
     stage2.completion_criteria.interval = 10
@@ -493,6 +498,7 @@ def create_host_guest_example_input(
     stage2_position_reporter.interval = 500
     stage2_position_reporter.atom_subset = "solute"
     stage2_position_reporter.extension = "dcd"
+    stage2_position_reporter.enforce_periodic_box = True
     stage2.reporters = [stage2_reporter, stage2_state_reporter, 
                         stage2_position_reporter]
     stage2.input_stage_name = "equilibration"

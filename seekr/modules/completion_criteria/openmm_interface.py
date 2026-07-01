@@ -19,6 +19,8 @@ import seekr.modules.scales.molecular_dynamics.structures as md_structures
 import seekr.modules.scales.molecular_dynamics.runner as md_runner
 import seekr.modules.reporters.openmm_interface as reporters_openmm_interface
 
+logger = logging.getLogger(__name__)
+
 @define
 class Base_completion_criteria_openmm_interface:
     """
@@ -87,7 +89,7 @@ class Reporter_progress_completion_criteria_openmm_interface(
         max_steps = self._completion_criteria.max_number_of_steps
         ending = (progress >= threshold) or (current_step >= max_steps)
         if print_update:
-            logging.info(
+            logger.info(
                 f"reporter_progress: {progress:.3f} / {threshold:.3f} "
                 f"(current_step: {current_step})")
         return ending

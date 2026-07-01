@@ -23,6 +23,8 @@ import seekr.modules.base as base
 import seekr.modules.anchor_schemes.base as anchor_schemes_base
 import seekr.modules.scales.logistic.base as logistic_scale_base
 
+logger = logging.getLogger(__name__)
+
 # TODO: need to implement a way to modify a set of anchors, like with "main"
 
 @define
@@ -174,9 +176,8 @@ class Stage_reassign_anchors(logistic_scale_base.Stage_logistic):
         """
         for instruction in instructions:
             log_filename = model.get_synopsis_filename()
-            base.configure_file_and_stdout_logger(
-                log_filename, overwrite=False)
-            logging.info(instruction.message.strip())
+            base.configure_logging(log_filename)
+            logger.info(instruction.message.strip())
     
 @define
 class Input_stage_reassign_anchors(logistic_scale_base.Input_stage_logistic):
@@ -209,7 +210,8 @@ class Input_stage_reassign_anchors(logistic_scale_base.Input_stage_logistic):
             self, 
             index: int,
             dummy_scope: str,
-            dummy_settings: typing.Any = None
+            dummy_settings: typing.Any = None,
+            dummy_running_dir: str = "",
             ) -> typing.Tuple[Stage_reassign_anchors, str]:
         """
         Given this input stage object, create the model's Stage object.

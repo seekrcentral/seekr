@@ -39,6 +39,8 @@ import seekr.modules.scales.logistic\
 import seekr.modules.scales.logistic.reassign_anchors_logistic_stage \
     as reassign_anchors_logistic_stage
 
+logger = logging.getLogger(__name__)
+
 #BD_engine = typing.Union[browndye_structures.Browndye_bd_engine,
 #                         sda_structures.SDA_bd_engine]
 BD_unpartitioned_settings = typing.Union[
@@ -299,7 +301,6 @@ class Anchor:
         positions_full_paths = base.glob_or(glob_base, glob_path)
         return positions_full_paths
 
-    #def get_starting_structure_num_swarms(
     def get_starting_structure_swarm_ids(
             self,
             root_directory: str,
@@ -315,13 +316,13 @@ class Anchor:
         # TODO: fix docstring
         # NOTE: this used to be the code to handle multiple frames
         #  in a single PDB file
-        pdb_full_paths = self.get_positions_full_paths(
+        struct_full_paths = self.get_positions_full_paths(
             root_directory, input_stage_index, set_name)
         swarm_ids = []
         # Loop through the paths, and use the re module to extract
         #  instances where .swarm_123456. is in the filename
-        for pdb_full_path in pdb_full_paths:
-            match = re.search(r"swarm_(\d+)", pdb_full_path)
+        for struct_full_path in struct_full_paths:
+            match = re.search(r"swarm_(\d+)", struct_full_path)
             if match:
                 swarm_id = int(match.group(1))
                 swarm_ids.append(swarm_id)
@@ -835,10 +836,10 @@ class Seekr_model:
             new_pre_model_filename: str = model_base.format(num_globs)
             new_pre_model_path: str = os.path.join(self.directory, 
                                                    new_pre_model_filename)
-            logging.info("Renaming model.json to {}".format(new_pre_model_filename))
+            logger.info("Renaming model.json to {}".format(new_pre_model_filename))
             copyfile(model_path, new_pre_model_path)
-            
-        logging.info("Saving new model.json")
+
+        logger.info("Saving new model.json")
         old_rootdir: str = self.directory
         self.directory = "."
         self.save(model_path)
@@ -970,6 +971,25 @@ def load_plugins(
         
     return
 
+def plugins_register_hooks(
+        plugin_list: list[str],
+        converter: cattrs.Converter
+        ) -> None:
+    """
+    Register any structure hooks that are needed for plugins.
+    """
+    for plugin_name in plugin_list:
+        scales_module_str = base.get_plugin_str(
+            plugin_name, submodule_name="scales", require_openmm_interface=False,
+            require_runner=True)
+        if scales_module_str is not None:
+            scales_module_struct = importlib.import_module(
+                scales_module_str+".structures")
+            if hasattr(scales_module_struct, "register_structure_hooks"):
+                scales_module_struct.register_structure_hooks(converter)
+        
+    return
+
 def load_model(
         filename: str
         ) -> Seekr_model:
@@ -1049,6 +1069,8 @@ def load_model(
         lambda t: t is scales_base.Base_stage, struct_stage)
     
     scales_structures.register_structure_hooks(converter)
+    plugins_register_hooks(json_string['plugins'], converter)
+
     model: Seekr_model = converter.structure(json_string, Seekr_model)
     if model.directory == ".":
         model_dir = os.path.dirname(filename)
@@ -1085,7 +1107,6 @@ def structure_float_or_list_type_union(
     for how to unpack a union of possible types that are used
     to describe a set of positions.
     """
-    print("structuring object:", data)
     if isinstance(data, list):
         # This is a list of parameters for a MetaD calc, probably
         return data

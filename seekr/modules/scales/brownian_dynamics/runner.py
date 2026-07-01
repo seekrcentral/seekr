@@ -18,6 +18,8 @@ import seekr.modules.scales.brownian_dynamics.structures as structures_bd
 import seekr.modules.engines.structures as engines_structures
 import seekr.modules.engines.runner as engines_runner
 
+logger = logging.getLogger(__name__)
+
 Run_instruction_bd = namedtuple(
     "Run_instruction_bd",
     [
@@ -256,9 +258,8 @@ def do_run_instruction_bd(
     calculation_dir = get_calculation_directory_bd(
         bd_engine, model.directory, stage.set_name)
     log_filename = os.path.join(calculation_dir, "run.log")
-    base.configure_file_and_stdout_logger(
-        log_filename, overwrite=force_overwrite)
-    logging.info(log_string)
+    base.configure_logging(log_filename, overwrite=force_overwrite)
+    logger.info(log_string)
     engines_runner.run_simulation(
         model, stage_index, restart, n_trajectories=trajs_to_go_min, 
         force_overwrite=force_overwrite, benchmark=benchmark)

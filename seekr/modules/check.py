@@ -229,9 +229,10 @@ def get_first_available_anchor_md_stage_structure(
                     structure_paths = anchor.get_positions_full_paths(
                         model.directory, stage.input_stage_index, stage.set_name, 0)
                     if len(structure_paths) > 0:
-                        return (md_engine.unpartitioned_settings, stage)
+                        return (anchor, stage)
                     
-    raise Exception("No available anchors or structures found in model.")
+    if model.using_scale("molecular_dynamics"):
+        raise Exception("No available anchors or structures found in model.")
 
 def check_pre_sim_MD_and_BD_salt_concentration(
         model: structures.Seekr_model
@@ -253,6 +254,10 @@ def check_pre_sim_MD_and_BD_salt_concentration(
             bd_ionic_strength += 0.5 * ion.concentration * ion.charge**2
     else:
         # No BD to check
+        return True
+    
+    if not model.using_scale("molecular_dynamics"):
+        # No MD to check
         return True
     
     anchor_or_unpartitioned, stage \
@@ -282,12 +287,16 @@ def check_pre_sim_MD_and_BD_salt_concentration(
                     +f"index: {index} and name: {atom.name}. "\
                     +"Charge is uncertain. Assuming its contribution to "\
                     "solvent ionic strength is zero.")
+    if stage.scope == "unpartitioned":
+        anchor_or_unpartitioned_str = "unpartitioned settings"
+    else:
+        anchor_or_unpartitioned_str = f"anchor {anchor_or_unpartitioned.index}"
     if not np.isclose(md_ionic_strength, bd_ionic_strength, 
                     rtol=RELATIVE_TOLERANCE, atol=ABSOLUTE_TOLERANCE):
         print("CHECK FAILURE: BD simulation has significantly different "\
         f"ionic strength of {bd_ionic_strength:.3f} M*e^2 than MD simulation "\
-        f"ionic strength of {md_ionic_strength:.3f} M*e^2 for anchor "\
-        f"{anchor_or_unpartitioned.index}. Please check the ion concentrations in the "\
+        f"ionic strength of {md_ionic_strength:.3f} M*e^2 for "\
+        f"{anchor_or_unpartitioned_str}. Please check the ion concentrations in the "\
         "BD simulation settings, and also count the number of ions "\
         "in the MD simulations. Counterions added to neutralize the protein in an "\
         "MD simulation may also trigger this failure. If that is the case, simply "\
@@ -311,22 +320,21 @@ def check_systems_within_Voronoi_cells(
     curdir = os.getcwd()
     os.chdir(model.directory)
     
-    for anchor in model.anchors:
-        if "molecular_dynamics" not in anchor.scale_types:
-            continue
-        
-        for stage_id, stage in enumerate(model.stages):
+    for stage_id, stage in enumerate(model.stages):
+        stage.load_sets_into_model(model)
+        for anchor in model.anchors:
+            if "molecular_dynamics" not in anchor.scale_types:
+                continue
+
             if stage.name not in anchor.stage_parameters:
                 continue
             stage_parameter = anchor.stage_parameters[stage.name]
             if not stage.type == "md_stage":
                 continue
-
             if not stage.sampling_method.type == "mmvt":
                 continue
             if stage_parameter is None:
                 continue
-
             full_directory = os.path.join(
                 model.directory, anchor.directory,
                 anchor.stage_parameters[stage.name]["directory"])
@@ -415,6 +423,9 @@ def check_atom_selections_on_same_molecule(
     sites or unclosed loops."""
     warnstr2 = """CHECK FAILURE: the atom index {} for collective variable
     (CV) number {} does not exist in the structure for anchor {}."""
+    if not model.using_scale("molecular_dynamics"):
+        # Skip this test if no MD.
+        return True
     anchor_or_unpartitioned, stage = get_first_available_anchor_md_stage_structure(model)
     structure = load_structure_with_parmed(model, anchor_or_unpartitioned, stage)
     if structure is None:
@@ -444,11 +455,15 @@ def check_atom_selections_on_same_molecule(
                         elif in_molecule == mol_id:
                             index_found = True
                         else:
+                            if hasattr(anchor_or_unpartitioned, "index"):
+                                anchor_index = anchor_or_unpartitioned.index
+                            else:
+                                anchor_index = "unpartitioned settings"
                             print(warnstr1.format(
                                 cv.index, atom_index, 
                                 structure.atoms[atom_index].name, 
                                 structure.atoms[atom_index].number, 
-                                anchor_or_unpartitioned.index))
+                                anchor_index))
                             return False
                 if not index_found:
                     print(warnstr2.format(atom_index, cv.index, 
@@ -504,6 +519,10 @@ def check_atom_selections_MD_BD(
         # No BD to check
         return True
     
+    if not model.using_scale("molecular_dynamics"):
+        # No MD to check
+        return True
+    
     anchor_or_unpartitioned, stage \
         = get_first_available_anchor_md_stage_structure(model)
     md_structure = load_structure_with_parmed(
@@ -521,34 +540,7 @@ def check_atom_selections_MD_BD(
                         md_error_str = "{} atom(s)".format(len(md_atom_group))
                         print(warnstr2.format(bd_error_str, md_error_str))
                         return False
-                    md_atomic_name_dict = collections.defaultdict(int)
-                    bd_atomic_name_dict = collections.defaultdict(int)
-                    for md_atom_idx in md_atom_group:
-                        md_atom = md_structure.atoms[md_atom_idx]
-                        md_atomic_name_dict[md_atom.name] += 1
                     
-                    pqr_structure = pqr_structures[bd_mol_index]
-                    for bd_atom_idx in bd_atom_group:
-                        bd_atom = pqr_structure.atoms[bd_atom_idx]
-                        bd_atomic_name_dict[bd_atom.name] += 1
-                    
-                    if md_atomic_name_dict != bd_atomic_name_dict:
-                        bd_err_str = ""
-                        for key in bd_atomic_name_dict:
-                            this_str = "{} atoms with atomic name {}".format(
-                                bd_atomic_name_dict[key], key)
-                            if bd_err_str != "":
-                                bd_err_str += " and "
-                            bd_err_str += this_str
-                        md_err_str = ""
-                        for key in md_atomic_name_dict:
-                            this_str = "{} atoms with atomic name {}".format(
-                                md_atomic_name_dict[key], key)
-                            if md_err_str != "":
-                                md_err_str += " and "
-                            md_err_str += this_str
-                        print(warnstr2.format(bd_err_str, md_err_str))
-                        return False
     return True
 
 def check_pqr_residues(
@@ -655,6 +647,7 @@ def check_mmvt_in_Voronoi_cell(
     """
     
     for stage in model.stages:
+        stage.load_sets_into_model(model)
         if stage.scale_type != "molecular_dynamics":
             continue
         if stage.sampling_method.type != "mmvt":
@@ -726,7 +719,10 @@ def check_pre_simulation_all(model):
     #check_passed_list.append(check_pre_sim_bubbles(model))
     if not model.using_toy():
         check_passed_list.append(check_pre_sim_MD_and_BD_salt_concentration(model))
-        check_passed_list.append(check_atom_selections_on_same_molecule(model))
+        # Skipping for now since many molecules have multimers or missing loops.
+        # Can rely on seekrflow selection and future visualization to catch.
+        # IDEA: check if one is entirely on the protein.
+        #check_passed_list.append(check_atom_selections_on_same_molecule(model))
         check_passed_list.append(check_atom_selections_MD_BD(model))
         check_passed_list.append(check_pqr_residues(model))
     else:

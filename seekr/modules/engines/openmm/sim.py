@@ -434,7 +434,8 @@ class Sim_openmm:
             sampling_method_interface: sampling_openmm_interface.Sampling_md_openmm_interface,
             completion_criteria_interface: completion_openmm_interface\
                 .Completion_criteria_openmm_interface,
-            restart: bool
+            restart: bool,
+            timestep: float | None = None
             ) -> None:
         """
         Assign the proper integrator to this OpenMM simulation.
@@ -451,7 +452,8 @@ class Sim_openmm:
         else:
             anchor = model.anchors[anchor_index]
         integrator_settings = md_engine.integrator_settings
-        timestep = model.get_timestep_by_type("molecular_dynamics")
+        if timestep is None:
+            timestep = model.get_timestep_by_type("molecular_dynamics")
         rigid_constraint_tolerance = integrator_settings.rigid_tolerance
         self.timestep = timestep
         integrator = openmm.CustomIntegrator(timestep * unit.picoseconds)
@@ -528,7 +530,7 @@ class Sim_openmm:
             integrator.addComputePerDof("v", "(x-old_x)/dt")
             sampling_method_interface.post_integration_instructions(
                 integrator=integrator, anchor=anchor)
-            random_seed = integrator_settings.random_seed + self.random_seed    
+            random_seed = integrator_settings.random_seed + self.random_seed
             integrator.setRandomNumberSeed(random_seed)
 
         elif integrator_type == "brownian":
@@ -650,7 +652,8 @@ class Sim_openmm:
         elif platform_settings.type == "cuda":
             self.platform = openmm.Platform.getPlatformByName("CUDA")
             self.properties = {"CudaDeviceIndex": platform_settings.device_index, 
-                               "CudaPrecision": platform_settings.precision}
+                               "CudaPrecision": platform_settings.precision,
+                               "DeterministicForces": "true"}
         else:
             raise Exception("Platform not recognized: "\
                             f"{platform_settings.type}")
@@ -677,9 +680,16 @@ class Sim_openmm:
             self.simulation.context.setPositions(positions)
             assert md_engine is not None
             if velocities is None:
+                random_seed = self.random_seed + RANDOM_VEL_SEED_FACTOR 
+                if hasattr(md_engine.integrator_settings, "random_seed"):
+                        random_seed += md_engine.integrator_settings.random_seed
                 self.simulation.context.setVelocitiesToTemperature(
-                    md_engine.initial_temperature * unit.kelvin,
-                    self.random_seed+RANDOM_VEL_SEED_FACTOR)
+                    md_engine.initial_temperature * unit.kelvin, random_seed)
+                state = self.simulation.context.getState(getVelocities=True, getPositions=True)
+                positions = state.getPositions(asNumpy=True)
+                assert np.all(np.isfinite(positions)), "Positions contain non-finite values."
+                velocities = state.getVelocities(asNumpy=True)
+                assert np.all(np.isfinite(velocities)), "Velocities contain non-finite values."
             else:
                 self.simulation.context.setVelocities(velocities)
         if self.box_vectors is not None:
@@ -740,7 +750,8 @@ def create_sim_openmm(
         completion_criteria_interface: completion_openmm_interface.Completion_criteria_openmm_interface,
         restraints_interfaces: list[restraints_openmm_interface.Base_restraint_openmm_interface],
         swarm_id: int,
-        restart: bool
+        restart: bool,
+        timestep: float | None = None
         ) -> Sim_openmm:
     """
     Generate an OpenMM simulation and other objects for a given
@@ -765,7 +776,7 @@ def create_sim_openmm(
     # A sampling method of None will be conventional MD.
     sim_openmm.add_integrator(
         model, anchor_index, ensemble, sampling_method_interface,
-        completion_criteria_interface, restart)
+        completion_criteria_interface, restart, timestep)
     if ensemble is not None:
         sim_openmm.add_barostat(model, ensemble)
     sim_openmm.add_platform(model)

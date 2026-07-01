@@ -25,13 +25,17 @@ def load_checkpoint_information(
     """
     Load a model object from a file.
     """
-    with open(filename, "r") as file:
-        json_string: str = json.load(file)
+    try:
+        with open(filename, "r") as file:
+            json_string: str = json.load(file)
+        
+        # Use a cattrs Converter to define how to structure the dictionary input
+        converter: cattrs.Converter = cattrs.Converter()
+        checkpoint_information: engines_structures.Checkpoint_information \
+            = converter.structure(json_string, engines_structures.Checkpoint_information)
+    except json.JSONDecodeError:
+        checkpoint_information = engines_structures.Checkpoint_information()
     
-    # Use a cattrs Converter to define how to structure the dictionary input
-    converter: cattrs.Converter = cattrs.Converter()
-    checkpoint_information: engines_structures.Checkpoint_information \
-        = converter.structure(json_string, engines_structures.Checkpoint_information)
     return checkpoint_information
 
 def run_simulation(

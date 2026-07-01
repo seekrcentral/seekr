@@ -27,25 +27,25 @@ def test_noindent_list_encoder():
     encoded = json.dumps(data, cls=base.NoIndentListEncoder, indent=4)
     assert "[1,2,3]" in encoded
 
-def test_configure_file_only_logger(tmp_path):
+def test_configure_logging_file_only(tmp_path):
     log_file = tmp_path / "test.log"
-    base.configure_file_only_logger(str(log_file))
-    logging.info("Test log message1")
+    base.configure_logging(str(log_file), console=False)
+    logging.getLogger("seekr.test").info("Test log message1")
     with open(log_file, "r") as f:
         assert "Test log message1" in f.read()
 
-def test_configure_file_and_stdout_logger(tmp_path, capsys):
+def test_configure_logging_file_and_stdout(tmp_path, capsys):
     log_file = tmp_path / "test.log"
-    base.configure_file_and_stdout_logger(str(log_file))
-    logging.info("Test log message2")
+    base.configure_logging(str(log_file))
+    logging.getLogger("seekr.test").info("Test log message2")
     captured = capsys.readouterr()
     assert "Test log message2" in captured.out
     with open(log_file, "r") as f:
         assert "Test log message2" in f.read()
 
-def test_configure_stdout_only_logger(capsys):
-    base.configure_stdout_only_logger()
-    logging.info("Test log message3")
+def test_configure_logging_stdout_only(capsys):
+    base.configure_logging()
+    logging.getLogger("seekr.test").info("Test log message3")
     captured = capsys.readouterr()
     assert "Test log message3" in captured.out
 

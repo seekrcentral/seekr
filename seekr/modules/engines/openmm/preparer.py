@@ -50,7 +50,8 @@ class Openmm_settings_input(engines_structures.Base_engine_settings_input):
     timestep: float = field(default=0.002,
                             validator=[validators.instance_of(float),
                                        validators.gt(0)])
-    
+    friction_coefficient: float | None = field(
+        default=1.0, validator=validators.optional(validators.instance_of(float)))
     integrator_type: str = field(default="langevin",
                                  converter=base.string_lower,
                                  validator=[validators.instance_of(str),
@@ -90,16 +91,19 @@ class Openmm_settings_input(engines_structures.Base_engine_settings_input):
                 engines_structures.Langevin_integrator_settings()
             openmm_engine.integrator_settings.timestep = self.timestep
             openmm_engine.integrator_settings.target_temperature = model_temperature
+            openmm_engine.integrator_settings.friction = self.friction_coefficient
         elif self.integrator_type == "langevinmiddle":
             openmm_engine.integrator_settings = \
                 engines_structures.Langevin_middle_integrator_settings()
             openmm_engine.integrator_settings.timestep = self.timestep
             openmm_engine.integrator_settings.target_temperature = model_temperature
+            openmm_engine.integrator_settings.friction = self.friction_coefficient
         elif self.integrator_type == "brownian":
             openmm_engine.integrator_settings = \
                 engines_structures.Brownian_integrator_settings()
             openmm_engine.integrator_settings.timestep = self.timestep
             openmm_engine.integrator_settings.target_temperature = model_temperature
+            openmm_engine.integrator_settings.friction = self.friction_coefficient
         elif self.integrator_type == "verlet":
             openmm_engine.integrator_settings = \
                 engines_structures.Verlet_integrator_settings()

@@ -27,6 +27,8 @@ import seekr.modules.collective_variables.structures as cv_structures
 import seekr.modules.collective_variables.distance_cv as distance_cv
 import seekr.modules.scales.brownian_dynamics.structures as bd_scale
 
+logger = logging.getLogger(__name__)
+
 @define
 class Browndye_molecule_input:
     name: str = field(default="",
@@ -102,7 +104,7 @@ class Browndye_molecule_input:
                     
             pqr_complex.coordinates = new_coordinates
         
-        logging.info(f"Saving PQR file with ghost atoms added: {new_pqr_filename}")
+        logger.info(f"Saving PQR file with ghost atoms added: {new_pqr_filename}")
         pqr_complex.save(new_pqr_filename, overwrite=True)
         return ghost_site_indices, original_indices
     
@@ -233,10 +235,10 @@ def make_and_run_apbs(
     run_apbs_binary = os.path.join(browndye_bin, "run_apbs_inputs")
     make_apbs_command = make_apbs_binary + " " + input_apbs_xml + " > " \
         + new_input_xml
-    logging.info("running command: " + make_apbs_command)
+    logger.info("running command: " + make_apbs_command)
     os.system(make_apbs_command)
     if not os.path.exists(new_input_xml):
-        logging.critical("Problem running make_apbs_input - Output file not found: "\
+        logger.critical("Problem running make_apbs_input - Output file not found: "\
                               + new_input_xml)
         raise AssertionError("Problem running make_apbs_input - Output file not found: "\
                               + new_input_xml)
@@ -244,7 +246,7 @@ def make_and_run_apbs(
     for mol_name in mol_name_list:
         apbs_input_glob = mol_name + "*.in"
         if len(glob.glob(apbs_input_glob)) < 1:
-            logging.critical("Problem running make_apbs_input - APBS input "\
+            logger.critical("Problem running make_apbs_input - APBS input "\
                              "files not found: " + apbs_input_glob)
             raise AssertionError("Problem running make_apbs_input - APBS input "\
                                 "files not found: " + apbs_input_glob)
@@ -257,17 +259,17 @@ def make_and_run_apbs(
                 debye_length = float(result.group(1))
                 
     if debye_length <= 0.0:
-        logging.critical("Problem: debye_length not generated.")
+        logger.critical("Problem: debye_length not generated.")
         raise AssertionError("Problem: debye_length not generated.")
     
     run_apbs_command = run_apbs_binary + " " + new_input_xml \
         + " > run_apbs_input.out"
-    logging.info("running command: "+ run_apbs_command)
+    logger.info("running command: "+ run_apbs_command)
     os.system(run_apbs_command)
     for mol_name in mol_name_list:
         apbs_dx_glob = mol_name + "*.dx"
         if len(glob.glob(apbs_dx_glob)) < 1:
-            logging.critical("Problem running run_apbs_input - APBS DX file(s) "\
+            logger.critical("Problem running run_apbs_input - APBS DX file(s) "\
                              "not found: " + apbs_dx_glob)
             raise AssertionError("Problem running run_apbs_input - APBS DX file(s) "\
                                 "not found: " + apbs_dx_glob)

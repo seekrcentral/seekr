@@ -53,7 +53,8 @@ class Input_stage_bd(scales_base.Base_input_stage):
             self, 
             index: int,
             scope: str,
-            bd_settings: BD_settings_input
+            bd_settings: BD_settings_input,
+            dummy_running_dir: str = "",
             ) -> scale_bd.Stage_bd:
         """
         Given this input stage object, create the model's Stage object.
@@ -109,5 +110,6 @@ def register_structure_hooks(
     """
     Register the structure hooks for all scales and their sampling methods.
     """
-    converter.register_structure_hook(sampling_methods_preparer.Base_bd_sampling_method_input,
-                                        struct_bd_sampling_method_inputs)
+    converter.register_structure_hook_func(
+        lambda t: t is sampling_methods_preparer.Base_bd_sampling_method_input,
+        struct_bd_sampling_method_inputs)

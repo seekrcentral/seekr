@@ -103,10 +103,11 @@ def run_compute_rate_constant(compute_rate_constant_program,
     transition_counts = defaultdict(int)
     k_b = 0.0
     transition_counts = compute_transition_counts(results_filename_list)
+    logger = logging.getLogger(__name__)
     for results_filename in results_filename_list:
         cmd = "%s < %s" % (compute_rate_constant_program, 
                            results_filename)
-        logging.info("running command: " + cmd)
+        logger.info("running command: " + cmd)
         output_string = subprocess.check_output(cmd, shell=True)
         # TODO: validate output string somehow to catch errors
         # Sep 26, 2025: This is not an error so far, so I will wait

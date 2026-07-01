@@ -121,3 +121,25 @@ def test_run_single_anchor(seekr_run):
     if stage is None:
         pytest.skip(f"[{scenario_name}] no partitioned stage")
     run.run(model, stage.name, anchor_arg="0", force_overwrite=True)
+
+
+def test_run_single_anchor_benchmark(seekr_run):
+    """run() with benchmark=True on a single MD anchor runs without error."""
+    model, _, scenario_name = seekr_run
+    stage = next(
+        (s for s in model.stages
+         if s.scope == "partitioned" and s.scale_type == "molecular_dynamics"),
+        None
+    )
+    if stage is None:
+        pytest.skip(f"[{scenario_name}] no partitioned stage")
+    run.run(model, stage.name, anchor_arg="0", force_overwrite=True,
+            benchmark=True)
+
+
+@pytest.mark.browndye
+@pytest.mark.slow
+def test_rerun_bd_benchmark(hg_encounters_bd_run):
+    """Re-running a BD stage with benchmark=True runs without error."""
+    model, _ = hg_encounters_bd_run
+    run.run(model, "bd", force_overwrite=True, benchmark=True)

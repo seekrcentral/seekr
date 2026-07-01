@@ -47,6 +47,8 @@ import seekr.modules.scales.logistic\
 import seekr.modules.scales.logistic.reassign_anchors_logistic_stage \
     as reassign_anchors_logistic_stage
 
+logger = logging.getLogger(__name__)
+
 engine_inputs: typing.Dict[str, typing.Type[engines_structures.Base_engine]] \
         = {"browndye": browndye_preparer.Browndye_settings_input,
            "sda": sda_preparer.SDA_settings_input,
@@ -236,7 +238,7 @@ class Seekr_input:
         
         last_stage_index_by_scale: dict[str, int] = defaultdict(int)
         last_any_stage_index: int = 0
-        stage_name_to_index: dict[str, int] = {}
+        stage_name_to_index: dict[str, int] = {"initial": 0}
         current_scopes = {}
         current_scope = "unpartitioned"
         if self.initial_scopes is None:
@@ -260,7 +262,7 @@ class Seekr_input:
             settings = settings_by_scale[scale_type]
             if scale_type == "logistic":
                 stage, new_scope = stage_input.make_model_stage(
-                    i+1, current_scope, settings)
+                    i+1, current_scope, settings, self.directory)
                 if new_scope is not None:
                     assert i + 1 < len(self.stages), \
                         "A scope-changing logistic stage cannot be the last stage."
@@ -276,7 +278,8 @@ class Seekr_input:
                 if stage_input.name in scope_future:
                     current_scopes[scale_type] = scope_future[stage_input.name]
                 current_scope = current_scopes[scale_type]
-                stage = stage_input.make_model_stage(i+1, current_scope, settings)
+                stage = stage_input.make_model_stage(i+1, current_scope, settings, 
+                                                     self.directory)
                 stage.input_stage_index = last_stage_index_by_scale[scale_type]
                 if stage_input.input_stage_name is not None:
                     stage.input_stage_index = stage_name_to_index[stage_input.input_stage_name]
@@ -315,8 +318,8 @@ def generate_directory(
     
     """
     if empty_dir and os.path.isdir(directory):
-        logging.info("Deleting all subdirectories/files in directory:", 
-                     directory)
+        logger.info(
+            f"Deleting all subdirectories/files in directory: {directory}")
         shutil.rmtree(directory)
         
     if not os.path.isdir(directory):
@@ -1081,8 +1084,8 @@ def resolve_modifications_and_filetree(
         old_model.load_cvs("main")
         old_model.load_selections("main")
         old_model.load_anchor_set("main")
-        logging.info("Model file already existed at this location. "\
-                     "Modified the existing model.")
+        logger.info("Model file already existed at this location. "\
+                    "Modified the existing model.")
         model.set_random_seeds(old_model.get_random_seed())
         modify_model(old_model, model, root_directory, force_overwrite)
     

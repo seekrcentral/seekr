@@ -40,6 +40,8 @@ import seekr.modules.scales.logistic.anchor_starting_structures_from_reporter_lo
     as logistic_struct3
 import seekr.modules.preparer as preparer3
 
+logger = logging.getLogger(__name__)
+
 NUM_WINDOWS = 100
 
 def convert_mmvt_output_files(
@@ -839,9 +841,9 @@ def convert_from_seekr2(
     log_directory = model3.get_log_directory(model3.directory)
     preparer3.generate_directory(log_directory)
     synopsis_filename = model3.get_synopsis_filename(model3.directory)
-    base3.configure_file_only_logger(synopsis_filename, overwrite=False)
+    base3.configure_logging(synopsis_filename, console=False)
     full_command = " ".join(sys.argv)
-    logging.info(f"Converting from SEEKR2 with command: {full_command}")
+    logger.info(f"Converting from SEEKR2 with command: {full_command}")
 
     return
 

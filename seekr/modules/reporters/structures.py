@@ -67,7 +67,7 @@ class State_reporter(Base_reporter):
     type: typing.Literal["state"] = "state"
     name: str | None = field(default=None,
                       validator=validators.optional(validators.instance_of(str)))
-    to_stdout: bool = field(default=True,
+    to_stdout: bool = field(default=False,
                           validator=validators.instance_of(bool))
     interval: int = field(default=1000,
                           validator=[validators.instance_of(int),
@@ -153,7 +153,7 @@ class Anchor_reporter(Base_reporter):
         validator=[validators.instance_of(int),
                    validators.gt(0)])
     enforce_periodic_box: bool = field(
-        default=True,
+        default=False,
         validator=validators.instance_of(bool))
     atom_subset: typing.Optional[typing.List[int]] = field(
         default=None,

@@ -5,10 +5,12 @@ modules/restraints/openmm_interface.py
 Restraints that interface with OpenMM.
 """
 
+import os
 import typing
 import importlib
 
 from attrs import define, field
+import numpy as np
 
 import openmm
 import openmm.unit as unit
@@ -54,7 +56,15 @@ class Positional_restraint_openmm_interface(Base_restraint_openmm_interface):
         Add force(s) to an OpenMM System object.
         """
         system: openmm.System = kwargs["system"]
-        positions: unit.Quantity = kwargs["positions"]
+        if self._restraint.coordinates_filename is None:
+            positions: unit.Quantity = kwargs["positions"]
+        else:
+            model = kwargs["model"]
+            full_coordinates_filename = os.path.join(
+                model.directory, os.path.basename(
+                    self._restraint.coordinates_filename)
+            )
+            positions = np.loadtxt(full_coordinates_filename, ndmin=2)
         periodic_system: bool = kwargs["periodic_system"]
         if periodic_system:
             expr = "0.5*positional_force_const*periodicdistance(x, y, z, x0, y0, z0)^2"
@@ -67,8 +77,11 @@ class Positional_restraint_openmm_interface(Base_restraint_openmm_interface):
         force.addPerParticleParameter("x0")
         force.addPerParticleParameter("y0")
         force.addPerParticleParameter("z0")
-        for index in indices:
-            position = positions[index]
+        for i, index in enumerate(indices):
+            if self._restraint.coordinates_filename is None:
+                position = positions[index]
+            else:
+                position = positions[i]
             force.addParticle(index, [position[0], position[1], position[2]])
             
         system.addForce(force)

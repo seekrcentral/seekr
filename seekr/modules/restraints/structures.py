@@ -17,8 +17,9 @@ class Base_restraint:
 @define
 class Positional_restraint(Base_restraint):
     """
-    Restraint that keeps a subset of atoms close to their starting
-    Cartesian coordinates.
+    Restraint that keeps a subset of atoms close to a set of coordinates,
+    if provided. If not provided, the atoms are constrained to starting
+    coordinates.
     """
     type: typing.Literal["positional"] = "positional"
     atom_indices: list[int] = field(
@@ -31,6 +32,9 @@ class Positional_restraint(Base_restraint):
         default=400.0, validator=[
             validators.instance_of(float),
             validators.ge(0)])
+    coordinates_filename: typing.Optional[str] = field(
+        default=None, 
+        validator=validators.optional(validators.instance_of(str)))
     
 @define
 class Pairwise_restraint(Base_restraint):

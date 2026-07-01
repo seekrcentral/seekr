@@ -36,12 +36,25 @@ import seekr.modules.completion_criteria.openmm_interface \
 import seekr.modules.collective_variables.openmm_interface \
     as collective_variables_openmm_interface
 
+logger = logging.getLogger(__name__)
+
 BIAS_DIR_NAME = "metad_bias"
 #METADYN_NAME = "metadynamics.{}.swarm_{}"
 #SMD_NAME = "steered.{}.swarm_{}"
 BUFFER_FRAMES = 1 # How many positions variables to store for encounter positions.
 INITIAL_BENCHMARK_STEPS = 100 # Number of steps to take for the initial benchmark.
 NUM_SMD_WINDOWS = 10 # Number of windows to use for SMD.
+# Number of prior committed (non-bounce) states retained in the ring buffer
+# used to recover from MMVT velocity-reversal bounces. On each consecutive
+# bounce, the system is restored to a progressively older state in this buffer,
+# which (together with the thermostat noise on the following step) breaks the
+# deterministic re-crossing that can trap a system at a milestone boundary.
+RING_BUFFER_SIZE = 2 #10
+# If the system bounces off a milestone boundary this many times in a row, it is
+# considered permanently trapped and the simulation is aborted.
+MAX_CONSECUTIVE_BOUNCES = 1000
+
+kB = unit.BOLTZMANN_CONSTANT_kB * unit.AVOGADRO_CONSTANT_NA
 
 # TODO: put into a lower-level module?
 def open_pdb_file_for_simulation(
@@ -71,7 +84,7 @@ def open_txt_file_for_simulation(
 def write_pdb_file_from_simulation(
         filename: str,
         simulation: openmm_app.Simulation,
-        image_molecules: bool = True
+        image_molecules: bool = False # True
         ) -> None:
     """
     Write a PDB file with the current state of the system.
@@ -81,6 +94,7 @@ def write_pdb_file_from_simulation(
     positions = state.getPositions(asNumpy=True)
     box_vectors = state.getPeriodicBoxVectors()
     simulation.topology.setPeriodicBoxVectors(box_vectors)
+    # NOTE: imaging function is highly flawed for triclinic boxes.
     if image_molecules:
         mdtraj_top = mdtraj.Topology.from_openmm(simulation.topology)
         positions_np = np.array(positions.value_in_unit(unit.nanometers), dtype=np.float32)
@@ -88,7 +102,7 @@ def write_pdb_file_from_simulation(
             xyz=positions_np[np.newaxis, :, :], 
             topology=mdtraj_top)
         traj.unitcell_vectors=np.array(
-            box_vectors.value_in_unit(unit.nanometers), dtype=np.float32).T[np.newaxis, :, :]
+            box_vectors.value_in_unit(unit.nanometers), dtype=np.float32)[np.newaxis, :, :]
         traj.image_molecules(inplace=True)
         positions = traj.xyz[0] * unit.nanometers
 
@@ -109,6 +123,19 @@ def write_txt_file_from_simulation(
                                         enforcePeriodicBox=False)
     positions = state.getPositions(asNumpy=True).value_in_unit(unit.nanometers)
     np.savetxt(filename, positions)
+    return
+
+def write_state_file_from_simulation(
+        filename: str,
+        simulation: openmm_app.Simulation
+        ) -> None:
+    """
+    Write a state XML file with the current state of the system.
+    """
+    state = simulation.context.getState(
+        getPositions=True, getVelocities=True, enforcePeriodicBox=False)
+    with open(filename, "w") as f:
+        f.write(openmm.XmlSerializer.serialize(state))
     return
 
 def make_list_from_ambig_entry(value, num_elements):
@@ -132,6 +159,7 @@ class Base_md_openmm_interface:
     _system_obj: openmm.System | None = None
     _simulation_obj: openmm_app.Simulation | None = None
     _steps_between_evals: int = 0
+    _random_seed: int = 0
     _model: structures.Seekr_model | None = None
     _openmm_cv_list: list[typing.Any] | None = None
     _cv_interface_list: list[collective_variables_openmm_interface\
@@ -274,9 +302,18 @@ class Base_md_openmm_interface:
     def pre_simulation_preparations(
             self, 
             **kwargs: typing.Any
-            ):
+            ) -> None:
         """
         Perform any necessary preparations before the simulation starts.
+        """
+        return
+    
+    def post_simulation_procedures(
+            self, 
+            **kwargs: typing.Any
+            ) -> None:
+        """
+        Perform any necessary procedures after the simulation ends.
         """
         return
     
@@ -335,16 +372,12 @@ class Base_md_openmm_interface:
                 completion_criteria_openmm_interface\
                     .Completion_criteria_openmm_interface,
             do_initial_benchmark: bool = True,
-            needs_cv_values: bool = False
+            needs_cv_values: bool = False,
+            run_minimization: bool = False
             ) -> int:
         """
         Run the simulation.
         """
-        # TODO: handle minimizations if step == 0, and print the following warning for
-        # certain sampling methods: 
-        #  Warning: running minimizations. It is recommended that structures are minimized and 
-        #  verified by the user before running SEEKR, since minimizations might cause the system 
-        #  to drift out of the MMVT cell.
         # TODO: need to save checkpoint reproducibility files.
         self._steps_between_evals = steps_between_evals
         if steps_between_evals == 0:
@@ -357,6 +390,7 @@ class Base_md_openmm_interface:
         assert self._simulation_obj is not None
         steps_to_take_after_benchmark = 0
         finish_benchmark = False
+        
         while not stopping:
             criteria_satisfied = False
             early_simulation_abort = False
@@ -374,10 +408,15 @@ class Base_md_openmm_interface:
             else:
                 steps_to_take = steps_until_eval
                 make_eval = True
+            
             if num_steps == 0:
                 if needs_cv_values:
                     self.create_openmm_cv_list()
                     self.create_openmm_cv_object()
+                # NOTE: if this causes problems with the velocities, extract
+                # them, set to zero, and then restore.
+                if run_minimization:
+                    self._simulation_obj.minimizeEnergy()
                 if do_initial_benchmark:
                     if INITIAL_BENCHMARK_STEPS < steps_to_take:
                         steps_to_take_after_benchmark = steps_to_take - INITIAL_BENCHMARK_STEPS
@@ -399,7 +438,7 @@ class Base_md_openmm_interface:
                 if not early_simulation_abort:
                     ns_per_day = steps_to_take * timestep * 1e-3 \
                         * 86400 / total_time
-                    logging.info(f"Initial benchmark (ns/day): {ns_per_day}")
+                    logger.info(f"Initial benchmark (ns/day): {ns_per_day}")
                     self._step(steps_to_take_after_benchmark)
                     num_steps += steps_to_take_after_benchmark
                     on_step += steps_to_take_after_benchmark
@@ -413,6 +452,7 @@ class Base_md_openmm_interface:
                     make_checkpoint = True
                 if make_eval:
                     stopping = self.perform_eval(restart_index, swarm_id)
+                    
                     # NOTE: an logging update is printed every checkpoint. Is this right?
                     if needs_cv_values:
                         #cv_values = self._openmm_cv_object.getCollectiveVariableValues(
@@ -435,8 +475,7 @@ class Base_md_openmm_interface:
             elif criteria_satisfied:
                 if on_step >= min_steps:
                     stopping = True
-                    
-            
+
         self._simulation_obj.saveCheckpoint(checkpoint_filename)
         engines_structures.write_checkpoint_information_file(
             on_step, restart_index, timestep, cv_values, checkpoint_info_filename)
@@ -477,7 +516,14 @@ class Base_md_openmm_interface:
         return current_anchor_index
     
     def get_evaluation_interval(self) -> int:
-        return 0       
+        return 0      
+
+    def set_random_seed(self, seed: int) -> None:
+        self._random_seed = seed
+        return
+
+    def get_random_seed(self) -> int:
+        return self._random_seed 
     
             
 
@@ -492,6 +538,7 @@ class Conventional_md_openmm_interface(Base_md_openmm_interface):
     _system_obj: openmm.System | None = None
     _simulation_obj: openmm_app.Simulation | None = None
     _steps_between_evals: int = 0
+    _random_seed: int = 0
     _model: structures.Seekr_model | None = None
     _openmm_cv_list: list[typing.Any] | None = None
     _cv_interface_list: list[collective_variables_openmm_interface\
@@ -508,7 +555,73 @@ class Conventional_md_openmm_interface(Base_md_openmm_interface):
         """
         model: structures.Seekr_model = kwargs["model"]
         self._model = model
+        
         return
+    
+    def perform_early_simulation_eval(
+            self, 
+            restart_index: int, 
+            swarm_id: int
+            ) -> None:
+        """
+        Perform an evaluation once at an early point in the simulation.
+        """
+        if self.sampling_method.heat_ramp_temperatures is not None \
+                and self.sampling_method.heat_ramp_step_interval is not None:
+            step_interval = self.sampling_method.heat_ramp_step_interval
+            self._steps_between_evals = step_interval
+            new_temperature = self.sampling_method.heat_ramp_temperatures[0]
+            integrator = self._simulation_obj.context.getIntegrator()
+            try:
+                thermal_energy = kB*new_temperature*unit.kelvin
+                integrator.setGlobalVariableByName(
+                    "thermal_energy", thermal_energy)
+            except Exception:
+                # It's probably a Verlet integrator or something.
+                pass
+            self._simulation_obj.context.setVelocitiesToTemperature(
+                new_temperature * unit.kelvin,
+                self._random_seed)
+
+    
+    def perform_eval(
+            self, 
+            _restart_index: int, 
+            _swarm_id: int
+            ) -> bool:
+        """
+        Perform an evaluation at a certain point in the simulation. If returning
+        True, the simulation will stop. In this case, see if a heat ramp
+        is being used.
+        """
+        if self._steps_between_evals > 0 \
+                and self.sampling_method.heat_ramp_temperatures is not None \
+                and self.sampling_method.heat_ramp_step_interval is not None:
+            
+            current_step = self._simulation_obj.currentStep
+            # If heat ramp is being used, determine the temperature to set
+            eval_number = int(current_step / self._steps_between_evals) - 1
+            if eval_number < len(self.sampling_method.heat_ramp_temperatures):
+                new_temperature = self.sampling_method\
+                    .heat_ramp_temperatures[eval_number]
+            else:
+                # finish off the simulation with the last temperature
+                # in the heat ramp.
+                new_temperature = self.sampling_method\
+                    .heat_ramp_temperatures[-1]
+            integrator = self._simulation_obj.context.getIntegrator()
+            try:
+                thermal_energy = kB*new_temperature*unit.kelvin
+                integrator.setGlobalVariableByName(
+                    "thermal_energy", thermal_energy)
+            except Exception:
+                # It's probably a Verlet integrator or something.
+                pass
+            self._simulation_obj.context.setVelocitiesToTemperature(
+                new_temperature * unit.kelvin,
+                self._random_seed + current_step)
+
+        return False
     
 @define
 class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
@@ -521,6 +634,7 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
     _system_obj: openmm.System | None = None
     _simulation_obj: openmm_app.Simulation | None = None
     _steps_between_evals: int = 0
+    _random_seed: int = 0
     _model: structures.Seekr_model | None = None
     _openmm_cv_list: list[typing.Any] | None = None
     _cv_interface_list: list[collective_variables_openmm_interface\
@@ -611,10 +725,12 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
         
         assert self._simulation_obj is not None
         self._metadynamics_obj = openmm_app.Metadynamics(
-            system, variables=metaD_force_biases, temperature=model.temperature,
+            system, variables=metaD_force_biases, 
+            temperature=model.temperature,
             biasFactor=metadyn_biasfactor, height=metadyn_height, 
             frequency=steps_per_metadyn_update, 
             saveFrequency=save_frequency, biasDir=metadyn_bias_dir)
+        
         self._simulation_obj.context.reinitialize(preserveState=True)
         return
     
@@ -623,6 +739,9 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
             ) -> list | None:
         cv_values = self._metadynamics_obj.getCollectiveVariables(
             self._simulation_obj)
+        for i in range(len(cv_values)):
+            assert np.isfinite(cv_values[i]), \
+                f"CV value {cv_values[i]} is not finite."
         return cv_values
 
     def perform_eval(
@@ -658,6 +777,7 @@ class Steered_md_openmm_interface(Base_md_openmm_interface):
     _system_obj: openmm.System | None = None
     _simulation_obj: openmm_app.Simulation | None = None
     _steps_between_evals: int = 0
+    _random_seed: int = 0
     _model: structures.Seekr_model | None = None
     _openmm_cv_list: list[typing.Any] | None = None
     _cv_interface_list: list[collective_variables_openmm_interface\
@@ -792,15 +912,15 @@ class Steered_md_openmm_interface(Base_md_openmm_interface):
 
         self._procedure = sampling_methods_runner.get_smd_procedure(
             self._model, filled_anchor_indices, unfilled_anchor_indices, cv_values)
-        logging.info("Steered MD procedure summary:")
+        logger.info("Steered MD procedure summary:")
         for step in self._procedure:
-            logging.info(f"anchor {step[0]} to anchor {step[1]}")
+            logger.info(f"anchor {step[0]} to anchor {step[1]}")
         if self._procedure:
             new_source_anchor_index = \
                 self._procedure[self._current_step_in_procedure][0]
             self._load_anchor_from_cache(new_source_anchor_index)
         else:
-            logging.info("All anchors already filled; no SMD steps needed.")
+            logger.info("All anchors already filled; no SMD steps needed.")
 
         return
     
@@ -818,7 +938,7 @@ class Steered_md_openmm_interface(Base_md_openmm_interface):
         target_anchor: structures.Anchor = self._model.anchors[target_anchor_index]
         windows_list_unzipped = []
         total_sq_distance = 0.0
-        logging.info(f"Assigning a new set of windows for SMD:")
+        logger.info(f"Assigning a new set of windows for SMD:")
         for variable_key in source_anchor.variables:
             if not variable_key.startswith("value_"):
                 continue
@@ -843,7 +963,7 @@ class Steered_md_openmm_interface(Base_md_openmm_interface):
                 start_value = cv_values[var_cv]
                 last_value = target_anchor.variables[variable_key]
                 cv_name = self._model.collective_variables[var_cv].name
-                logging.info(
+                logger.info(
                     f"Running CV {cv_name} steered MD from value {start_value} to "
                     f"{last_value}")
                 windows = np.linspace(start_value, last_value, num_smd_windows)
@@ -880,7 +1000,7 @@ class Steered_md_openmm_interface(Base_md_openmm_interface):
         Uses the in-memory cache when available; otherwise reads the
         Anchor_reporter trajectory from disk (restart-safe).
         """
-        logging.info(f"Loading positions for anchor {anchor_index}.")
+        logger.info(f"Loading positions for anchor {anchor_index}.")
         if anchor_index not in self._anchor_positions_cache:
             self._load_anchor_from_reporter_file(anchor_index)
             return
@@ -985,7 +1105,7 @@ class Steered_md_openmm_interface(Base_md_openmm_interface):
             self._on_window += 1
         else:
             # The destination is reached
-            logging.info(f"Reached anchor {target_anchor_index}.")
+            logger.info(f"Reached anchor {target_anchor_index}.")
             self._current_step_in_procedure += 1
             #self.save_to_current_anchor(target_anchor_index, cv_values, SMD_NAME)
             self._save_to_anchor_cache(target_anchor_index)
@@ -1015,6 +1135,7 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
     _system_obj: openmm.System | None = None
     _simulation_obj: openmm_app.Simulation | None = None
     _steps_between_evals: int = 0
+    _random_seed: int = 0
     _model: structures.Seekr_model | None = None
     _openmm_cv_list: list[typing.Any] | None = None
     _cv_interface_list: list[collective_variables_openmm_interface\
@@ -1060,6 +1181,10 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
         integrator.addGlobalVariable("encounter_this_step", 0)
         integrator.addGlobalVariable("bitvar", 0)
         integrator.addGlobalVariable("threshold", 0)
+        integrator.addGlobalVariable("bounce_streak", 0)
+        # Sink for a throwaway energy evaluation used to resync virtual sites
+        # after a ring-buffer restore (see post_integration_instructions).
+        integrator.addGlobalVariable("dummy", 0)
         return None
     
     def add_per_DOF_variables_integrator(
@@ -1075,6 +1200,12 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
         integrator: openmm.Integrator = kwargs["integrator"]
         for i in range(BUFFER_FRAMES):
             integrator.addPerDofVariable(f"encounter_pos_{i}", 0)
+        # Ring buffer of prior committed (non-bounce) states, used to recover
+        # from milestone velocity-reversal bounces (see
+        # post_integration_instructions).
+        for i in range(RING_BUFFER_SIZE):
+            integrator.addPerDofVariable(f"buf_x_{i}", 0)
+            integrator.addPerDofVariable(f"buf_v_{i}", 0)
         return None
     
     def pre_integration_instructions(
@@ -1147,10 +1278,54 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
             integrator.endBlock() # End If collision_{alias_index_i} > 0
             integrator.addComputeGlobal(f"collision_{alias_index_i}", "0")
 
-        # If using MMVT, then reverse velocities.
-        integrator.beginIfBlock(f"encounter_this_step = 1")
-        integrator.addComputePerDof("v", "-old_v")
-        integrator.addComputePerDof("x", "old_x")
+        # On the first step, seed every ring-buffer slot with the initial
+        # synchronized state so that all slots hold a valid in-cell state.
+        integrator.beginIfBlock("step_count = 0")
+        for d in range(RING_BUFFER_SIZE):
+            integrator.addComputePerDof(f"buf_x_{d}", "old_x")
+            integrator.addComputePerDof(f"buf_v_{d}", "old_v")
+        integrator.endBlock()
+
+        # If a milestone was crossed, reverse the velocity and restore the
+        # system to a prior committed (non-bounce) state. The consecutive-bounce
+        # counter (bounce_streak) selects how far back to restore: the longer
+        # the system stays trapped, the deeper into the ring buffer it backs
+        # off, saturating at the oldest retained state.
+        integrator.beginIfBlock("encounter_this_step = 1")
+        integrator.addComputeGlobal("bounce_streak", "bounce_streak + 1")
+        for d in range(RING_BUFFER_SIZE):
+            if d < RING_BUFFER_SIZE - 1:
+                integrator.beginIfBlock(f"bounce_streak = {d + 1}")
+            else:
+                # Saturate at the oldest slot for any deeper streak.
+                integrator.beginIfBlock(f"bounce_streak > {d}")
+            integrator.addComputePerDof("x", f"buf_x_{d}")
+            integrator.addComputePerDof("v", f"-buf_v_{d}")
+            integrator.endBlock()
+        # Reapply constraints to the restored state. The buffered state was
+        # stored constraint-satisfying, so this is a near no-op, but it guards
+        # against any drift.
+        integrator.addConstrainPositions()
+        integrator.addConstrainVelocities()
+        # Reading "energy" forces a force/energy evaluation, which recomputes
+        # virtual-site positions from the just-restored parent atoms. Without
+        # this, virtual sites (e.g. TIP4P M-sites) retain stale coordinates
+        # from before the restore until the next step's force evaluation, which
+        # can make a reporter's periodic-box imaging produce NaNs on a frame
+        # written immediately after a bounce. The result is discarded.
+        integrator.addComputeGlobal("dummy", "energy")
+        integrator.endBlock()
+
+        # Otherwise this was a committed step: reset the bounce counter and push
+        # the current synchronized state (old_x, old_v) into the ring buffer,
+        # shifting older states deeper.
+        integrator.beginIfBlock("encounter_this_step = 0")
+        integrator.addComputeGlobal("bounce_streak", "0")
+        for d in range(RING_BUFFER_SIZE - 1, 0, -1):
+            integrator.addComputePerDof(f"buf_x_{d}", f"buf_x_{d - 1}")
+            integrator.addComputePerDof(f"buf_v_{d}", f"buf_v_{d - 1}")
+        integrator.addComputePerDof("buf_x_0", "old_x")
+        integrator.addComputePerDof("buf_v_0", "old_v")
         integrator.endBlock()
 
         integrator.addComputeGlobal("step_count", "step_count + 1")
@@ -1273,7 +1448,17 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
         """
         assert self._model is not None
         assert self._simulation_obj is not None
+        abort = False
         integrator: openmm.Integrator = self._simulation_obj.context.getIntegrator()
+        bounce_streak = int(integrator.getGlobalVariableByName("bounce_streak"))
+        if bounce_streak > MAX_CONSECUTIVE_BOUNCES:
+            logger.critical(
+                f"MMVT simulation exceeded {MAX_CONSECUTIVE_BOUNCES} consecutive "
+                "velocity-reversal bounces: the system is trapped at a milestone "
+                "boundary. Aborting. This can occur with aggressive hydrogen mass "
+                "repartitioning combined with constraints; consider reducing the "
+                "timestep or the repartitioned hydrogen mass.")
+            abort = True
         anchor = self._anchor_obj
         stage_name = self._model.stages[self._stage_index].name
         stage_set_name = self._model.stages[self._stage_index].set_name
@@ -1309,7 +1494,7 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
             milestone_count_dict=milestone_count_dict,
             milestone_time_dict=milestone_time_dict
         )
-        return False
+        return abort
     
     def perform_early_simulation_eval(
             self, 
@@ -1321,10 +1506,14 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
         """
         abort = False
         integrator = self._simulation_obj.context.getIntegrator()
-        first_step_encounter=int(integrator.getGlobalVariableByName("first_step_encounter"))
+        first_step_encounter=int(integrator.getGlobalVariableByName(
+            "first_step_encounter"))
         if first_step_encounter == 1:
-            logging.critical("Milestoning simulation encounter on first step: the system is trapped "\
-            "behind a boundary. Check and revise milestone boundary definitions and atomic positions.")
+            logger.critical(
+                f"Anchor {self._anchor_obj.index}: milestoning simulation "\
+                "encounter on first step: the system is trapped behind a "\
+                "boundary. Check and revise milestone boundary definitions "\
+                "and atomic positions.")
             abort = True
             
         return abort

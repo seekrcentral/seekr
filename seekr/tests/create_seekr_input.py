@@ -106,7 +106,7 @@ def _make_position_reporter(interval: int, atom_subset: str | None = None,
     return r
 
 def _make_anchor_reporter(name: str, interval: int, extension: str = "dcd",
-                          enforce_periodic_box: bool = True,
+                          enforce_periodic_box: bool = False,
                           ) -> reporters_preparer.Anchor_reporter_input:
     r = reporters_preparer.Anchor_reporter_input()
     r.name = name
