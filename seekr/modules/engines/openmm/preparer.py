@@ -58,7 +58,8 @@ class Openmm_settings_input(engines_structures.Base_engine_settings_input):
                                             validators.in_(["langevin", 
                                                             "langevinmiddle",
                                                             "brownian",
-                                                            "verlet",])])
+                                                            "verlet",
+                                                            "nose_hoover"])])
     platform_type: str = field(default="cuda",
                               converter=base.string_lower,
                               validator=[validators.instance_of(str),
@@ -108,6 +109,12 @@ class Openmm_settings_input(engines_structures.Base_engine_settings_input):
             openmm_engine.integrator_settings = \
                 engines_structures.Verlet_integrator_settings()
             openmm_engine.integrator_settings.timestep = self.timestep
+        elif self.integrator_type == "nose_hoover":
+            openmm_engine.integrator_settings = \
+                engines_structures.Nose_hoover_integrator_settings()
+            openmm_engine.integrator_settings.timestep = self.timestep
+            openmm_engine.integrator_settings.target_temperature = model_temperature
+            openmm_engine.integrator_settings.collision_frequency = self.friction_coefficient
         
         if self.platform_type == "cuda":
             openmm_engine.platform_settings = engines_structures.Cuda_platform_settings()

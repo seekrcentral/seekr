@@ -53,6 +53,11 @@ class Browndye_molecule_input:
         Write a new PQR file and return the index of the ghost atom.
         """
         pqr_struct = parmed.load_file(self.pqr_filename, skip_bonds=True)
+        # ParmEd rebuilds the full Nx3 array on every `.coordinates` access.
+        # Cache it once; indexing inside a per-atom loop is otherwise O(N^2).
+        coords = pqr_struct.coordinates
+        assert coords is not None, (
+            f"PQR '{self.pqr_filename}' has no coordinates.")
         centers_of_mass = []
         original_indices: typing.Dict[str, typing.List[int]] = {}
         ghost_site_indices: typing.Dict[str, int] = {}
@@ -61,7 +66,7 @@ class Browndye_molecule_input:
             center_of_mass = np.array([[0., 0., 0.]])
             total_mass = 0.0
             for atom_index in selection.atom_indices:
-                atom_pos = pqr_struct.coordinates[atom_index,:]
+                atom_pos = coords[atom_index, :]
                 atom_mass = pqr_struct.atoms[atom_index].mass
                 if atom_mass == 0.0:
                     atom_mass = 0.0001
@@ -75,7 +80,7 @@ class Browndye_molecule_input:
             mol_center_of_mass = np.array([[0., 0., 0.]])
             mol_total_mass = 0.0
             for atom_index, atom in enumerate(pqr_struct.atoms):
-                atom_pos = pqr_struct.coordinates[atom_index,:]
+                atom_pos = coords[atom_index, :]
                 atom_mass = atom.mass
                 if atom_mass == 0.0:
                     atom_mass = 0.0001
@@ -85,7 +90,11 @@ class Browndye_molecule_input:
         
         pqr_complex = pqr_struct
         for selection, center_of_mass in zip(self.selections, centers_of_mass):
-            ghost_atom = parmed.Atom(name="GHO", mass=0.0, charge=0.0, solvent_radius=0.0)
+            # 4-char name so ParmEd's PQR writer does not skip the leading
+            # space (3-char names with Z=0/"EP" misalign later columns).
+            # Keep atomic_number=0 (extra point), not a real element.
+            ghost_atom = parmed.Atom(
+                name="GHOS", mass=0.0, charge=0.0, solvent_radius=0.0)
             ghost_structure = parmed.Structure()
             ghost_structure.add_atom(ghost_atom, "GHO", 1)
             ghost_structure.coordinates = np.array(center_of_mass)
@@ -97,15 +106,18 @@ class Browndye_molecule_input:
             ghost_site_indices[selection.name] = ghost_index
         
         if center_molecule:
-            new_coordinates = np.zeros(pqr_complex.coordinates.shape)
-            for atom_index in range(len(pqr_complex.atoms)):
-                new_coordinates[atom_index,:] = pqr_complex.coordinates[atom_index,:] \
-                    - mol_center_of_mass[0,:]
-                    
-            pqr_complex.coordinates = new_coordinates
+            complex_coords = pqr_complex.coordinates
+            pqr_complex.coordinates = (
+                complex_coords - mol_center_of_mass[0, :])
         
         logger.info(f"Saving PQR file with ghost atoms added: {new_pqr_filename}")
         pqr_complex.save(new_pqr_filename, overwrite=True)
+        # ParmEd emits HETATM for nonstandard residues; Browndye cannot
+        # parse HETATM glued to 5-digit serials (e.g. HETATM10000).
+        with open(new_pqr_filename) as f:
+            content = f.read()
+        with open(new_pqr_filename, "w") as f:
+            f.write(content.replace("HETATM", "ATOM  "))
         return ghost_site_indices, original_indices
     
 @define

@@ -9,6 +9,9 @@ Simulation-Enabled Estimation of Kinetic Rates
 
 TODO: make a nice landing README like the more professional packages
 
+Contributors:
+include Anson
+
 ### Copyright
 
 Copyright (c) 2024, Lane Votapka

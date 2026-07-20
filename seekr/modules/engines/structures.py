@@ -206,10 +206,36 @@ class Verlet_integrator_settings:
         default=1e-6, validator=[validators.instance_of(float),
                                  validators.gt(0)])
 
+@define
+class Nose_hoover_integrator_settings:
+    type: typing.Literal["nose_hoover"] = "nose_hoover"
+    timestep: float = field(
+        default=0.002, validator=[validators.instance_of(float),
+                                   validators.gt(0)])
+    collision_frequency: float = field(
+        default=1.0, validator=[validators.instance_of(float),
+                                validators.ge(0)])
+    target_temperature: float = field(
+        default=298.15, validator=[validators.instance_of(float),
+                                   validators.gt(0)])
+    chain_length: int = field(
+        default=3, validator=[validators.instance_of(int),
+                              validators.ge(1)])
+    num_mts: int = field(
+        default=3, validator=[validators.instance_of(int),
+                              validators.ge(1)])
+    num_yoshida_suzuki: int = field(
+        default=7, validator=[validators.instance_of(int),
+                              validators.in_([1, 3, 5, 7])])
+    rigid_tolerance: float = field(
+        default=1e-6, validator=[validators.instance_of(float),
+                                 validators.gt(0)])
+
 Integrator_settings = typing.Union[Langevin_integrator_settings,
                                    Langevin_middle_integrator_settings,
                                    Brownian_integrator_settings,
-                                   Verlet_integrator_settings]
+                                   Verlet_integrator_settings,
+                                   Nose_hoover_integrator_settings]
 
 @define
 class Cuda_platform_settings:

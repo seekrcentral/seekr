@@ -293,7 +293,7 @@ class Seekr_input:
             assert stage.name not in stage_names, \
                 f"Duplicate stage name '{stage.name}' detected."
             stage_names.add(stage.name)
-
+            
         if self.random_seed is not None:
             model.set_random_seeds(self.random_seed)
         else:
