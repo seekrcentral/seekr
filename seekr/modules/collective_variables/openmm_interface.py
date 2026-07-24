@@ -81,12 +81,6 @@ class Distance_cv_openmm_interface:
         force.setUsesPeriodicBoundaryConditions(True)
         return
 
-    def get_cv_value(self, context: openmm.Context) -> unit.Quantity:
-        """
-        Get the value of the CV from the OpenMM context.
-        """
-        return self._cv_force.getCollectiveVariableValues(context)
-
     def make_voronoi_cv_boundary_forces(
             self,
             me_val: float,
@@ -238,12 +232,6 @@ class External_cv_openmm_interface:
             
         force.addBond(group_list, [])
         return
-
-    def get_cv_value(self, context: openmm.Context) -> unit.Quantity:
-        """
-        Get the value of the CV from the OpenMM context.
-        """
-        return self._cv_force.getCollectiveVariableValues(context)
 
     def make_voronoi_cv_boundary_forces(
             self,
@@ -420,12 +408,6 @@ class RMSD_cv_openmm_interface:
         for when this is being used just as a CV.
         """
         return
-
-    def get_cv_value(self, context: openmm.Context) -> unit.Quantity:
-        """
-        Get the value of the CV from the OpenMM context.
-        """
-        return self._cv_force.getCollectiveVariableValues(context)
 
     def make_voronoi_cv_boundary_forces(
             self,

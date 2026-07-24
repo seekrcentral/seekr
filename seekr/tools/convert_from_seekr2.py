@@ -835,6 +835,7 @@ def convert_from_seekr2(
     
     seekr3_output_model_filename = os.path.join(model3.directory, "model.json")
     model3.save(seekr3_output_model_filename)
+    model3.clear_cv_set(model3.directory, base3.PREPARE_SET_NAME)
     model3.save_cvs(model3.directory, base3.PREPARE_SET_NAME)
     model3.save_selections(model3.directory, base3.PREPARE_SET_NAME)
     model3.save_anchor_set(model3.directory, base3.PREPARE_SET_NAME)

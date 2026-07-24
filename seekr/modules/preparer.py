@@ -264,9 +264,10 @@ class Seekr_input:
                 stage, new_scope = stage_input.make_model_stage(
                     i+1, current_scope, settings, self.directory)
                 if new_scope is not None:
-                    assert i + 1 < len(self.stages), \
-                        "A scope-changing logistic stage cannot be the last stage."
-                    scope_future[self.stages[i+1].name] = new_scope
+                    #assert i + 1 < len(self.stages), \
+                    #    "A scope-changing logistic stage cannot be the last stage."
+                    if i + 1 < len(self.stages):
+                        scope_future[self.stages[i+1].name] = new_scope
                 stage.input_stage_index = last_any_stage_index
                 if stage_input.input_stage_name is not None:
                     stage.input_stage_index = stage_name_to_index[stage_input.input_stage_name]
@@ -614,6 +615,9 @@ def prepare_model_cvs_and_anchors(
     Fill out the CV and anchor items within the model based on the 
     input objects.
     """
+    # Wipe the prepare CV set before materializing CVs on disk (RMSD
+    # make_cv_object writes reference structures under this set).
+    model.clear_cv_set(seekr_input.directory, base.PREPARE_SET_NAME)
     cvs = create_cvs(seekr_input, seekr_input.directory)
     model.collective_variables = cvs
     anchors, connection_flag_dict, associated_input_anchor, \

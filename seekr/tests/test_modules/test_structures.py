@@ -142,6 +142,38 @@ def test_model_save_load_cvs(host_guest_mmvt_model, tmp_path):
     assert len(model.collective_variables) == original_count
 
 
+def test_clear_cv_set_removes_orphan_cv_json(host_guest_mmvt_model, tmp_path):
+    """clear_cv_set deletes stale CV JSON before a set is rewritten."""
+    model = host_guest_mmvt_model
+    model.directory = str(tmp_path)
+    model.save_cvs(str(tmp_path), "main")
+    cv_set_dir = tmp_path / "collective_variable_sets" / "main"
+    orphan = cv_set_dir / "orphan_stale_cv.json"
+    orphan.write_text("{}")
+    assert orphan.exists()
+    model.clear_cv_set(str(tmp_path), "main")
+    assert cv_set_dir.is_dir()
+    assert not orphan.exists()
+    assert list(cv_set_dir.glob("*.json")) == []
+
+
+def test_load_cvs_raises_on_duplicate_index(host_guest_mmvt_model, tmp_path):
+    """load_cvs fails clearly when two CV JSON files share an index."""
+    import json
+    model = host_guest_mmvt_model
+    model.directory = str(tmp_path)
+    model.save_cvs(str(tmp_path), "main")
+    cv_set_dir = tmp_path / "collective_variable_sets" / "main"
+    existing = sorted(cv_set_dir.glob("*.json"))
+    assert existing, "Expected at least one saved CV JSON."
+    data = json.loads(existing[0].read_text())
+    data["name"] = "stale_duplicate_index"
+    stale = cv_set_dir / "stale_duplicate_index.json"
+    stale.write_text(json.dumps(data, indent=4))
+    with pytest.raises(ValueError, match="Duplicate CV index"):
+        model.load_cvs("main")
+
+
 def test_model_save_load_selections(host_guest_mmvt_model, tmp_path):
     """save_selections + load_selections round-trip restores engine selections."""
     model = host_guest_mmvt_model

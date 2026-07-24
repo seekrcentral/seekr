@@ -385,7 +385,7 @@ class Charmm_parameters_topology:
                         f"to anchor directory: {anchor_psf_full_path}.")
         copyfile(full_psf_filename, anchor_psf_full_path)
         new_md_parameters_topology.psf_filename = psf_basename
-        new_md_parameters_topology.param_filename_list = []
+        new_param_filename_list = []
         for param_filename in self.param_filename_list:
             param_basename = os.path.basename(param_filename)
             anchor_param_full_path = os.path.join(dest_directory,
@@ -394,7 +394,8 @@ class Charmm_parameters_topology:
             logger.info(f"Copying Charmm parameter file: {full_param_filename} "
                             f"to anchor directory: {anchor_param_full_path}.")
             copyfile(full_param_filename, anchor_param_full_path)
-            new_md_parameters_topology.param_filename_list.append(param_basename)
+            new_param_filename_list.append(param_basename)
+        new_md_parameters_topology.param_filename_list = new_param_filename_list
         return
    
 # TODO: remove support for this - users can create their own systems from an
@@ -437,7 +438,7 @@ class Forcefield_parameters:
         to the actual anchor.
         """
         assert self.type == new_md_parameters_topology.type, "Type mismatch."
-        new_md_parameters_topology.built_in_forcefield_filenames = []
+        new_built_in_forcefield_filenames = []
         for forcefield_filename in self.built_in_forcefield_filenames:
             forcefield_basename = os.path.basename(forcefield_filename)
             anchor_forcefield_full_path = os.path.join(
@@ -446,10 +447,10 @@ class Forcefield_parameters:
             logger.info(f"Copying OpenMM forcefield file: {full_forcefield_filename} "
                             f"to anchor directory: {anchor_forcefield_full_path}.")
             copyfile(full_forcefield_filename, anchor_forcefield_full_path)
-            new_md_parameters_topology.built_in_forcefield_filenames.append(
-                forcefield_basename)
-
-        new_md_parameters_topology.custom_forcefield_filenames = []
+            new_built_in_forcefield_filenames.append(forcefield_basename)
+        new_md_parameters_topology.built_in_forcefield_filenames \
+            = new_built_in_forcefield_filenames
+        new_custom_forcefield_filenames = []
         for forcefield_filename in self.custom_forcefield_filenames:
             forcefield_basename = os.path.basename(forcefield_filename)
             anchor_forcefield_full_path = os.path.join(dest_directory,
@@ -458,9 +459,9 @@ class Forcefield_parameters:
             logger.info(f"Copying OpenMM forcefield file: {full_forcefield_filename} "
                             f"to anchor directory: {anchor_forcefield_full_path}.")
             copyfile(full_forcefield_filename, anchor_forcefield_full_path)
-            new_md_parameters_topology.custom_forcefield_filenames.append(
-                forcefield_basename)
-
+            new_custom_forcefield_filenames.append(forcefield_basename)
+        new_md_parameters_topology.custom_forcefield_filenames \
+            = new_custom_forcefield_filenames
         return
     
 @define

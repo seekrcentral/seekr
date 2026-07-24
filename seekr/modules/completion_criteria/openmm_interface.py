@@ -56,9 +56,22 @@ class Number_of_steps_completion_criteria_openmm_interface(
     Interface for the Number-of-steps completion criteria using
     the OpenMM engine. Identical to the base class.
     """
+    # Redefine all parent fields so attrs keeps positional order
+    # (partial redefinition would put non-overridden fields first).
     _completion_criteria: completion_criteria_structures.Number_of_steps_completion_criteria
     _model: structures.Seekr_model
     _stage: md_structures.Stage_md
+    _anchor_or_unpartitioned: engines_structures.MD_unpartitioned_settings | structures.Anchor
+
+    def criteria_satisfied(
+            self,
+            **kwargs: typing.Any
+            ) -> bool:
+        """
+        Evaluate the current simulation state to see if the completion
+        criteria are met.
+        """
+        return kwargs["current_step"] >= self._completion_criteria.number_of_steps
 
 @define
 class Reporter_progress_completion_criteria_openmm_interface(
@@ -136,7 +149,7 @@ def assign_completion_interface(
                 plugin_module_compl_crit_interface = importlib.import_module(
                     compl_crit_module_str+".openmm_interface")
             found, compl_crit_interface = plugin_module_compl_crit_interface.assign_completion_interface(
-                completion_criteria, model, stage, anchor_or_unpartitioned)
+                completion_criteria, model, stage, anchor_or_unpartitioned, reporter_interfaces)
             if found:
                 return compl_crit_interface
 

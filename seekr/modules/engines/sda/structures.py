@@ -241,7 +241,6 @@ class SDA_molecule:
         protein_surface_test_charge_command = None
         surface_test_charge_command = None
         test_charge_command = None
-        print(f"HERE! self.name: {self.name}, self.type: {self.type}")
         if self.type == "non_protein":
             if self.surface:
                 surface_test_charge_bin = os.path.join(

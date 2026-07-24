@@ -75,6 +75,27 @@ def test_identical_reprepare(tmp_path):
         assert model2.anchors[i].directory == model1.anchors[i].directory
 
 
+def test_reprepare_clears_orphan_cv_json(tmp_path):
+    """Re-prepare removes stale CV JSON left from a previous CV definition."""
+    seekr_input, model1, _ = _first_prepare(str(tmp_path))
+    cv_set_dir = os.path.join(str(tmp_path), "collective_variable_sets", "main")
+    orphan_path = os.path.join(cv_set_dir, "orphan_stale_cv.json")
+    with open(orphan_path, "w") as f:
+        f.write("{}")
+    assert os.path.exists(orphan_path)
+    expected_cv_names = {cv.name for cv in model1.collective_variables}
+
+    model2, _ = _do_prepare(seekr_input)
+    assert not os.path.exists(orphan_path)
+    remaining = {
+        name for name in os.listdir(cv_set_dir) if name.endswith(".json")
+    }
+    assert remaining == {f"{name}.json" for name in expected_cv_names}
+    model2.directory = str(tmp_path)
+    model2.load_cvs("main")
+    assert {cv.name for cv in model2.collective_variables} == expected_cv_names
+
+
 def test_temperature_change_no_files(tmp_path):
     """Changing temperature with no run files succeeds without force_overwrite."""
     seekr_input, _, _ = _first_prepare(str(tmp_path))
