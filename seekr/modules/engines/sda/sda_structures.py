@@ -1333,11 +1333,16 @@ def create_ghost_atom_from_atoms_center_of_mass(
     pqr_struct = parmed.load_file(pqr_filename, skip_bonds=True)
 
 
+    # ParmEd rebuilds the full Nx3 array on every `.coordinates` access.
+    pqr_coordinates = pqr_struct.coordinates
+    assert pqr_coordinates is not None, (
+        f"PQR '{pqr_filename}' has no coordinates.")
+
     # Compute the center of mass for the selected group of atoms
     center_of_mass = np.array([[0., 0., 0.]])
     total_mass = 0.0
     for atom_index in atom_index_list:
-        atom_pos = pqr_struct.coordinates[atom_index,:]
+        atom_pos = pqr_coordinates[atom_index, :]
         atom_mass = pqr_struct.atoms[atom_index].mass
         if atom_mass == 0.0:
             atom_mass = 0.0001
@@ -1352,9 +1357,8 @@ def create_ghost_atom_from_atoms_center_of_mass(
         mol_total_mass = 0.0
         step_range = max(len(pqr_struct.atoms) // 100, 1)
         
-        pqr_coordinates = pqr_struct.coordinates
         for atom_index, atom in enumerate(pqr_struct.atoms):
-            atom_pos = pqr_coordinates[atom_index,:]
+            atom_pos = pqr_coordinates[atom_index, :]
             atom_mass = atom.mass
             if atom_mass == 0.0:
                 atom_mass = 0.0001

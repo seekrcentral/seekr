@@ -68,10 +68,6 @@ def status(
                 }
             else:
                 message["info"] = {}
-        if instruction in ["progress", "all"]:
-            message["progress"] = {}
-        if instruction in ["statistics", "all"]:
-            message["statistics"] = {}
     else:
         message = ""
         if instruction in ["info", "all"]:
@@ -81,8 +77,6 @@ def status(
                 message += f"    Scope: N/A\n"
                 message += f"    Number of anchors: {stage_0_num_anchors}\n"
                 message += f"    Number of swarms: {stage_0_num_swarms}\n"
-        if instruction in ["progress", "all"]:
-            message += "Progress:\n"
     stages_to_check = [s for s in stages_to_check if s is not None]
     choose_params = {
         "device_index": None,
@@ -126,6 +120,17 @@ def status(
                 message += f"    Number of anchors: {num_anchors}\n"
                 message += f"    Number of swarms: {num_swarms}\n"
 
+    if print_json:
+        if instruction in ["progress", "all"]:
+            message["progress"] = {}
+        if instruction in ["statistics", "all"]:
+            message["statistics"] = {}
+    else:
+        if instruction in ["progress", "all"]:
+            message += "Progress:\n"
+    for stage_index in stages_to_check:
+        stage = model.stages[stage_index]
+        stage.load_sets_into_model(model)
         if instruction in ["progress", "all"]:
             finished_tmp, stage_message_tmp = scales_runner.is_finished_with_message(
                 model, stage, anchor_index_instruction, use_json=print_json)

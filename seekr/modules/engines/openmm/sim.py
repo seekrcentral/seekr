@@ -350,6 +350,46 @@ def create_openmm_system(
 
     return system, topology, positions, box_vectors, num_frames, velocities
 
+def _compute_full_system_run_dofs(system: openmm.System):
+    """
+    Compute the number of degrees of freedom for a OpenMM system, particularly
+    used in the Nose-Hoover thermostat/integrator.
+    """
+    massive_particles = set()
+    for particle in range(system.getNumParticles()):
+        mass = system.getParticleMass(particle)
+        if mass.value_in_unit(unit.dalton) > 0:
+            massive_particles.add(particle)
+
+    num_dofs = 3*len(massive_particles)
+    for constraint_index in range(system.getNumConstraints()):
+        particle1, particle2, distance = system.getConstraintParameters(
+            constraint_index)
+        if particle1 in massive_particles and particle2 in massive_particles:
+            num_dofs -= 1
+
+    for force_index in range(system.getNumForces()):
+        if isinstance(system.getForce(force_index), openmm.CMMotionRemover):
+            num_dofs -= 3
+    return num_dofs
+
+def _get_yoshida_suzuki_weights(num_yoshida_suzuki):
+    if num_yoshida_suzuki == 1:
+        return [1.0]
+    if num_yoshida_suzuki == 3:
+        return [0.828981543588751, -0.657963087177502,
+                0.828981543588751]
+    if num_yoshida_suzuki == 5:
+        return [0.2967324292201065, 0.2967324292201065,
+                -0.186929716880426, 0.2967324292201065,
+                0.2967324292201065]
+    if num_yoshida_suzuki == 7:
+        return [0.784513610477560, 0.235573213359357,
+                -1.17767998417887, 1.31518632068391,
+                -1.17767998417887, 0.235573213359357,
+                0.784513610477560]
+    raise ValueError("num_yoshida_suzuki must be 1, 3, 5, or 7")
+
 class Sim_openmm:
     """
     Contain superclass information necessary to run a SEEKR2 
@@ -435,7 +475,8 @@ class Sim_openmm:
             completion_criteria_interface: completion_openmm_interface\
                 .Completion_criteria_openmm_interface,
             restart: bool,
-            timestep: float | None = None
+            system: openmm.System,
+            timestep: float | None = None,
             ) -> None:
         """
         Assign the proper integrator to this OpenMM simulation.
@@ -588,7 +629,145 @@ class Sim_openmm:
             integrator.addComputePerDof("v", "(x-old_x)/dt")
             sampling_method_interface.post_integration_instructions(
                 integrator=integrator, anchor=anchor)
-
+        elif integrator_type == "nose_hoover":
+            if ensemble is not None:
+                assert ensemble.type in ["NVT", "NPT", "NPT_membrane"], \
+                    "Ensemble type not allowed or recognized for Langevin "\
+                    f"middle integrator: {ensemble.type}"
+            temperature = integrator_settings.target_temperature * unit.kelvin
+            collision_frequency = integrator_settings.collision_frequency
+            chain_length = integrator_settings.chain_length
+            num_mts = integrator_settings.num_mts
+            num_yoshida_suzuki = integrator_settings.num_yoshida_suzuki
+            num_dofs = _compute_full_system_run_dofs(system)
+            
+            # Thermostat parameters shared by the full Nose-Hoover chain.
+            integrator.addGlobalVariable("thermal_energy", kB*temperature)
+            integrator.addGlobalVariable("collision_frequency", collision_frequency)
+            integrator.addGlobalVariable("num_dofs", num_dofs)
+            
+            # Work variables for particle kinetic energy and the accumulated
+            # velocity scale returned by the chain propagation.
+            integrator.addGlobalVariable("kinetic_energy", 0)
+            integrator.addGlobalVariable("twice_kinetic_energy", 0)
+            integrator.addGlobalVariable("scale", 1)
+            
+            # Temporary scalars used inside the Yoshida-Suzuki/MTS loop, plus the
+            # reported total heat bath energy.
+            integrator.addGlobalVariable("wdt", 0)
+            integrator.addGlobalVariable("aa", 0)
+            integrator.addGlobalVariable("heat_bath_energy", 0)
+            
+            # Persistent state for each chain bead: position, velocity, mass, and
+            # force.  These correspond to chainData, chainMasses, and chainForces
+            # in OpenMM's native kernels.
+            for bead in range(chain_length):
+                integrator.addGlobalVariable(f"chain_pos_{bead}", 0)
+                integrator.addGlobalVariable(f"chain_vel_{bead}", 0)
+                integrator.addGlobalVariable(f"chain_mass_{bead}", 0)
+                integrator.addGlobalVariable(f"chain_force_{bead}", 0)
+                
+            sampling_method_interface.add_global_variables_integrator(
+                integrator=integrator, anchor=anchor)
+            integrator.addPerDofVariable("x1", 0)
+            integrator.addPerDofVariable("old_x", 0)
+            integrator.addPerDofVariable("old_v", 0)
+            sampling_method_interface.add_per_DOF_variables_integrator(
+                integrator=integrator)
+                
+            sampling_method_interface.pre_integration_instructions(
+                integrator=integrator)
+                
+            # Update chain masses
+            frequency_sq = "collision_frequency*collision_frequency"
+            integrator.addComputeGlobal(
+                "chain_mass_0",
+                f"num_dofs*thermal_energy/({frequency_sq})")
+            for bead in range(1, chain_length):
+                integrator.addComputeGlobal(
+                    f"chain_mass_{bead}",
+                    f"thermal_energy/({frequency_sq})")
+                
+            integrator.addComputePerDof("old_x", "x")
+            integrator.addUpdateContextState()
+            integrator.addComputePerDof("v", "v + dt*f/m")
+            integrator.addConstrainVelocities()
+            integrator.addComputePerDof("old_v", "v")
+            integrator.addComputePerDof("x", "x + 0.5*dt*v")
+            integrator.addComputeSum("kinetic_energy", "0.5*m*v*v")
+            integrator.addComputeGlobal("twice_kinetic_energy", "2*kinetic_energy")
+            integrator.addComputeGlobal("scale", "1")
+            integrator.beginIfBlock("kinetic_energy >= 1e-8")
+            # Add initial chain forces
+            integrator.addComputeGlobal(
+                "chain_force_0",
+                "(twice_kinetic_energy - num_dofs*thermal_energy)"
+                "/chain_mass_0")
+            for bead in range(chain_length - 1):
+                integrator.addComputeGlobal(
+                    f"chain_force_{bead+1}", f"(chain_mass_{bead}*chain_vel_{bead}"
+                    f"*chain_vel_{bead} - thermal_energy)/chain_mass_{bead+1}")
+            # Propagate chain
+            last_bead = chain_length - 1
+            for mts in range(num_mts):
+                for weight in _get_yoshida_suzuki_weights(num_yoshida_suzuki):
+                    integrator.addComputeGlobal(
+                        "wdt", f"{weight}*dt/{num_mts}")
+                    integrator.addComputeGlobal(
+                        f"chain_vel_{last_bead}",
+                        f"chain_vel_{last_bead} + 0.5*wdt*chain_force_{last_bead}")
+                    for bead in range(chain_length - 2, -1, -1):
+                        integrator.addComputeGlobal(
+                            "aa", f"exp(-0.25*wdt*chain_vel_{bead+1})")
+                        integrator.addComputeGlobal(
+                            f"chain_vel_{bead}",
+                            f"aa*(chain_vel_{bead}*aa + 0.5*wdt*chain_force_{bead})")
+                    integrator.addComputeGlobal(
+                        "scale", "scale*exp(-wdt*chain_vel_0)")
+                    for bead in range(chain_length):
+                        integrator.addComputeGlobal(
+                            f"chain_pos_{bead}",
+                            f"chain_pos_{bead} + chain_vel_{bead}*wdt")
+                    integrator.addComputeGlobal(
+                        "chain_force_0",
+                        "(scale*scale*twice_kinetic_energy"
+                        " - num_dofs*thermal_energy)/chain_mass_0")
+                    for bead in range(chain_length - 1):
+                        integrator.addComputeGlobal(
+                            "aa", f"exp(-0.25*wdt*chain_vel_{bead+1})")
+                        integrator.addComputeGlobal(
+                            f"chain_vel_{bead}",
+                            f"aa*(aa*chain_vel_{bead}"
+                            f" + 0.5*wdt*chain_force_{bead})")
+                        integrator.addComputeGlobal(
+                            f"chain_force_{bead+1}",
+                            f"(chain_mass_{bead}*chain_vel_{bead}"
+                            f"*chain_vel_{bead} - thermal_energy)"
+                            f"/chain_mass_{bead+1}")
+                    integrator.addComputeGlobal(
+                        f"chain_vel_{last_bead}",
+                        f"chain_vel_{last_bead}"
+                        f" + 0.5*wdt*chain_force_{last_bead}")
+            integrator.endBlock()
+            integrator.addComputePerDof("v", "scale*v")
+            
+            integrator.addComputePerDof("x", "x + 0.5*dt*v")
+            integrator.addComputePerDof("x1", "x")
+            integrator.addConstrainPositions()
+            integrator.addComputePerDof("v", "v + (x-x1)/dt")
+            # Compute heat bath energies
+            energy_terms = []
+            for bead in range(chain_length):
+                prefac = "num_dofs" if bead == 0 else "1"
+                energy_terms.append(
+                    f"0.5*chain_mass_{bead}*chain_vel_{bead}"
+                    f"*chain_vel_{bead}"
+                    f" + {prefac}*thermal_energy*chain_pos_{bead}")
+            integrator.addComputeGlobal("heat_bath_energy", " + ".join(energy_terms))
+            
+            sampling_method_interface.post_integration_instructions(
+                integrator=integrator, anchor=anchor)
+            
         else:
             raise Exception("Integrator type not available: "\
                             f"{integrator_type}")
@@ -776,7 +955,7 @@ def create_sim_openmm(
     # A sampling method of None will be conventional MD.
     sim_openmm.add_integrator(
         model, anchor_index, ensemble, sampling_method_interface,
-        completion_criteria_interface, restart, timestep)
+        completion_criteria_interface, restart, system, timestep)
     if ensemble is not None:
         sim_openmm.add_barostat(model, ensemble)
     sim_openmm.add_platform(model)

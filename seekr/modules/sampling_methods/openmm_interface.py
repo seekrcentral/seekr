@@ -55,6 +55,7 @@ RING_BUFFER_SIZE = 2 #10
 MAX_CONSECUTIVE_BOUNCES = 1000
 
 kB = unit.BOLTZMANN_CONSTANT_kB * unit.AVOGADRO_CONSTANT_NA
+kcal_per_mol = unit.kilocalories / unit.mole
 
 # TODO: put into a lower-level module?
 def open_pdb_file_for_simulation(
@@ -182,9 +183,12 @@ class Base_md_openmm_interface:
         else:
             self._cv_interface_list = []
             self._openmm_cv_list = []
+            stage_set_name = self._model.stages[self._stage_index].set_name
+            cv_set_directory = os.path.join(
+                self._model.directory, "collective_variable_sets", stage_set_name)
             for i, cv in enumerate(self._model.collective_variables):
                 cv_interface = collective_variables_openmm_interface.assign_cv_interface(
-                    cv, md_engine, self._model.directory, self._model.plugins)
+                    cv, md_engine, cv_set_directory, self._model.plugins)
                 assert cv_interface is not None
                 self._cv_interface_list.append(cv_interface)
                 cv_force = cv_interface.make_cv_force()
@@ -643,7 +647,7 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
     _fail_on_save_to_current_anchor_if_outside_milestones: bool = True
     _metadynamics_obj: openmm_app.Metadynamics | None = None
     _current_alpha: int | None = None
-    #_directory: str | None = None
+    _running_directory: str | None = None
 
     def pre_simulation_preparations(
             self, 
@@ -732,6 +736,7 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
             saveFrequency=save_frequency, biasDir=metadyn_bias_dir)
         
         self._simulation_obj.context.reinitialize(preserveState=True)
+        self._running_directory = kwargs["directory"]
         return
     
     def get_cv_values(
@@ -764,6 +769,19 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
         assert self._metadynamics_obj is not None
         assert self._simulation_obj is not None
         self._metadynamics_obj.step(self._simulation_obj, steps)
+        return
+
+    def post_simulation_procedures(
+            self, 
+            **kwargs: typing.Any
+            ) -> None:
+        """
+        Save the metadynamics free energy energy landscape.
+        """
+        dG = self._metadynamics_obj.getFreeEnergy().value_in_unit(kcal_per_mol)
+        dG = dG - np.min(dG)
+        dG_filename = os.path.join(self._running_directory, "dG_metaD.txt")
+        np.savetxt(dG_filename, dG)
         return
 
 @define

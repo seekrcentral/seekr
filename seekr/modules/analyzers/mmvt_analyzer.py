@@ -296,7 +296,7 @@ class Mmvt_analyzer:
             use_json: bool = False
             ) -> str | dict:
         """
-
+        Statistics instruction output for status.py.
         """
         assert anchor_index_instruction is not None, \
             "MMVT may not use 'unpartitioned' statistics."

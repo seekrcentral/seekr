@@ -64,6 +64,8 @@ class Metadynamics_md_input(Base_md_sampling_method_input):
                                                validators.gt(0)])
     cv_names: typing.List[str] = field(default=Factory(list),
                                         validator=validators.instance_of(list))
+    write_biases: bool = field(default=False,
+                                validator=validators.instance_of(bool))
     
     def make_model_sampling_method(self):
         """
@@ -84,6 +86,7 @@ class Metadynamics_md_input(Base_md_sampling_method_input):
             metaD.gaussian_width = self.gaussian_width
         metaD.steps_per_update = self.steps_per_update
         metaD.cv_names = self.cv_names
+        metaD.write_biases = self.write_biases
         return metaD
 
 @define
