@@ -91,12 +91,21 @@ def is_finished_md_with_message(
         swarm_messages = {}
         for this_swarm_id in swarm_ids:
             this_finished, this_message = is_finished_md_with_message(
-                model, stage, anchor_or_unpartitioned, swarm_id=this_swarm_id,
-                completion_criteria=completion_criteria,
-                cv_values=cv_values, use_json=use_json)
+                    model, stage, anchor_or_unpartitioned, swarm_id=this_swarm_id,
+                    completion_criteria=completion_criteria,
+                    cv_values=cv_values, use_json=use_json)
+            if use_json:
+                progress = this_message.get("progress", 0.0)
+            else:
+                this_finished_json, this_message_json = is_finished_md_with_message(
+                    model, stage, anchor_or_unpartitioned, swarm_id=this_swarm_id,
+                    completion_criteria=completion_criteria,
+                    cv_values=cv_values, use_json=True)
+                progress = this_message_json.get("progress", 0.0)
+
             if not this_finished:
                 finished_all = False
-            progress_sum += this_message.get("progress", 0.0)
+            progress_sum += progress
             swarm_messages[this_swarm_id] = this_message
         progress = progress_sum / len(swarm_ids)
         if use_json:

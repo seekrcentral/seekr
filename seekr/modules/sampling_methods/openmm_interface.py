@@ -190,6 +190,8 @@ class Base_md_openmm_interface:
                 cv_interface = collective_variables_openmm_interface.assign_cv_interface(
                     cv, md_engine, cv_set_directory, self._model.plugins)
                 assert cv_interface is not None
+                if hasattr(cv_interface, "assign_system_parameters"):
+                    cv_interface.assign_system_parameters(self._system_obj)
                 self._cv_interface_list.append(cv_interface)
                 cv_force = cv_interface.make_cv_force()
                 cv_interface.add_cv_groups_and_variables(cv_force)
@@ -355,10 +357,12 @@ class Base_md_openmm_interface:
     
     def get_cv_values(
             self,
-            ) -> list | None:
+            ) -> tuple[float, ...] | None:
         cv_values = self._openmm_cv_object.getCollectiveVariableValues(
             self._simulation_obj.context)
-        return cv_values
+        # Copy to a plain tuple so later OpenMM state changes cannot affect
+        # checkpoint payloads that still hold this reference.
+        return tuple(float(x) for x in cv_values)
 
     def run(
             self,
@@ -480,6 +484,8 @@ class Base_md_openmm_interface:
                 if on_step >= min_steps:
                     stopping = True
 
+        if needs_cv_values:
+            cv_values = self.get_cv_values()
         self._simulation_obj.saveCheckpoint(checkpoint_filename)
         engines_structures.write_checkpoint_information_file(
             on_step, restart_index, timestep, cv_values, checkpoint_info_filename)
