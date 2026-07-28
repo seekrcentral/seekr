@@ -102,7 +102,9 @@ class Checkpoint_information:
     timestep: float = field(
         default=0.002, validator=[validators.instance_of(float),
                                   validators.gt(0)])
-    cv_values: tuple[float] | None = field(
+    # Must be tuple[float, ...], not tuple[float]: cattrs treats tuple[float]
+    # as a length-1 tuple and silently drops all but the first CV on save.
+    cv_values: tuple[float, ...] | None = field(
         default=None,
         validator=validators.optional(
             validators.deep_iterable(
@@ -132,11 +134,13 @@ def write_checkpoint_information_file(
         step: int, 
         restart_index: int,
         timestep: float,
-        cv_values: tuple[float] | None,
+        cv_values: tuple[float, ...] | list[float] | None,
         filename: str) -> None:
     """
     Write the checkpoint information to a file.
     """
+    if cv_values is not None:
+        cv_values = tuple(float(x) for x in cv_values)
     checkpoint_information = Checkpoint_information(
         step, restart_index, timestep, cv_values)
     checkpoint_information.save(filename)
