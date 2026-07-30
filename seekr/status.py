@@ -160,7 +160,7 @@ def status(
                     + f"    Finished: {finished}\n{stage_message}"
 
     if instruction in ["statistics", "all"]:
-        analysis = analyze.analyze(model, stage_index=None, 
+        analysis = analyze.analyze_all(model, stage_arg=None, 
                                     skip_checks=True, only_extract_data=True)
         if analysis is None:
             return message
