@@ -860,42 +860,6 @@ class Sim_openmm:
         self.simulation = openmm_app.Simulation(
             self.topology, self.system, self.integrator, self.platform, 
             self.properties)
-        # #region agent log
-        try:
-            import json as _json, time as _time, builtins as _builtins
-            _ctx = self.simulation.context
-            _plat = _ctx.getPlatform()
-            _data = {
-                "platform": str(_plat.getName()),
-                "precision": None,
-                "device_name": None,
-                "device_index": None,
-                "deterministic_forces": None,
-                "openmm_version": str(getattr(openmm.version, "version", "unknown")),
-            }
-            for _key, _field in (
-                ("Precision", "precision"),
-                ("DeviceName", "device_name"),
-                ("DeviceIndex", "device_index"),
-                ("DeterministicForces", "deterministic_forces"),
-            ):
-                try:
-                    _data[_field] = str(_plat.getPropertyValue(_ctx, _key))
-                except Exception:
-                    pass
-            _payload = {"sessionId":"aa6c5a","runId":"pre-fix","hypothesisId":"I","location":"engines/openmm/sim.py:add_simulation","message":"CUDA device/platform info","data":_data,"timestamp":int(_time.time()*1000)}
-            _line = _json.dumps(_payload, default=str)
-            for _path in ("/home/lvotapka/seekr/.cursor/debug-aa6c5a.log","/u/lvotapka/seekr/.cursor/debug-aa6c5a.log"):
-                try:
-                    with _builtins.open(_path,"a") as _f:
-                        _f.write(_line+"\n")
-                except Exception:
-                    pass
-            logger = __import__("logging").getLogger(__name__)
-            logger.error("DEBUG_AA6C5A " + _line)
-        except Exception:
-            pass
-        # #endregion
         if positions is not None:
             self.simulation.context.setPositions(positions)
             assert md_engine is not None

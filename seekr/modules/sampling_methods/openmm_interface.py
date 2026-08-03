@@ -39,10 +39,6 @@ import seekr.modules.collective_variables.openmm_interface \
 logger = logging.getLogger(__name__)
 
 BIAS_DIR_NAME = "metad_bias"
-# #region agent log
-_DBG_CV_LOGGED_ONCE = False
-_DBG_SKIP_METAD_FORCE = False  # True when SEEKR_DEBUG_NO_METAD=1
-# #endregion
 #METADYN_NAME = "metadynamics.{}.swarm_{}"
 #SMD_NAME = "steered.{}.swarm_{}"
 BUFFER_FRAMES = 1 # How many positions variables to store for encounter positions.
@@ -738,197 +734,28 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
             metaD_force_biases.append(force_bias)
         
         assert self._simulation_obj is not None
-        # #region agent log
-        # Hypothesis U/C2: isolate Metadynamics/CustomCVForce.
-        # REMOVE_METAD_FORCE abandoned after segfault (unsafe on live System).
-        global _DBG_SKIP_METAD_FORCE
-        _DBG_SKIP_METAD_FORCE = False
-        _skip_metad_updates = os.environ.get("SEEKR_DEBUG_SKIP_METAD_UPDATES") == "1"
-        if _skip_metad_updates:
-            steps_per_metadyn_update = 10**9
-            save_frequency = None
-            metadyn_bias_dir = None
-        _no_metad = os.environ.get("SEEKR_DEBUG_NO_METAD") == "1"
-        if _no_metad:
-            self._metadynamics_obj = None
-            _DBG_SKIP_METAD_FORCE = True
-            self._running_directory = kwargs["directory"]
-        else:
-            self._metadynamics_obj = openmm_app.Metadynamics(
-                system, variables=metaD_force_biases,
-                temperature=model.temperature,
-                biasFactor=metadyn_biasfactor, height=metadyn_height,
-                frequency=steps_per_metadyn_update,
-                saveFrequency=save_frequency, biasDir=metadyn_bias_dir)
-
-            self._simulation_obj.context.reinitialize(preserveState=True)
-            # CustomCVForce collective-variable values are only populated after a
-            # force/energy evaluation. After reinitialize (and especially on
-            # checkpoint restart when currentStep lands on a reporter interval),
-            # reporters may call get_cv_values() before any MD force evaluation,
-            # which would otherwise return NaN. Warm up the force cache here.
-            self._simulation_obj.context.getState(getEnergy=True)
-            self._running_directory = kwargs["directory"]
-        try:
-            import json as _json, time as _time, builtins as _builtins
-            _n_custom_cv = sum(
-                1 for i in range(system.getNumForces())
-                if system.getForce(i).__class__.__name__ == "CustomCVForce")
-            _payload = {
-                "sessionId": "aa6c5a",
-                "runId": "pre-fix",
-                "hypothesisId": "C2",
-                "location": "sampling_methods/openmm_interface.py:create_sim_openmm",
-                "message": "metadynamics setup: no-metad isolation probe",
-                "data": {
-                    "numpy_version": str(np.__version__),
-                    "openmm_version": str(getattr(openmm.version, "version", "?")),
-                    "n_custom_cv_forces": _n_custom_cv,
-                    "n_forces": int(system.getNumForces()),
-                    "gaussian_height": float(metadyn_height),
-                    "steps_per_update": int(steps_per_metadyn_update),
-                    "skip_metad_updates_env": _skip_metad_updates,
-                    "no_metad_env": _no_metad,
-                    "skip_metad_force": _DBG_SKIP_METAD_FORCE,
-                    "metadynamics_obj_is_none": self._metadynamics_obj is None,
-                },
-                "timestamp": int(_time.time() * 1000),
-            }
-            _line = _json.dumps(_payload, default=str)
-            for _path in (
-                "/home/lvotapka/seekr/.cursor/debug-aa6c5a.log",
-                "/u/lvotapka/seekr/.cursor/debug-aa6c5a.log",
-            ):
-                try:
-                    with _builtins.open(_path, "a") as _f:
-                        _f.write(_line + "\n")
-                except Exception:
-                    pass
-            logger.error("DEBUG_AA6C5A " + _line)
-        except Exception:
-            pass
-        # #endregion
+        self._metadynamics_obj = openmm_app.Metadynamics(
+            system, variables=metaD_force_biases, 
+            temperature=model.temperature,
+            biasFactor=metadyn_biasfactor, height=metadyn_height, 
+            frequency=steps_per_metadyn_update, 
+            saveFrequency=save_frequency, biasDir=metadyn_bias_dir)
+        
+        self._simulation_obj.context.reinitialize(preserveState=True)
+        # CustomCVForce collective-variable values are only populated after a
+        # force/energy evaluation. After reinitialize (and especially on
+        # checkpoint restart when currentStep lands on a reporter interval),
+        # reporters may call get_cv_values() before any MD force evaluation,
+        # which would otherwise return NaN. Warm up the force cache here.
+        self._simulation_obj.context.getState(getEnergy=True)
+        self._running_directory = kwargs["directory"]
         return
     
     def get_cv_values(
             self
             ) -> list | None:
-        # #region agent log
-        if _DBG_SKIP_METAD_FORCE or self._metadynamics_obj is None:
-            return [0.0]
-        # #endregion
         cv_values = list(self._metadynamics_obj.getCollectiveVariables(
             self._simulation_obj))
-        # #region agent log
-        global _DBG_CV_LOGGED_ONCE
-        try:
-            import json as _json, time as _time, builtins as _builtins
-            def _safe(v):
-                try:
-                    if v is None:
-                        return None
-                    if isinstance(v, (bool, int, str)):
-                        return v
-                    if isinstance(v, float):
-                        return v if np.isfinite(v) else str(v)
-                    if isinstance(v, (list, tuple)):
-                        return [_safe(x) for x in v]
-                    return str(v)
-                except Exception:
-                    return "<unprintable>"
-            _pos_finite = None
-            _vel_finite = None
-            _step = None
-            _platform = None
-            _precision = None
-            _omm_ver = None
-            try:
-                _omm_ver = str(openmm.version.version)
-            except Exception:
-                _omm_ver = "unknown"
-            try:
-                _ctx = self._simulation_obj.context
-                _st = _ctx.getState(getPositions=True, getVelocities=True)
-                _pos = np.asarray(_st.getPositions(asNumpy=True))
-                _vel = np.asarray(_st.getVelocities(asNumpy=True))
-                _pos_finite = bool(np.all(np.isfinite(_pos)))
-                _vel_finite = bool(np.all(np.isfinite(_vel)))
-                _step = int(self._simulation_obj.currentStep)
-                _platform = str(_ctx.getPlatform().getName())
-                try:
-                    _precision = str(_ctx.getPlatform().getPropertyValue(_ctx, "Precision"))
-                except Exception:
-                    _precision = None
-            except Exception as _e:
-                _pos_finite = f"err:{type(_e).__name__}"
-            _has_nan = any(not np.isfinite(v) for v in cv_values)
-            _cv_after = None
-            if _has_nan:
-                try:
-                    self._simulation_obj.context.getState(getEnergy=True)
-                    _cv_after = list(self._metadynamics_obj.getCollectiveVariables(
-                        self._simulation_obj))
-                    cv_values = _cv_after
-                except Exception as _e:
-                    _cv_after = f"err:{type(_e).__name__}"
-            _payload = {
-                "sessionId": "aa6c5a",
-                "runId": "post-fix",
-                "hypothesisId": "F",
-                "location": "sampling_methods/openmm_interface.py:get_cv_values",
-                "message": "metadynamics CV check",
-                "data": {
-                    "cv_values_initial_had_nan": _has_nan,
-                    "cv_values": _safe(cv_values),
-                    "cv_after_energy_eval": _safe(_cv_after),
-                    "positions_finite": _pos_finite,
-                    "velocities_finite": _vel_finite,
-                    "current_step": _step,
-                    "platform": _platform,
-                    "precision": _precision,
-                    "openmm_version": _omm_ver,
-                    "numpy_version": str(np.__version__),
-                },
-                "timestamp": int(_time.time() * 1000),
-            }
-            if _has_nan or not _DBG_CV_LOGGED_ONCE:
-                _DBG_CV_LOGGED_ONCE = True
-                _line = _json.dumps(_payload, default=str)
-                for _path in (
-                    "/home/lvotapka/seekr/.cursor/debug-aa6c5a.log",
-                    "/u/lvotapka/seekr/.cursor/debug-aa6c5a.log",
-                ):
-                    try:
-                        with _builtins.open(_path, "a") as _f:
-                            _f.write(_line + "\n")
-                    except Exception:
-                        pass
-                try:
-                    logger.error("DEBUG_AA6C5A " + _line)
-                except Exception:
-                    pass
-        except Exception:
-            pass
-        # #endregion
-        if any(not np.isfinite(v) for v in cv_values):
-            # #region agent log
-            try:
-                _ctx = self._simulation_obj.context
-                _st = _ctx.getState(getPositions=True, getVelocities=True)
-                _pos_ok = bool(np.all(np.isfinite(np.asarray(_st.getPositions(asNumpy=True)))))
-                _vel_ok = bool(np.all(np.isfinite(np.asarray(_st.getVelocities(asNumpy=True)))))
-            except Exception:
-                _pos_ok = None
-                _vel_ok = None
-            # #endregion
-            if _pos_ok is False or _vel_ok is False:
-                raise RuntimeError(
-                    "Simulation state has non-finite positions/velocities "
-                    f"(step {getattr(self._simulation_obj, 'currentStep', '?')}); "
-                    "the trajectory has likely exploded. CV values are NaN as a "
-                    "consequence. Check timestep, constraints, CUDA precision "
-                    "(try 'double'), and metadynamics height/width."
-                )
         for i in range(len(cv_values)):
             assert np.isfinite(cv_values[i]), \
                 f"CV value {cv_values[i]} is not finite."
@@ -951,93 +778,10 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
         """
         Take a number of steps in the simulation.
         """
+        assert self._metadynamics_obj is not None
         assert self._simulation_obj is not None
-        # #region agent log
-        # Hypothesis C/C2: CustomCVForce presence isolation.
-        import json as _json, time as _time, builtins as _builtins
-        global _DBG_CV_LOGGED_ONCE
-        _force_removed = bool(_DBG_SKIP_METAD_FORCE or self._metadynamics_obj is None)
-        _freq = 250
-        if self._metadynamics_obj is not None:
-            _freq = max(int(getattr(self._metadynamics_obj, "frequency", 250) or 250), 1)
-        _probe = min(_freq, 250)
-        _remaining = int(steps)
-        _start_step = int(self._simulation_obj.currentStep)
-        while _remaining > 0:
-            _chunk = min(_remaining, _probe)
-            _mod = _start_step % _probe
-            if _mod != 0:
-                _chunk = min(_remaining, _probe - _mod)
-            if _force_removed or self._metadynamics_obj is None:
-                self._simulation_obj.step(_chunk)
-            else:
-                self._metadynamics_obj.step(self._simulation_obj, _chunk)
-            _start_step = int(self._simulation_obj.currentStep)
-            _remaining -= _chunk
-            try:
-                _st = self._simulation_obj.context.getState(
-                    getEnergy=True, getPositions=True, getForces=True)
-                _pos = np.asarray(_st.getPositions(asNumpy=True))
-                _e = _st.getPotentialEnergy().value_in_unit(unit.kilojoules_per_mole)
-                _pos_ok = bool(np.all(np.isfinite(_pos)))
-                _e_ok = bool(np.isfinite(_e))
-                _tot_f = np.asarray(_st.getForces(asNumpy=True).value_in_unit(
-                    unit.kilojoules_per_mole/unit.nanometer))
-                _tot_f_ok = bool(np.all(np.isfinite(_tot_f)))
-                _tot_f_absmax = float(np.max(np.abs(_tot_f))) if _tot_f.size else None
-                if (not _pos_ok) or (not _e_ok) or (not _tot_f_ok):
-                    _payload = {"sessionId":"aa6c5a","runId":"pre-fix","hypothesisId":"H","location":"sampling_methods/openmm_interface.py:_step","message":"first non-finite state after chunk","data":{"current_step":_start_step,"chunk":_chunk,"metadyn_frequency":_freq,"probe_interval":_probe,"force_removed":_force_removed,"n_custom_cv":sum(1 for i in range(self._simulation_obj.system.getNumForces()) if self._simulation_obj.system.getForce(i).__class__.__name__=="CustomCVForce"),"energy_kj_mol":_e if _e_ok else str(_e),"positions_finite":_pos_ok,"energy_finite":_e_ok,"total_force_finite":_tot_f_ok,"total_force_absmax":_tot_f_absmax},"timestamp":int(_time.time()*1000)}
-                    _line = _json.dumps(_payload, default=str)
-                    for _path in ("/home/lvotapka/seekr/.cursor/debug-aa6c5a.log","/u/lvotapka/seekr/.cursor/debug-aa6c5a.log"):
-                        try:
-                            with _builtins.open(_path,"a") as _f:
-                                _f.write(_line+"\n")
-                        except Exception:
-                            pass
-                    logger.error("DEBUG_AA6C5A " + _line)
-                    break
-                elif _start_step <= 25000 and (_start_step % _probe)==0:
-                    _cv = None
-                    _bias_max = None
-                    _bias_energy = None
-                    _cv_force_absmax = None
-                    _cv_force_finite = None
-                    if self._metadynamics_obj is not None and not _force_removed:
-                        try:
-                            _cv = [float(x) for x in self._metadynamics_obj.getCollectiveVariables(
-                                self._simulation_obj)]
-                        except Exception as _e:
-                            _cv = f"err:{type(_e).__name__}"
-                        try:
-                            _bias = np.asarray(self._metadynamics_obj._totalBias)
-                            _bias_max = float(np.max(np.abs(_bias))) if _bias.size else None
-                        except Exception:
-                            pass
-                        try:
-                            _fg = self._metadynamics_obj._force.getForceGroup()
-                            _bst = self._simulation_obj.context.getState(
-                                getEnergy=True, getForces=True, groups={_fg})
-                            _bias_energy = float(
-                                _bst.getPotentialEnergy().value_in_unit(unit.kilojoules_per_mole))
-                            _ff = np.asarray(_bst.getForces(asNumpy=True).value_in_unit(
-                                unit.kilojoules_per_mole/unit.nanometer))
-                            _cv_force_finite = bool(np.all(np.isfinite(_ff)))
-                            _cv_force_absmax = float(np.max(np.abs(_ff))) if _ff.size else None
-                        except Exception as _be:
-                            _bias_energy = f"err:{type(_be).__name__}"
-                    _payload = {"sessionId":"aa6c5a","runId":"pre-fix","hypothesisId":"C_C2","location":"sampling_methods/openmm_interface.py:_step","message":"boundary energy/force probe","data":{"current_step":_start_step,"metadyn_frequency":_freq,"probe_interval":_probe,"force_removed":_force_removed,"energy_kj_mol":float(_e),"positions_finite":True,"cv_values":_cv,"bias_table_absmax":_bias_max,"metad_bias_energy_kj_mol":_bias_energy,"customcv_force_absmax_kj_mol_nm":_cv_force_absmax,"customcv_force_finite":_cv_force_finite,"total_force_absmax_kj_mol_nm":_tot_f_absmax,"total_force_finite":_tot_f_ok,"n_custom_cv":sum(1 for i in range(self._simulation_obj.system.getNumForces()) if self._simulation_obj.system.getForce(i).__class__.__name__=="CustomCVForce"),"numpy_version":str(np.__version__)},"timestamp":int(_time.time()*1000)}
-                    _line = _json.dumps(_payload, default=str)
-                    for _path in ("/home/lvotapka/seekr/.cursor/debug-aa6c5a.log","/u/lvotapka/seekr/.cursor/debug-aa6c5a.log"):
-                        try:
-                            with _builtins.open(_path,"a") as _f:
-                                _f.write(_line+"\n")
-                        except Exception:
-                            pass
-                    logger.error("DEBUG_AA6C5A " + _line)
-            except Exception:
-                pass
+        self._metadynamics_obj.step(self._simulation_obj, steps)
         return
-        # #endregion
 
     def post_simulation_procedures(
             self, 
@@ -1046,10 +790,6 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
         """
         Save the metadynamics free energy energy landscape.
         """
-        # #region agent log
-        if self._metadynamics_obj is None:
-            return
-        # #endregion
         dG = self._metadynamics_obj.getFreeEnergy().value_in_unit(kcal_per_mol)
         dG = dG - np.min(dG)
         dG_filename = os.path.join(self._running_directory, "dG_metaD.txt")
