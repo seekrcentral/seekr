@@ -837,12 +837,7 @@ class Sim_openmm:
             self.platform = openmm.Platform.getPlatformByName("CUDA")
             self.properties = {"CudaDeviceIndex": platform_settings.device_index, 
                                "CudaPrecision": platform_settings.precision,
-                               # #region agent log
-                               # Hypothesis G: DeterministicForces+mixed unstable on this GPU.
-                               # Temporarily false for HPC mixed-precision diagnosis.
-                               "DeterministicForces": "false"
-                               # #endregion
-                               }
+                               "DeterministicForces": "true"}
         else:
             raise Exception("Platform not recognized: "\
                             f"{platform_settings.type}")

@@ -928,8 +928,14 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
                             pass
                     logger.error("DEBUG_AA6C5A " + _line)
                     break
-                elif _start_step <= 2000 and (_start_step % _freq)==0:
-                    _payload = {"sessionId":"aa6c5a","runId":"pre-fix","hypothesisId":"H","location":"sampling_methods/openmm_interface.py:_step","message":"metadynamics boundary energy probe","data":{"current_step":_start_step,"metadyn_frequency":_freq,"energy_kj_mol":float(_e),"positions_finite":True},"timestamp":int(_time.time()*1000)}
+                elif _start_step <= 25000 and (_start_step % _freq)==0:
+                    _cv = None
+                    try:
+                        _cv = [float(x) for x in self._metadynamics_obj.getCollectiveVariables(
+                            self._simulation_obj)]
+                    except Exception as _e:
+                        _cv = f"err:{type(_e).__name__}"
+                    _payload = {"sessionId":"aa6c5a","runId":"pre-fix","hypothesisId":"J","location":"sampling_methods/openmm_interface.py:_step","message":"metadynamics boundary energy probe","data":{"current_step":_start_step,"metadyn_frequency":_freq,"energy_kj_mol":float(_e),"positions_finite":True,"cv_values":_cv,"gaussian_height":float(self.sampling_method.gaussian_height) if hasattr(self.sampling_method,"gaussian_height") else None,"bias_factor":float(self.sampling_method.bias_factor) if hasattr(self.sampling_method,"bias_factor") else None},"timestamp":int(_time.time()*1000)}
                     _line = _json.dumps(_payload, default=str)
                     for _path in ("/home/lvotapka/seekr/.cursor/debug-aa6c5a.log","/u/lvotapka/seekr/.cursor/debug-aa6c5a.log"):
                         try:
