@@ -850,6 +850,25 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
         except Exception:
             pass
         # #endregion
+        if any(not np.isfinite(v) for v in cv_values):
+            # #region agent log
+            try:
+                _ctx = self._simulation_obj.context
+                _st = _ctx.getState(getPositions=True, getVelocities=True)
+                _pos_ok = bool(np.all(np.isfinite(np.asarray(_st.getPositions(asNumpy=True)))))
+                _vel_ok = bool(np.all(np.isfinite(np.asarray(_st.getVelocities(asNumpy=True)))))
+            except Exception:
+                _pos_ok = None
+                _vel_ok = None
+            # #endregion
+            if _pos_ok is False or _vel_ok is False:
+                raise RuntimeError(
+                    "Simulation state has non-finite positions/velocities "
+                    f"(step {getattr(self._simulation_obj, 'currentStep', '?')}); "
+                    "the trajectory has likely exploded. CV values are NaN as a "
+                    "consequence. Check timestep, constraints, CUDA precision "
+                    "(try 'double'), and metadynamics height/width."
+                )
         for i in range(len(cv_values)):
             assert np.isfinite(cv_values[i]), \
                 f"CV value {cv_values[i]} is not finite."
