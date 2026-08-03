@@ -137,28 +137,11 @@ def make_topology_system_from_forcefield(
 def make_topology_system_from_xml(
         openmm_system_obj: engines_structures.Openmm_system,
         directory: str, 
-        nonbonded_method: typing.Any,
-        nonbonded_cutoff: unit.Quantity | None,
-        constraints: typing.Any,
-        hydrogenMass: unit.Quantity | None
         ) -> openmm.System:
     """
     Load the OpenMM system XML from the 
     provided object, and return OpenMM system.
     """
-    # TODO: enforce these assertions since the prepare stage.
-    assert nonbonded_method is None, \
-        "When an OpenMM system is loaded from XML, the nonbonded method "\
-        "is already set within the XML file, so it should not be provided."
-    assert nonbonded_cutoff is None, \
-        "When an OpenMM system is loaded from XML, the nonbonded cutoff "\
-        "is already set within the XML file, so it should not be provided."
-    assert constraints is None, \
-        "When an OpenMM system is loaded from XML, the constraints "\
-        "are already set within the XML file, so it should not be provided."
-    assert hydrogenMass is None, \
-        "When an OpenMM system is loaded from XML, the hydrogen mass "\
-        "is already set within the XML file, so it should not be provided."
     system_xml_filename = os.path.join(
         directory, openmm_system_obj.system_filename)
     with open(system_xml_filename) as input:
@@ -213,6 +196,7 @@ def create_openmm_system(
     # TODO: This isn't right - how do we get the correct stage parameters
     # Given a stage index? The list here will not be indexed correctly...
     # Solution: add Nones to stage_parameters
+    system = None
     md_engine = model.get_engine_by_scale_type("molecular_dynamics")
     assert md_engine.type == "openmm"
     nonbonded_method = md_engine.nonbonded_method
@@ -343,7 +327,15 @@ def create_openmm_system(
                 md_engine.nonbonded_cutoff, constraints, hydrogenMass)
             assert pdb_obj is not None
             topology = pdb_obj.topology
+        elif md_parameters_topology.type == "OpenMM_system":
+            system = make_topology_system_from_xml(
+                md_parameters_topology, md_parameters_directory)
+            assert pdb_obj is not None
+            topology = pdb_obj.topology
 
+    assert system is not None, \
+        "md_parameters_topology.type not found: "\
+        f"{md_parameters_topology.type}"
     # set all non-milestoning force groups to zero
     for force in system.getForces():
         force.setForceGroup(0)

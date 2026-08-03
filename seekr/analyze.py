@@ -48,6 +48,9 @@ def analyze_all(
         stages_to_analyze = [run.extract_stage_index(model, stage_arg)]
     anything_analyzed = False
     for stage_index in stages_to_analyze:
+        if not hasattr(model.stages[stage_index-1], "sampling_method"):
+            # Logistic stage without a sampling method.
+            continue
         analysis = analyzer.analyze(
             model, stage_index=stage_index, skip_checks=skip_checks,
             min_time_ps=min_time_ps, max_time_ps=max_time_ps,
@@ -65,6 +68,8 @@ def analyze_all(
     os.chdir(curdir)
     if not anything_analyzed:
         print("No stages were analyzed.")
+    # return the last stage analyzed.
+    return analysis
     
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser(description=__doc__)
