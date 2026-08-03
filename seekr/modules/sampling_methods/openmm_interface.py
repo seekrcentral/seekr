@@ -745,54 +745,110 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
             saveFrequency=save_frequency, biasDir=metadyn_bias_dir)
         
         self._simulation_obj.context.reinitialize(preserveState=True)
+        # CustomCVForce collective-variable values are only populated after a
+        # force/energy evaluation. After reinitialize (and especially on
+        # checkpoint restart when currentStep lands on a reporter interval),
+        # reporters may call get_cv_values() before any MD force evaluation,
+        # which would otherwise return NaN. Warm up the force cache here.
+        self._simulation_obj.context.getState(getEnergy=True)
         self._running_directory = kwargs["directory"]
         return
     
     def get_cv_values(
             self
             ) -> list | None:
-        cv_values = self._metadynamics_obj.getCollectiveVariables(
-            self._simulation_obj)
+        cv_values = list(self._metadynamics_obj.getCollectiveVariables(
+            self._simulation_obj))
         # #region agent log
-        import json as _json, time as _time, builtins as _builtins
-        _pos_finite = None
-        _vel_finite = None
-        _n_particles = None
-        _platform = None
-        _precision = None
-        _step = None
-        try:
-            _ctx = self._simulation_obj.context
-            _state = _ctx.getState(getPositions=True, getVelocities=True)
-            _pos = _state.getPositions(asNumpy=True)
-            _vel = _state.getVelocities(asNumpy=True)
-            _pos_finite = bool(np.all(np.isfinite(_pos)))
-            _vel_finite = bool(np.all(np.isfinite(_vel)))
-            _n_particles = int(_pos.shape[0])
-            _step = int(self._simulation_obj.currentStep)
-            _platform = _ctx.getPlatform().getName()
-            try:
-                _precision = _ctx.getPlatform().getPropertyValue(_ctx, "Precision")
-            except Exception:
-                _precision = None
-        except Exception as _e:
-            _pos_finite = f"err:{type(_e).__name__}:{_e}"
-        _payload = {"sessionId":"aa6c5a","runId":"pre-fix","hypothesisId":"A","location":"sampling_methods/openmm_interface.py:get_cv_values","message":"metadynamics CV check","data":{"cv_values":[float(v) if np.isfinite(v) else str(v) for v in cv_values],"has_nan":any(not np.isfinite(v) for v in cv_values),"positions_finite":_pos_finite,"velocities_finite":_vel_finite,"n_particles":_n_particles,"current_step":_step,"platform":_platform,"precision":_precision,"openmm_version":getattr(openmm,"version","?"),"numpy_version":np.__version__},"timestamp":int(_time.time()*1000)}
         global _DBG_CV_LOGGED_ONCE
-        _should_log = _payload["data"]["has_nan"] or not _DBG_CV_LOGGED_ONCE
-        if _should_log:
-            _DBG_CV_LOGGED_ONCE = True
+        try:
+            import json as _json, time as _time, builtins as _builtins
+            def _safe(v):
+                try:
+                    if v is None:
+                        return None
+                    if isinstance(v, (bool, int, str)):
+                        return v
+                    if isinstance(v, float):
+                        return v if np.isfinite(v) else str(v)
+                    if isinstance(v, (list, tuple)):
+                        return [_safe(x) for x in v]
+                    return str(v)
+                except Exception:
+                    return "<unprintable>"
+            _pos_finite = None
+            _vel_finite = None
+            _step = None
+            _platform = None
+            _precision = None
+            _omm_ver = None
             try:
-                with _builtins.open("/home/lvotapka/seekr/.cursor/debug-aa6c5a.log", "a") as _f:
-                    _f.write(_json.dumps(_payload)+"\n")
+                _omm_ver = str(openmm.version.version)
             except Exception:
-                pass
+                _omm_ver = "unknown"
             try:
-                with _builtins.open("/u/lvotapka/seekr/.cursor/debug-aa6c5a.log", "a") as _f:
-                    _f.write(_json.dumps(_payload)+"\n")
-            except Exception:
-                pass
-            logger.error("DEBUG_AA6C5A " + _json.dumps(_payload))
+                _ctx = self._simulation_obj.context
+                _st = _ctx.getState(getPositions=True, getVelocities=True)
+                _pos = np.asarray(_st.getPositions(asNumpy=True))
+                _vel = np.asarray(_st.getVelocities(asNumpy=True))
+                _pos_finite = bool(np.all(np.isfinite(_pos)))
+                _vel_finite = bool(np.all(np.isfinite(_vel)))
+                _step = int(self._simulation_obj.currentStep)
+                _platform = str(_ctx.getPlatform().getName())
+                try:
+                    _precision = str(_ctx.getPlatform().getPropertyValue(_ctx, "Precision"))
+                except Exception:
+                    _precision = None
+            except Exception as _e:
+                _pos_finite = f"err:{type(_e).__name__}"
+            _has_nan = any(not np.isfinite(v) for v in cv_values)
+            _cv_after = None
+            if _has_nan:
+                try:
+                    self._simulation_obj.context.getState(getEnergy=True)
+                    _cv_after = list(self._metadynamics_obj.getCollectiveVariables(
+                        self._simulation_obj))
+                    cv_values = _cv_after
+                except Exception as _e:
+                    _cv_after = f"err:{type(_e).__name__}"
+            _payload = {
+                "sessionId": "aa6c5a",
+                "runId": "post-fix",
+                "hypothesisId": "F",
+                "location": "sampling_methods/openmm_interface.py:get_cv_values",
+                "message": "metadynamics CV check",
+                "data": {
+                    "cv_values_initial_had_nan": _has_nan,
+                    "cv_values": _safe(cv_values),
+                    "cv_after_energy_eval": _safe(_cv_after),
+                    "positions_finite": _pos_finite,
+                    "velocities_finite": _vel_finite,
+                    "current_step": _step,
+                    "platform": _platform,
+                    "precision": _precision,
+                    "openmm_version": _omm_ver,
+                    "numpy_version": str(np.__version__),
+                },
+                "timestamp": int(_time.time() * 1000),
+            }
+            if _has_nan or not _DBG_CV_LOGGED_ONCE:
+                _DBG_CV_LOGGED_ONCE = True
+                _line = _json.dumps(_payload, default=str)
+                for _path in (
+                    "/home/lvotapka/seekr/.cursor/debug-aa6c5a.log",
+                    "/u/lvotapka/seekr/.cursor/debug-aa6c5a.log",
+                ):
+                    try:
+                        with _builtins.open(_path, "a") as _f:
+                            _f.write(_line + "\n")
+                    except Exception:
+                        pass
+                try:
+                    logger.error("DEBUG_AA6C5A " + _line)
+                except Exception:
+                    pass
+        except Exception:
+            pass
         # #endregion
         for i in range(len(cv_values)):
             assert np.isfinite(cv_values[i]), \
