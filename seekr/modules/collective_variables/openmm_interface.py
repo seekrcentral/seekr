@@ -78,7 +78,13 @@ class Distance_cv_openmm_interface:
         force.addBond(group_list, [])
         # NOTE: without this, the CVs will sometimes suffer from 
         # jumps caused by periodic boundary affects.
-        force.setUsesPeriodicBoundaryConditions(True)
+        # #region agent log
+        # Hypothesis P2: CustomCentroidBondForce+PBC inside CustomCVForce may
+        # be unstable on A100 mixed. SEEKR_DEBUG_CV_NO_PBC=1 disables PBC.
+        import os as _os
+        _use_pbc = _os.environ.get("SEEKR_DEBUG_CV_NO_PBC") != "1"
+        force.setUsesPeriodicBoundaryConditions(_use_pbc)
+        # #endregion
         return
 
     def make_voronoi_cv_boundary_forces(

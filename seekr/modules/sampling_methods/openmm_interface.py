@@ -763,7 +763,29 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
         self._simulation_obj.context.getState(getEnergy=True)
         self._running_directory = kwargs["directory"]
         # #region agent log
-        # Hypotheses N/P/B/U: numpy, PBC/box, stale bias files, update path.
+        # Hypothesis C: presence of CustomCVForce alone causes A100 mixed blowup.
+        # SEEKR_DEBUG_REMOVE_METAD_FORCE=1 removes it after setup (conventional
+        # MD with leftover metadynamics bookkeeping).
+        _remove_metad_force = os.environ.get("SEEKR_DEBUG_REMOVE_METAD_FORCE") == "1"
+        _metad_force_removed = False
+        if _remove_metad_force:
+            try:
+                _fi = None
+                for _i in range(system.getNumForces()):
+                    if system.getForce(_i) is self._metadynamics_obj._force:
+                        _fi = _i
+                        break
+                if _fi is not None:
+                    system.removeForce(_fi)
+                    self._simulation_obj.context.reinitialize(preserveState=True)
+                    self._simulation_obj.context.getState(getEnergy=True)
+                    _metad_force_removed = True
+                    self._dbg_metad_force_removed = True
+            except Exception:
+                _metad_force_removed = False
+        # #endregion
+        # #region agent log
+        # Hypotheses N/P/B/U/C/P2: numpy, PBC/box, bias, CustomCVForce presence.
         try:
             import json as _json, time as _time, builtins as _builtins
             _ctx = self._simulation_obj.context
@@ -854,6 +876,12 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
                     "steps_per_update": int(steps_per_metadyn_update),
                     "skip_metad_updates_env": _skip_metad_updates,
                     "system_uses_pbc": bool(system.usesPeriodicBoundaryConditions()),
+                    "cv_no_pbc_env": os.environ.get("SEEKR_DEBUG_CV_NO_PBC") == "1",
+                    "remove_metad_force_env": _remove_metad_force,
+                    "metad_force_removed": _metad_force_removed,
+                    "n_custom_cv_forces_after_remove": sum(
+                        1 for i in range(system.getNumForces())
+                        if system.getForce(i).__class__.__name__ == "CustomCVForce"),
                 },
                 "timestamp": int(_time.time() * 1000),
             }
@@ -876,6 +904,11 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
     def get_cv_values(
             self
             ) -> list | None:
+        # #region agent log
+        if getattr(self, "_dbg_metad_force_removed", False):
+            # Force removed for isolation test; return a finite placeholder.
+            return [0.0]
+        # #endregion
         cv_values = list(self._metadynamics_obj.getCollectiveVariables(
             self._simulation_obj))
         # #region agent log
@@ -1013,20 +1046,24 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
         assert self._metadynamics_obj is not None
         assert self._simulation_obj is not None
         # #region agent log
-        # Hypothesis H: blowup correlates with metadynamics Gaussian updates.
-        # Take short chunks and log the first non-finite energy/positions.
+        # Hypothesis H/C/P2: blowup from CustomCVForce (+ optional PBC).
+        # Probe at most every 250 steps even when metad frequency is huge.
         import json as _json, time as _time, builtins as _builtins
         global _DBG_CV_LOGGED_ONCE
         _freq = max(int(getattr(self._metadynamics_obj, "frequency", 250) or 250), 1)
+        _probe = min(_freq, 250)
+        _force_removed = bool(getattr(self, "_dbg_metad_force_removed", False))
         _remaining = int(steps)
         _start_step = int(self._simulation_obj.currentStep)
         while _remaining > 0:
-            _chunk = min(_remaining, _freq)
-            # Align to next metadynamics boundary when possible.
-            _mod = _start_step % _freq
+            _chunk = min(_remaining, _probe)
+            _mod = _start_step % _probe
             if _mod != 0:
-                _chunk = min(_remaining, _freq - _mod)
-            self._metadynamics_obj.step(self._simulation_obj, _chunk)
+                _chunk = min(_remaining, _probe - _mod)
+            if _force_removed:
+                self._simulation_obj.step(_chunk)
+            else:
+                self._metadynamics_obj.step(self._simulation_obj, _chunk)
             _start_step = int(self._simulation_obj.currentStep)
             _remaining -= _chunk
             try:
@@ -1037,7 +1074,7 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
                 _pos_ok = bool(np.all(np.isfinite(_pos)))
                 _e_ok = bool(np.isfinite(_e))
                 if (not _pos_ok) or (not _e_ok):
-                    _payload = {"sessionId":"aa6c5a","runId":"pre-fix","hypothesisId":"H","location":"sampling_methods/openmm_interface.py:_step","message":"first non-finite state after metadynamics chunk","data":{"current_step":_start_step,"chunk":_chunk,"metadyn_frequency":_freq,"on_metadyn_boundary":(_start_step % _freq)==0,"energy_kj_mol":_e if _e_ok else str(_e),"positions_finite":_pos_ok,"energy_finite":_e_ok},"timestamp":int(_time.time()*1000)}
+                    _payload = {"sessionId":"aa6c5a","runId":"pre-fix","hypothesisId":"H","location":"sampling_methods/openmm_interface.py:_step","message":"first non-finite state after metadynamics chunk","data":{"current_step":_start_step,"chunk":_chunk,"metadyn_frequency":_freq,"probe_interval":_probe,"force_removed":_force_removed,"on_metadyn_boundary":(_start_step % _freq)==0,"energy_kj_mol":_e if _e_ok else str(_e),"positions_finite":_pos_ok,"energy_finite":_e_ok},"timestamp":int(_time.time()*1000)}
                     _line = _json.dumps(_payload, default=str)
                     for _path in ("/home/lvotapka/seekr/.cursor/debug-aa6c5a.log","/u/lvotapka/seekr/.cursor/debug-aa6c5a.log"):
                         try:
@@ -1047,35 +1084,37 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
                             pass
                     logger.error("DEBUG_AA6C5A " + _line)
                     break
-                elif _start_step <= 25000 and (_start_step % _freq)==0:
+                elif _start_step <= 25000 and (_start_step % _probe)==0:
                     _cv = None
-                    try:
-                        _cv = [float(x) for x in self._metadynamics_obj.getCollectiveVariables(
-                            self._simulation_obj)]
-                    except Exception as _e:
-                        _cv = f"err:{type(_e).__name__}"
-                    _box_nm = None
+                    if not _force_removed:
+                        try:
+                            _cv = [float(x) for x in self._metadynamics_obj.getCollectiveVariables(
+                                self._simulation_obj)]
+                        except Exception as _e:
+                            _cv = f"err:{type(_e).__name__}"
                     _bias_max = None
                     _bias_energy = None
-                    try:
-                        _box = self._simulation_obj.context.getState().getPeriodicBoxVectors()
-                        _box_nm = [[float(c) for c in v.value_in_unit(unit.nanometers)] for v in _box]
-                    except Exception:
-                        pass
+                    _cv_force_absmax = None
+                    _cv_force_finite = None
                     try:
                         _bias = np.asarray(self._metadynamics_obj._totalBias)
                         _bias_max = float(np.max(np.abs(_bias))) if _bias.size else None
                     except Exception:
                         pass
-                    try:
-                        _fg = self._metadynamics_obj._force.getForceGroup()
-                        _bias_energy = float(
-                            self._simulation_obj.context.getState(
-                                getEnergy=True, groups={_fg}
-                            ).getPotentialEnergy().value_in_unit(unit.kilojoules_per_mole))
-                    except Exception as _be:
-                        _bias_energy = f"err:{type(_be).__name__}"
-                    _payload = {"sessionId":"aa6c5a","runId":"pre-fix","hypothesisId":"P_B_U","location":"sampling_methods/openmm_interface.py:_step","message":"metadynamics boundary energy probe","data":{"current_step":_start_step,"metadyn_frequency":_freq,"energy_kj_mol":float(_e),"positions_finite":True,"cv_values":_cv,"gaussian_height":float(self.sampling_method.gaussian_height) if hasattr(self.sampling_method,"gaussian_height") else None,"bias_factor":float(self.sampling_method.bias_factor) if hasattr(self.sampling_method,"bias_factor") else None,"box_vectors_nm":_box_nm,"bias_table_absmax":_bias_max,"metad_bias_energy_kj_mol":_bias_energy,"numpy_version":str(np.__version__)},"timestamp":int(_time.time()*1000)}
+                    if not _force_removed:
+                        try:
+                            _fg = self._metadynamics_obj._force.getForceGroup()
+                            _bst = self._simulation_obj.context.getState(
+                                getEnergy=True, getForces=True, groups={_fg})
+                            _bias_energy = float(
+                                _bst.getPotentialEnergy().value_in_unit(unit.kilojoules_per_mole))
+                            _ff = np.asarray(_bst.getForces(asNumpy=True).value_in_unit(
+                                unit.kilojoules_per_mole/unit.nanometer))
+                            _cv_force_finite = bool(np.all(np.isfinite(_ff)))
+                            _cv_force_absmax = float(np.max(np.abs(_ff))) if _ff.size else None
+                        except Exception as _be:
+                            _bias_energy = f"err:{type(_be).__name__}"
+                    _payload = {"sessionId":"aa6c5a","runId":"pre-fix","hypothesisId":"C_P2","location":"sampling_methods/openmm_interface.py:_step","message":"metadynamics boundary energy/force probe","data":{"current_step":_start_step,"metadyn_frequency":_freq,"probe_interval":_probe,"force_removed":_force_removed,"energy_kj_mol":float(_e),"positions_finite":True,"cv_values":_cv,"gaussian_height":float(self.sampling_method.gaussian_height) if hasattr(self.sampling_method,"gaussian_height") else None,"bias_table_absmax":_bias_max,"metad_bias_energy_kj_mol":_bias_energy,"customcv_force_absmax_kj_mol_nm":_cv_force_absmax,"customcv_force_finite":_cv_force_finite,"cv_no_pbc_env":os.environ.get("SEEKR_DEBUG_CV_NO_PBC")=="1","numpy_version":str(np.__version__)},"timestamp":int(_time.time()*1000)}
                     _line = _json.dumps(_payload, default=str)
                     for _path in ("/home/lvotapka/seekr/.cursor/debug-aa6c5a.log","/u/lvotapka/seekr/.cursor/debug-aa6c5a.log"):
                         try:
