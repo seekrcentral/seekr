@@ -893,7 +893,53 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
         """
         assert self._metadynamics_obj is not None
         assert self._simulation_obj is not None
-        self._metadynamics_obj.step(self._simulation_obj, steps)
+        # #region agent log
+        # Hypothesis H: blowup correlates with metadynamics Gaussian updates.
+        # Take short chunks and log the first non-finite energy/positions.
+        import json as _json, time as _time, builtins as _builtins
+        global _DBG_CV_LOGGED_ONCE
+        _freq = max(int(getattr(self._metadynamics_obj, "frequency", 250) or 250), 1)
+        _remaining = int(steps)
+        _start_step = int(self._simulation_obj.currentStep)
+        while _remaining > 0:
+            _chunk = min(_remaining, _freq)
+            # Align to next metadynamics boundary when possible.
+            _mod = _start_step % _freq
+            if _mod != 0:
+                _chunk = min(_remaining, _freq - _mod)
+            self._metadynamics_obj.step(self._simulation_obj, _chunk)
+            _start_step = int(self._simulation_obj.currentStep)
+            _remaining -= _chunk
+            try:
+                _st = self._simulation_obj.context.getState(
+                    getEnergy=True, getPositions=True)
+                _pos = np.asarray(_st.getPositions(asNumpy=True))
+                _e = _st.getPotentialEnergy().value_in_unit(unit.kilojoules_per_mole)
+                _pos_ok = bool(np.all(np.isfinite(_pos)))
+                _e_ok = bool(np.isfinite(_e))
+                if (not _pos_ok) or (not _e_ok):
+                    _payload = {"sessionId":"aa6c5a","runId":"pre-fix","hypothesisId":"H","location":"sampling_methods/openmm_interface.py:_step","message":"first non-finite state after metadynamics chunk","data":{"current_step":_start_step,"chunk":_chunk,"metadyn_frequency":_freq,"on_metadyn_boundary":(_start_step % _freq)==0,"energy_kj_mol":_e if _e_ok else str(_e),"positions_finite":_pos_ok,"energy_finite":_e_ok},"timestamp":int(_time.time()*1000)}
+                    _line = _json.dumps(_payload, default=str)
+                    for _path in ("/home/lvotapka/seekr/.cursor/debug-aa6c5a.log","/u/lvotapka/seekr/.cursor/debug-aa6c5a.log"):
+                        try:
+                            with _builtins.open(_path,"a") as _f:
+                                _f.write(_line+"\n")
+                        except Exception:
+                            pass
+                    logger.error("DEBUG_AA6C5A " + _line)
+                    break
+                elif _start_step <= 2000 and (_start_step % _freq)==0:
+                    _payload = {"sessionId":"aa6c5a","runId":"pre-fix","hypothesisId":"H","location":"sampling_methods/openmm_interface.py:_step","message":"metadynamics boundary energy probe","data":{"current_step":_start_step,"metadyn_frequency":_freq,"energy_kj_mol":float(_e),"positions_finite":True},"timestamp":int(_time.time()*1000)}
+                    _line = _json.dumps(_payload, default=str)
+                    for _path in ("/home/lvotapka/seekr/.cursor/debug-aa6c5a.log","/u/lvotapka/seekr/.cursor/debug-aa6c5a.log"):
+                        try:
+                            with _builtins.open(_path,"a") as _f:
+                                _f.write(_line+"\n")
+                        except Exception:
+                            pass
+                    logger.error("DEBUG_AA6C5A " + _line)
+            except Exception:
+                pass
         return
 
     def post_simulation_procedures(
