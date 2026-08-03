@@ -20,6 +20,35 @@ import seekr.modules.base as base
 
 logger = logging.getLogger(__name__)
 
+TOPOLOGY_PDB_BASENAME = "topology.pdb"
+
+def _copy_topology_pdb(
+        topology_filename: str,
+        dest_directory: str,
+        positions_pdb: str | None = None
+        ) -> str:
+    """
+    Copy a topology PDB into dest_directory. Prefer topology_filename when
+    set; otherwise copy positions_pdb as TOPOLOGY_PDB_BASENAME.
+    Returns the basename stored on the model.
+    """
+    if topology_filename != "":
+        topology_basename = os.path.basename(topology_filename)
+        dest_path = os.path.join(dest_directory, topology_basename)
+        full_topology_filename = os.path.expanduser(topology_filename)
+        logger.info(f"Copying topology PDB file: {full_topology_filename} "
+                    f"to anchor directory: {dest_path}.")
+        copyfile(full_topology_filename, dest_path)
+        return topology_basename
+    assert positions_pdb is not None and positions_pdb != "", \
+        "topology_filename must be set, or a positions PDB must be provided."
+    dest_path = os.path.join(dest_directory, TOPOLOGY_PDB_BASENAME)
+    full_positions_pdb = os.path.expanduser(positions_pdb)
+    logger.info(f"Copying positions PDB as topology: {full_positions_pdb} "
+                f"to anchor directory: {dest_path}.")
+    copyfile(full_positions_pdb, dest_path)
+    return TOPOLOGY_PDB_BASENAME
+
 # NOTE: this one seems only to be used by modules/structures.py and
 # some engines structures.py modules, so it seems best placed here for
 # now, even though it's not exclusive to engines.
@@ -282,7 +311,9 @@ class Amber_parameters_topology:
     def copy_files(
             self,
             dest_directory: str,
-            new_md_parameters_topology: "Parameters_topology") -> None:
+            new_md_parameters_topology: "Parameters_topology",
+            positions_pdb: str | None = None
+            ) -> None:
         """
         Copy the files for the initial 'stage' from this Anchor_input
         to the actual anchor.
@@ -321,7 +352,9 @@ class Gromacs_parameters_topology:
     def copy_files(
             self,
             dest_directory: str,
-            new_md_parameters_topology: "Parameters_topology") -> None:
+            new_md_parameters_topology: "Parameters_topology",
+            positions_pdb: str | None = None
+            ) -> None:
         """
         Copy the files for the initial 'stage' from this Anchor_input
         to the actual anchor.
@@ -370,9 +403,12 @@ class Charmm_parameters_topology:
         else:
             return False
         
-    def copy_files(self,
-                   dest_directory: str,
-                   new_md_parameters_topology: "Parameters_topology") -> None:
+    def copy_files(
+            self,
+            dest_directory: str,
+            new_md_parameters_topology: "Parameters_topology",
+            positions_pdb: str | None = None
+            ) -> None:
         """
         Copy the files for the initial 'stage' from this Anchor_input
         to the actual anchor.
@@ -419,6 +455,8 @@ class Forcefield_parameters:
             member_validator=validators.instance_of(str),
             iterable_validator=validators.instance_of(list),
         ))
+    topology_filename: str = field(
+        default="", validator=validators.instance_of(str))
     
     def same_parameters(
             self, 
@@ -428,7 +466,8 @@ class Forcefield_parameters:
         if (self.built_in_forcefield_filenames \
                 == other.built_in_forcefield_filenames) \
                 and (self.custom_forcefield_filenames \
-                     == other.custom_forcefield_filenames):
+                     == other.custom_forcefield_filenames) \
+                and (self.topology_filename == other.topology_filename):
             return True
         else:
             return False
@@ -436,7 +475,9 @@ class Forcefield_parameters:
     def copy_files(
             self,
             dest_directory: str,
-            new_md_parameters_topology: "Parameters_topology") -> None:
+            new_md_parameters_topology: "Parameters_topology",
+            positions_pdb: str | None = None
+            ) -> None:
         """
         Copy the files for the initial 'stage' from this Anchor_input
         to the actual anchor.
@@ -466,21 +507,25 @@ class Forcefield_parameters:
             new_custom_forcefield_filenames.append(forcefield_basename)
         new_md_parameters_topology.custom_forcefield_filenames \
             = new_custom_forcefield_filenames
+        new_md_parameters_topology.topology_filename = _copy_topology_pdb(
+            self.topology_filename, dest_directory, positions_pdb)
         return
     
 @define
 class Openmm_system:
     type: typing.Literal["OpenMM_system"] = "OpenMM_system"
-    # TODO: add topology file? Make it optional?
     system_filename: str = field(default="",
                                 validator=validators.instance_of(str))
+    topology_filename: str = field(
+        default="", validator=validators.instance_of(str))
     
     def same_parameters(
             self, 
             other: "Parameters_topology"
             ) -> bool:
         assert self.type == other.type, "Type mismatch."
-        if self.system_filename == other.system_filename:
+        if (self.system_filename == other.system_filename) \
+                and (self.topology_filename == other.topology_filename):
             return True
         else:
             return False
@@ -488,7 +533,9 @@ class Openmm_system:
     def copy_files(
             self,
             dest_directory: str,
-            new_md_parameters_topology: "Parameters_topology") -> None:
+            new_md_parameters_topology: "Parameters_topology",
+            positions_pdb: str | None = None
+            ) -> None:
         """
         Copy the files for the initial 'stage' from this Anchor_input
         to the actual anchor.
@@ -503,6 +550,8 @@ class Openmm_system:
                         f"to anchor directory: {anchor_system_full_path}.")
         copyfile(full_system_filename, anchor_system_full_path)
         new_md_parameters_topology.system_filename = system_basename
+        new_md_parameters_topology.topology_filename = _copy_topology_pdb(
+            self.topology_filename, dest_directory, positions_pdb)
         return
 
 Parameters_topology = typing.Union[
