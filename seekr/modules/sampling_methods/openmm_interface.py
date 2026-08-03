@@ -737,6 +737,16 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
             metaD_force_biases.append(force_bias)
         
         assert self._simulation_obj is not None
+        # #region agent log
+        # Hypothesis U: isolate CustomCVForce eval from Gaussian updates.
+        # SEEKR_DEBUG_SKIP_METAD_UPDATES=1 makes frequency huge so no hills
+        # are added during a typical short run.
+        _skip_metad_updates = os.environ.get("SEEKR_DEBUG_SKIP_METAD_UPDATES") == "1"
+        if _skip_metad_updates:
+            steps_per_metadyn_update = 10**9
+            save_frequency = None
+            metadyn_bias_dir = None
+        # #endregion
         self._metadynamics_obj = openmm_app.Metadynamics(
             system, variables=metaD_force_biases, 
             temperature=model.temperature,
@@ -752,6 +762,115 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
         # which would otherwise return NaN. Warm up the force cache here.
         self._simulation_obj.context.getState(getEnergy=True)
         self._running_directory = kwargs["directory"]
+        # #region agent log
+        # Hypotheses N/P/B/U: numpy, PBC/box, stale bias files, update path.
+        try:
+            import json as _json, time as _time, builtins as _builtins
+            _ctx = self._simulation_obj.context
+            _box = _ctx.getState().getPeriodicBoxVectors()
+            _box_nm = [[float(c) for c in v.value_in_unit(unit.nanometers)] for v in _box]
+            _a = np.array(_box_nm[0]); _b = np.array(_box_nm[1]); _c = np.array(_box_nm[2])
+            _vol = float(abs(np.dot(_a, np.cross(_b, _c))))
+            _n_custom_cv = sum(
+                1 for i in range(system.getNumForces())
+                if system.getForce(i).__class__.__name__ == "CustomCVForce")
+            _cv_pbc = []
+            for _f in self._openmm_cv_list or []:
+                try:
+                    _cv_pbc.append(bool(_f.usesPeriodicBoundaryConditions()))
+                except Exception as _e:
+                    _cv_pbc.append(f"err:{type(_e).__name__}")
+            _bias = np.asarray(self._metadynamics_obj._totalBias)
+            _bias_files = []
+            if metadyn_bias_dir and os.path.isdir(metadyn_bias_dir):
+                _bias_files = sorted(
+                    x for x in os.listdir(metadyn_bias_dir) if x.endswith(".npy"))
+            _cv_bounds = []
+            for _bv in metaD_force_biases:
+                _cv_bounds.append({
+                    "min": float(_bv.minValue),
+                    "max": float(_bv.maxValue),
+                    "periodic_var": bool(_bv.periodic),
+                    "gridWidth": int(_bv.gridWidth),
+                    "biasWidth": float(_bv.biasWidth),
+                })
+            # Manual COM distance with/without minimum-image (PBC check).
+            _manual_dist = None
+            _manual_dist_pbc = None
+            try:
+                _pos = np.asarray(
+                    _ctx.getState(getPositions=True).getPositions(asNumpy=True)
+                    .value_in_unit(unit.nanometers))
+                if self._cv_interface_list:
+                    _cv0 = self._cv_interface_list[0]
+                    if hasattr(_cv0, "group1_atom_indices"):
+                        _g1 = np.mean(_pos[_cv0.group1_atom_indices], axis=0)
+                        _g2 = np.mean(_pos[_cv0.group2_atom_indices], axis=0)
+                        _dvec = _g2 - _g1
+                        _manual_dist = float(np.linalg.norm(_dvec))
+                        # Minimum-image for orthogonal/triclinic via fractional coords.
+                        _box_m = np.array(_box_nm).T  # columns = box vectors
+                        _inv = np.linalg.inv(_box_m)
+                        _frac = _inv @ _dvec
+                        _frac -= np.round(_frac)
+                        _manual_dist_pbc = float(np.linalg.norm(_box_m @ _frac))
+            except Exception as _e:
+                _manual_dist = f"err:{type(_e).__name__}:{_e}"
+            _omm_cv = None
+            try:
+                _omm_cv = [float(x) for x in self._metadynamics_obj.getCollectiveVariables(
+                    self._simulation_obj)]
+            except Exception as _e:
+                _omm_cv = f"err:{type(_e).__name__}"
+            _payload = {
+                "sessionId": "aa6c5a",
+                "runId": "pre-fix",
+                "hypothesisId": "N_P_B_U",
+                "location": "sampling_methods/openmm_interface.py:create_sim_openmm",
+                "message": "metadynamics setup: numpy/PBC/bias/box probe",
+                "data": {
+                    "numpy_version": str(np.__version__),
+                    "openmm_version": str(getattr(openmm.version, "version", "?")),
+                    "box_vectors_nm": _box_nm,
+                    "box_volume_nm3": _vol,
+                    "box_lengths_nm": [float(np.linalg.norm(_a)),
+                                      float(np.linalg.norm(_b)),
+                                      float(np.linalg.norm(_c))],
+                    "n_custom_cv_forces": _n_custom_cv,
+                    "cv_force_uses_pbc": _cv_pbc,
+                    "write_biases": bool(self.sampling_method.write_biases),
+                    "bias_dir": metadyn_bias_dir,
+                    "bias_npy_files": _bias_files,
+                    "n_loaded_biases": len(getattr(self._metadynamics_obj, "_loadedBiases", {})),
+                    "bias_table_min": float(np.min(_bias)) if _bias.size else None,
+                    "bias_table_max": float(np.max(_bias)) if _bias.size else None,
+                    "bias_table_sum": float(np.sum(_bias)) if _bias.size else None,
+                    "bias_table_has_nan": bool(np.any(~np.isfinite(_bias))) if _bias.size else None,
+                    "cv_bounds": _cv_bounds,
+                    "openmm_cv_values": _omm_cv,
+                    "manual_com_dist_nm": _manual_dist,
+                    "manual_com_dist_pbc_nm": _manual_dist_pbc,
+                    "gaussian_height": float(metadyn_height),
+                    "steps_per_update": int(steps_per_metadyn_update),
+                    "skip_metad_updates_env": _skip_metad_updates,
+                    "system_uses_pbc": bool(system.usesPeriodicBoundaryConditions()),
+                },
+                "timestamp": int(_time.time() * 1000),
+            }
+            _line = _json.dumps(_payload, default=str)
+            for _path in (
+                "/home/lvotapka/seekr/.cursor/debug-aa6c5a.log",
+                "/u/lvotapka/seekr/.cursor/debug-aa6c5a.log",
+            ):
+                try:
+                    with _builtins.open(_path, "a") as _f:
+                        _f.write(_line + "\n")
+                except Exception:
+                    pass
+            logger.error("DEBUG_AA6C5A " + _line)
+        except Exception:
+            pass
+        # #endregion
         return
     
     def get_cv_values(
@@ -935,7 +1054,28 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
                             self._simulation_obj)]
                     except Exception as _e:
                         _cv = f"err:{type(_e).__name__}"
-                    _payload = {"sessionId":"aa6c5a","runId":"pre-fix","hypothesisId":"J","location":"sampling_methods/openmm_interface.py:_step","message":"metadynamics boundary energy probe","data":{"current_step":_start_step,"metadyn_frequency":_freq,"energy_kj_mol":float(_e),"positions_finite":True,"cv_values":_cv,"gaussian_height":float(self.sampling_method.gaussian_height) if hasattr(self.sampling_method,"gaussian_height") else None,"bias_factor":float(self.sampling_method.bias_factor) if hasattr(self.sampling_method,"bias_factor") else None},"timestamp":int(_time.time()*1000)}
+                    _box_nm = None
+                    _bias_max = None
+                    _bias_energy = None
+                    try:
+                        _box = self._simulation_obj.context.getState().getPeriodicBoxVectors()
+                        _box_nm = [[float(c) for c in v.value_in_unit(unit.nanometers)] for v in _box]
+                    except Exception:
+                        pass
+                    try:
+                        _bias = np.asarray(self._metadynamics_obj._totalBias)
+                        _bias_max = float(np.max(np.abs(_bias))) if _bias.size else None
+                    except Exception:
+                        pass
+                    try:
+                        _fg = self._metadynamics_obj._force.getForceGroup()
+                        _bias_energy = float(
+                            self._simulation_obj.context.getState(
+                                getEnergy=True, groups={_fg}
+                            ).getPotentialEnergy().value_in_unit(unit.kilojoules_per_mole))
+                    except Exception as _be:
+                        _bias_energy = f"err:{type(_be).__name__}"
+                    _payload = {"sessionId":"aa6c5a","runId":"pre-fix","hypothesisId":"P_B_U","location":"sampling_methods/openmm_interface.py:_step","message":"metadynamics boundary energy probe","data":{"current_step":_start_step,"metadyn_frequency":_freq,"energy_kj_mol":float(_e),"positions_finite":True,"cv_values":_cv,"gaussian_height":float(self.sampling_method.gaussian_height) if hasattr(self.sampling_method,"gaussian_height") else None,"bias_factor":float(self.sampling_method.bias_factor) if hasattr(self.sampling_method,"bias_factor") else None,"box_vectors_nm":_box_nm,"bias_table_absmax":_bias_max,"metad_bias_energy_kj_mol":_bias_energy,"numpy_version":str(np.__version__)},"timestamp":int(_time.time()*1000)}
                     _line = _json.dumps(_payload, default=str)
                     for _path in ("/home/lvotapka/seekr/.cursor/debug-aa6c5a.log","/u/lvotapka/seekr/.cursor/debug-aa6c5a.log"):
                         try:
