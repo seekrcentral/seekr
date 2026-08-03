@@ -41,6 +41,7 @@ logger = logging.getLogger(__name__)
 BIAS_DIR_NAME = "metad_bias"
 # #region agent log
 _DBG_CV_LOGGED_ONCE = False
+_DBG_SKIP_METAD_FORCE = False  # True when SEEKR_DEBUG_NO_METAD=1
 # #endregion
 #METADYN_NAME = "metadynamics.{}.swarm_{}"
 #SMD_NAME = "steered.{}.swarm_{}"
@@ -738,31 +739,28 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
         
         assert self._simulation_obj is not None
         # #region agent log
-        # Hypothesis U: isolate CustomCVForce eval from Gaussian updates.
+        # Hypothesis U/C2: isolate Metadynamics/CustomCVForce.
+        # REMOVE_METAD_FORCE abandoned after segfault (unsafe on live System).
+        global _DBG_SKIP_METAD_FORCE
+        _DBG_SKIP_METAD_FORCE = False
         _skip_metad_updates = os.environ.get("SEEKR_DEBUG_SKIP_METAD_UPDATES") == "1"
         if _skip_metad_updates:
             steps_per_metadyn_update = 10**9
             save_frequency = None
             metadyn_bias_dir = None
-        # Hypothesis C2: skip Metadynamics entirely (true conventional-MD control
-        # through the metadynamics runner path).
         _no_metad = os.environ.get("SEEKR_DEBUG_NO_METAD") == "1"
-        _remove_metad_force = os.environ.get("SEEKR_DEBUG_REMOVE_METAD_FORCE") == "1"
-        _metad_force_removed = False
-        _remove_error = None
         if _no_metad:
             self._metadynamics_obj = None
-            self._dbg_metad_force_removed = True
-            _metad_force_removed = True
+            _DBG_SKIP_METAD_FORCE = True
             self._running_directory = kwargs["directory"]
         else:
             self._metadynamics_obj = openmm_app.Metadynamics(
-                system, variables=metaD_force_biases, 
+                system, variables=metaD_force_biases,
                 temperature=model.temperature,
-                biasFactor=metadyn_biasfactor, height=metadyn_height, 
-                frequency=steps_per_metadyn_update, 
+                biasFactor=metadyn_biasfactor, height=metadyn_height,
+                frequency=steps_per_metadyn_update,
                 saveFrequency=save_frequency, biasDir=metadyn_bias_dir)
-            
+
             self._simulation_obj.context.reinitialize(preserveState=True)
             # CustomCVForce collective-variable values are only populated after a
             # force/energy evaluation. After reinitialize (and especially on
@@ -771,129 +769,28 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
             # which would otherwise return NaN. Warm up the force cache here.
             self._simulation_obj.context.getState(getEnergy=True)
             self._running_directory = kwargs["directory"]
-            # Hypothesis C: presence of CustomCVForce alone causes A100 mixed blowup.
-            # OpenMM getForce() returns a new wrapper each call, so identity `is`
-            # fails — match by CustomCVForce + force group instead.
-            if _remove_metad_force:
-                try:
-                    _target_fg = self._metadynamics_obj._force.getForceGroup()
-                    _fi = None
-                    for _i in range(system.getNumForces()):
-                        _f = system.getForce(_i)
-                        if (_f.__class__.__name__ == "CustomCVForce"
-                                and _f.getForceGroup() == _target_fg):
-                            _fi = _i
-                            break
-                    if _fi is None:
-                        _remove_error = "no_matching_CustomCVForce"
-                    else:
-                        system.removeForce(_fi)
-                        self._simulation_obj.context.reinitialize(preserveState=True)
-                        self._simulation_obj.context.getState(getEnergy=True)
-                        _metad_force_removed = True
-                        self._dbg_metad_force_removed = True
-                except Exception as _re:
-                    _remove_error = f"{type(_re).__name__}:{_re}"
-                    _metad_force_removed = False
-        # #endregion
-        # #region agent log
-        # Hypotheses C/C2: CustomCVForce presence isolation.
         try:
             import json as _json, time as _time, builtins as _builtins
-            _ctx = self._simulation_obj.context
-            _box = _ctx.getState().getPeriodicBoxVectors()
-            _box_nm = [[float(c) for c in v.value_in_unit(unit.nanometers)] for v in _box]
-            _a = np.array(_box_nm[0]); _b = np.array(_box_nm[1]); _c = np.array(_box_nm[2])
-            _vol = float(abs(np.dot(_a, np.cross(_b, _c))))
             _n_custom_cv = sum(
                 1 for i in range(system.getNumForces())
                 if system.getForce(i).__class__.__name__ == "CustomCVForce")
-            _cv_pbc = []
-            for _f in self._openmm_cv_list or []:
-                try:
-                    _cv_pbc.append(bool(_f.usesPeriodicBoundaryConditions()))
-                except Exception as _e:
-                    _cv_pbc.append(f"err:{type(_e).__name__}")
-            _bias = None
-            if self._metadynamics_obj is not None:
-                _bias = np.asarray(self._metadynamics_obj._totalBias)
-            _bias_files = []
-            if metadyn_bias_dir and os.path.isdir(metadyn_bias_dir):
-                _bias_files = sorted(
-                    x for x in os.listdir(metadyn_bias_dir) if x.endswith(".npy"))
-            _cv_bounds = []
-            for _bv in metaD_force_biases:
-                _cv_bounds.append({
-                    "min": float(_bv.minValue),
-                    "max": float(_bv.maxValue),
-                    "periodic_var": bool(_bv.periodic),
-                    "gridWidth": int(_bv.gridWidth),
-                    "biasWidth": float(_bv.biasWidth),
-                })
-            _manual_dist = None
-            _manual_dist_pbc = None
-            try:
-                _pos = np.asarray(
-                    _ctx.getState(getPositions=True).getPositions(asNumpy=True)
-                    .value_in_unit(unit.nanometers))
-                if self._cv_interface_list:
-                    _cv0 = self._cv_interface_list[0]
-                    if hasattr(_cv0, "group1_atom_indices"):
-                        _g1 = np.mean(_pos[_cv0.group1_atom_indices], axis=0)
-                        _g2 = np.mean(_pos[_cv0.group2_atom_indices], axis=0)
-                        _dvec = _g2 - _g1
-                        _manual_dist = float(np.linalg.norm(_dvec))
-                        _box_m = np.array(_box_nm).T
-                        _inv = np.linalg.inv(_box_m)
-                        _frac = _inv @ _dvec
-                        _frac -= np.round(_frac)
-                        _manual_dist_pbc = float(np.linalg.norm(_box_m @ _frac))
-            except Exception as _e:
-                _manual_dist = f"err:{type(_e).__name__}:{_e}"
-            _omm_cv = None
-            if self._metadynamics_obj is not None and not _metad_force_removed:
-                try:
-                    _omm_cv = [float(x) for x in self._metadynamics_obj.getCollectiveVariables(
-                        self._simulation_obj)]
-                except Exception as _e:
-                    _omm_cv = f"err:{type(_e).__name__}"
             _payload = {
                 "sessionId": "aa6c5a",
                 "runId": "pre-fix",
-                "hypothesisId": "C_C2",
+                "hypothesisId": "C2",
                 "location": "sampling_methods/openmm_interface.py:create_sim_openmm",
-                "message": "metadynamics setup: CustomCVForce isolation probe",
+                "message": "metadynamics setup: no-metad isolation probe",
                 "data": {
                     "numpy_version": str(np.__version__),
                     "openmm_version": str(getattr(openmm.version, "version", "?")),
-                    "box_vectors_nm": _box_nm,
-                    "box_volume_nm3": _vol,
-                    "box_lengths_nm": [float(np.linalg.norm(_a)),
-                                      float(np.linalg.norm(_b)),
-                                      float(np.linalg.norm(_c))],
                     "n_custom_cv_forces": _n_custom_cv,
-                    "cv_force_uses_pbc": _cv_pbc,
-                    "write_biases": bool(self.sampling_method.write_biases),
-                    "bias_dir": metadyn_bias_dir,
-                    "bias_npy_files": _bias_files,
-                    "n_loaded_biases": len(getattr(self._metadynamics_obj, "_loadedBiases", {})) if self._metadynamics_obj else 0,
-                    "bias_table_min": float(np.min(_bias)) if _bias is not None and _bias.size else None,
-                    "bias_table_max": float(np.max(_bias)) if _bias is not None and _bias.size else None,
-                    "bias_table_sum": float(np.sum(_bias)) if _bias is not None and _bias.size else None,
-                    "bias_table_has_nan": bool(np.any(~np.isfinite(_bias))) if _bias is not None and _bias.size else None,
-                    "cv_bounds": _cv_bounds,
-                    "openmm_cv_values": _omm_cv,
-                    "manual_com_dist_nm": _manual_dist,
-                    "manual_com_dist_pbc_nm": _manual_dist_pbc,
+                    "n_forces": int(system.getNumForces()),
                     "gaussian_height": float(metadyn_height),
                     "steps_per_update": int(steps_per_metadyn_update),
                     "skip_metad_updates_env": _skip_metad_updates,
-                    "system_uses_pbc": bool(system.usesPeriodicBoundaryConditions()),
                     "no_metad_env": _no_metad,
-                    "remove_metad_force_env": _remove_metad_force,
-                    "metad_force_removed": _metad_force_removed,
-                    "remove_error": _remove_error,
-                    "n_forces": int(system.getNumForces()),
+                    "skip_metad_force": _DBG_SKIP_METAD_FORCE,
+                    "metadynamics_obj_is_none": self._metadynamics_obj is None,
                 },
                 "timestamp": int(_time.time() * 1000),
             }
@@ -917,8 +814,7 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
             self
             ) -> list | None:
         # #region agent log
-        if getattr(self, "_dbg_metad_force_removed", False):
-            # Force removed for isolation test; return a finite placeholder.
+        if _DBG_SKIP_METAD_FORCE or self._metadynamics_obj is None:
             return [0.0]
         # #endregion
         cv_values = list(self._metadynamics_obj.getCollectiveVariables(
@@ -1060,7 +956,7 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
         # Hypothesis C/C2: CustomCVForce presence isolation.
         import json as _json, time as _time, builtins as _builtins
         global _DBG_CV_LOGGED_ONCE
-        _force_removed = bool(getattr(self, "_dbg_metad_force_removed", False))
+        _force_removed = bool(_DBG_SKIP_METAD_FORCE or self._metadynamics_obj is None)
         _freq = 250
         if self._metadynamics_obj is not None:
             _freq = max(int(getattr(self._metadynamics_obj, "frequency", 250) or 250), 1)
@@ -1150,6 +1046,10 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
         """
         Save the metadynamics free energy energy landscape.
         """
+        # #region agent log
+        if self._metadynamics_obj is None:
+            return
+        # #endregion
         dG = self._metadynamics_obj.getFreeEnergy().value_in_unit(kcal_per_mol)
         dG = dG - np.min(dG)
         dG_filename = os.path.join(self._running_directory, "dG_metaD.txt")
