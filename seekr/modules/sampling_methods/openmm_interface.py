@@ -750,6 +750,46 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
             ) -> list | None:
         cv_values = self._metadynamics_obj.getCollectiveVariables(
             self._simulation_obj)
+        # #region agent log
+        import json as _json, time as _time, builtins as _builtins
+        _pos_finite = None
+        _vel_finite = None
+        _n_particles = None
+        _platform = None
+        _precision = None
+        _step = None
+        try:
+            _ctx = self._simulation_obj.context
+            _state = _ctx.getState(getPositions=True, getVelocities=True)
+            _pos = _state.getPositions(asNumpy=True)
+            _vel = _state.getVelocities(asNumpy=True)
+            _pos_finite = bool(np.all(np.isfinite(_pos)))
+            _vel_finite = bool(np.all(np.isfinite(_vel)))
+            _n_particles = int(_pos.shape[0])
+            _step = int(self._simulation_obj.currentStep)
+            _platform = _ctx.getPlatform().getName()
+            try:
+                _precision = _ctx.getPlatform().getPropertyValue(_ctx, "Precision")
+            except Exception:
+                _precision = None
+        except Exception as _e:
+            _pos_finite = f"err:{type(_e).__name__}:{_e}"
+        _payload = {"sessionId":"aa6c5a","runId":"pre-fix","hypothesisId":"A","location":"sampling_methods/openmm_interface.py:get_cv_values","message":"metadynamics CV check","data":{"cv_values":[float(v) if np.isfinite(v) else str(v) for v in cv_values],"has_nan":any(not np.isfinite(v) for v in cv_values),"positions_finite":_pos_finite,"velocities_finite":_vel_finite,"n_particles":_n_particles,"current_step":_step,"platform":_platform,"precision":_precision,"openmm_version":getattr(openmm,"version","?"),"numpy_version":np.__version__},"timestamp":int(_time.time()*1000)}
+        _should_log = _payload["data"]["has_nan"] or not getattr(self, "_dbg_cv_logged_once", False)
+        if _should_log:
+            self._dbg_cv_logged_once = True
+            try:
+                with _builtins.open("/home/lvotapka/seekr/.cursor/debug-aa6c5a.log", "a") as _f:
+                    _f.write(_json.dumps(_payload)+"\n")
+            except Exception:
+                pass
+            try:
+                with _builtins.open("/u/lvotapka/seekr/.cursor/debug-aa6c5a.log", "a") as _f:
+                    _f.write(_json.dumps(_payload)+"\n")
+            except Exception:
+                pass
+            logger.error("DEBUG_AA6C5A " + _json.dumps(_payload))
+        # #endregion
         for i in range(len(cv_values)):
             assert np.isfinite(cv_values[i]), \
                 f"CV value {cv_values[i]} is not finite."
