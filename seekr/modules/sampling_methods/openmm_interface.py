@@ -39,6 +39,9 @@ import seekr.modules.collective_variables.openmm_interface \
 logger = logging.getLogger(__name__)
 
 BIAS_DIR_NAME = "metad_bias"
+# #region agent log
+_DBG_CV_LOGGED_ONCE = False
+# #endregion
 #METADYN_NAME = "metadynamics.{}.swarm_{}"
 #SMD_NAME = "steered.{}.swarm_{}"
 BUFFER_FRAMES = 1 # How many positions variables to store for encounter positions.
@@ -775,9 +778,10 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
         except Exception as _e:
             _pos_finite = f"err:{type(_e).__name__}:{_e}"
         _payload = {"sessionId":"aa6c5a","runId":"pre-fix","hypothesisId":"A","location":"sampling_methods/openmm_interface.py:get_cv_values","message":"metadynamics CV check","data":{"cv_values":[float(v) if np.isfinite(v) else str(v) for v in cv_values],"has_nan":any(not np.isfinite(v) for v in cv_values),"positions_finite":_pos_finite,"velocities_finite":_vel_finite,"n_particles":_n_particles,"current_step":_step,"platform":_platform,"precision":_precision,"openmm_version":getattr(openmm,"version","?"),"numpy_version":np.__version__},"timestamp":int(_time.time()*1000)}
-        _should_log = _payload["data"]["has_nan"] or not getattr(self, "_dbg_cv_logged_once", False)
+        global _DBG_CV_LOGGED_ONCE
+        _should_log = _payload["data"]["has_nan"] or not _DBG_CV_LOGGED_ONCE
         if _should_log:
-            self._dbg_cv_logged_once = True
+            _DBG_CV_LOGGED_ONCE = True
             try:
                 with _builtins.open("/home/lvotapka/seekr/.cursor/debug-aa6c5a.log", "a") as _f:
                     _f.write(_json.dumps(_payload)+"\n")

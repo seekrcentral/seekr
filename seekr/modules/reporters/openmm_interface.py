@@ -556,16 +556,19 @@ class Anchor_reporter(object):
         saveInterval and from __del__.
         """
         # #region agent log
-        import json as _json, time as _time, builtins as _builtins
-        _payload = {"sessionId":"aa6c5a","runId":"pre-fix","hypothesisId":"E","location":"reporters/openmm_interface.py:finalize","message":"finalize entry","data":{"has_buffered":hasattr(self,"_buffered_positions"),"topology_is_none":getattr(self,"_topology",None) is None,"builtins_open_ok":hasattr(_builtins,"open") and callable(getattr(_builtins,"open",None)),"filepath":getattr(self,"_filepath",None)},"timestamp":int(_time.time()*1000)}
         try:
-            with _builtins.open("/home/lvotapka/seekr/.cursor/debug-aa6c5a.log", "a") as _f:
-                _f.write(_json.dumps(_payload)+"\n")
-        except Exception:
-            pass
-        try:
-            with _builtins.open("/u/lvotapka/seekr/.cursor/debug-aa6c5a.log", "a") as _f:
-                _f.write(_json.dumps(_payload)+"\n")
+            import json as _json, time as _time, builtins as _builtins
+            _payload = {"sessionId":"aa6c5a","runId":"pre-fix","hypothesisId":"E","location":"reporters/openmm_interface.py:finalize","message":"finalize entry","data":{"has_buffered":hasattr(self,"_buffered_positions"),"topology_is_none":getattr(self,"_topology",None) is None,"builtins_open_ok":hasattr(_builtins,"open") and callable(getattr(_builtins,"open",None)),"filepath":getattr(self,"_filepath",None)},"timestamp":int(_time.time()*1000)}
+            try:
+                with _builtins.open("/home/lvotapka/seekr/.cursor/debug-aa6c5a.log", "a") as _f:
+                    _f.write(_json.dumps(_payload)+"\n")
+            except Exception:
+                pass
+            try:
+                with _builtins.open("/u/lvotapka/seekr/.cursor/debug-aa6c5a.log", "a") as _f:
+                    _f.write(_json.dumps(_payload)+"\n")
+            except Exception:
+                pass
         except Exception:
             pass
         # #endregion
