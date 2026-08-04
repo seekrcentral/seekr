@@ -349,11 +349,36 @@ def create_openmm_system(
     assert system is not None, \
         "md_parameters_topology.type not found: "\
         f"{md_parameters_topology.type}"
+    _assert_hydrogen_mass(system, topology, hydrogenMass)
     # set all non-milestoning force groups to zero
     for force in system.getForces():
         force.setForceGroup(0)
 
     return system, topology, positions, box_vectors, num_frames, velocities
+
+def _assert_hydrogen_mass(
+        system: openmm.System,
+        topology: openmm_app.Topology,
+        expected_hydrogen_mass: unit.Quantity | None,
+        tolerance_amu: float = 1e-3,
+        ) -> None:
+    """
+    Assert that the first hydrogen in the topology has the expected mass
+    in the OpenMM System (e.g. after hydrogen-mass repartitioning).
+    If no expected mass is provided, or the topology has no hydrogens,
+    this is a no-op.
+    """
+    if expected_hydrogen_mass is None:
+        return
+    expected = expected_hydrogen_mass.value_in_unit(unit.amu)
+    for atom in topology.atoms():
+        if atom.element is not None and atom.element.symbol == "H":
+            actual = system.getParticleMass(atom.index).value_in_unit(unit.amu)
+            assert abs(actual - expected) <= tolerance_amu, (
+                f"Hydrogen mass mismatch: particle {atom.index} has "
+                f"{actual} amu, expected {expected} amu"
+            )
+            return
 
 def _compute_full_system_run_dofs(system: openmm.System):
     """

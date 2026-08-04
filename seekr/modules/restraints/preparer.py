@@ -9,7 +9,7 @@ import os
 import shutil
 import typing
 
-from attrs import define, field, validators
+from attrs import define, field, validators, Factory
 import numpy as np
 
 import seekr.modules.restraints.structures as restraints_structures
@@ -72,6 +72,88 @@ class Positional_restraint_input(Base_restraint_input):
                 shutil.copyfile(self.coordinates_filename, coordinates_destination)
             restraint.coordinates_filename = coordinates_basename
 
+        return restraint
+
+@define
+class Z_restraint_input(Base_restraint_input):
+    """
+    Input for Z restraints.
+    """
+    type: typing.Literal["z"] = "z"
+    selection_name: str = field(default="",
+                                 validator=validators.instance_of(str))
+    force_constant: float = field(default=400.0, validator=[
+        validators.instance_of(float), validators.gt(0)
+    ])
+    coordinates_filename: typing.Optional[str] = field(
+        default=None,
+        validator=validators.optional(validators.instance_of(str)))
+
+    def make_restraint(
+            self, 
+            unpartitioned_settings: engines_preparer.MD_unpartitioned_settings_input,
+            root_directory: str
+            ) -> restraints_structures.Z_restraint:
+        """
+        Make the restraint object for the model.
+        """
+        atom_indices = unpartitioned_settings.get_atom_indices_by_selection_name(
+            self.selection_name)
+        restraint = restraints_structures.Z_restraint()
+        restraint.atom_indices = atom_indices
+        restraint.force_constant = self.force_constant
+        if self.coordinates_filename is not None:
+            # Check that coordinates and atom_indices align.
+            positions = np.loadtxt(self.coordinates_filename, ndmin=2)
+            assert positions.shape[0] == len(atom_indices), \
+                f"Number of coordinate sets ({positions.shape[0]}) "\
+                f"in {self.coordinates_filename} does not "\
+                f"match number of atom indices ({len(atom_indices)})"
+            coordinates_basename = os.path.basename(self.coordinates_filename)
+            coordinates_destination = os.path.join(root_directory, coordinates_basename)
+            if not os.path.samefile(self.coordinates_filename, coordinates_destination):
+                shutil.copyfile(self.coordinates_filename, coordinates_destination)
+            restraint.coordinates_filename = coordinates_basename
+
+        return restraint
+
+@define
+class Torsion_restraint_input(Base_restraint_input):
+    """
+    Input for torsion restraints.
+    """
+    type: typing.Literal["torsion"] = "torsion"
+    torsion_indices: list[tuple[int, int, int, int]] = field(default=Factory(list),
+        validator=validators.deep_iterable(
+            member_validator=[validators.instance_of(tuple),
+                              validators.min_len(4),
+                              validators.max_len(4)],
+            iterable_validator=validators.instance_of(list),))
+    force_constant: float = field(default=400.0, validator=[
+        validators.instance_of(float), validators.gt(0)
+    ])
+    torsion_values: list[float] = field(default=Factory(list),
+        validator=validators.deep_iterable(
+            member_validator=[validators.instance_of(float)],
+            iterable_validator=validators.instance_of(list),))
+
+    def make_restraint(
+            self, 
+            unpartitioned_settings: engines_preparer.MD_unpartitioned_settings_input,
+            root_directory: str
+            ) -> restraints_structures.Torsion_restraint:
+        """
+        Make the restraint object for the model.
+        """
+        restraint = restraints_structures.Torsion_restraint()
+        restraint.torsion_indices = self.torsion_indices
+        restraint.force_constant = self.force_constant
+        restraint.torsion_values = self.torsion_values
+        assert len(restraint.torsion_values) == len(restraint.torsion_indices), \
+            "Number of torsion values does not match number of torsion indices."
+        for torsion_value in restraint.torsion_values:
+            assert -np.pi <= torsion_value <= np.pi, \
+                "Torsion value is not within the range of -pi to pi."
         return restraint
 
 @define

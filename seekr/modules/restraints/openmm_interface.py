@@ -88,6 +88,78 @@ class Positional_restraint_openmm_interface(Base_restraint_openmm_interface):
         return None
 
 @define
+class Z_restraint_openmm_interface(Base_restraint_openmm_interface):
+    """
+    A Z restraint using the OpenMM engine. Keep a set of atoms close to a set of coordinates,
+    if provided, or their starting Z-coordinates if not provided.
+    """
+    _restraint: restraints_structures.Z_restraint = field()
+    def add_forces_to_system(
+            self, 
+            **kwargs: typing.Any
+            ) -> None:
+        """
+        Add force(s) to an OpenMM System object.
+        """
+        system = kwargs["system"]
+        if self._restraint.coordinates_filename is None:
+            positions: unit.Quantity = kwargs["positions"]
+        else:
+            model = kwargs["model"]
+            full_coordinates_filename = os.path.join(
+                model.directory, os.path.basename(
+                    self._restraint.coordinates_filename)
+            )
+            positions = np.loadtxt(full_coordinates_filename, ndmin=2)
+        periodic_system: bool = kwargs["periodic_system"]
+        if periodic_system:
+            expr = "0.5*z_force_const*periodicdistance(0, 0, z, 0, 0, z0)^2"
+        else:
+            expr = "0.5*z_force_const*((z-z0)^2)"
+        indices = self._restraint.atom_indices
+        restraint_force_constant = self._restraint.force_constant
+        force = openmm.CustomExternalForce(expr)
+        force.addGlobalParameter("z_force_const", restraint_force_constant)
+        force.addPerParticleParameter("z0")
+        for i, index in enumerate(indices):
+            if self._restraint.coordinates_filename is None:
+                position = positions[index]
+            else:
+                position = positions[i]
+            force.addParticle(index, [position[2]])
+        system.addForce(force)
+        return None
+
+@define
+class Torsion_restraint_openmm_interface(Base_restraint_openmm_interface):
+    """
+    A Torsion restraint using the OpenMM engine. Keep a set of atomic proper or improper torsions
+    close to a defined set of values.
+    """
+    _restraint: restraints_structures.Torsion_restraint = field()
+    def add_forces_to_system(
+        self, 
+        **kwargs: typing.Any
+        ) -> None:
+        """
+        Add force(s) to an OpenMM System object.
+        """
+        system = kwargs["system"]
+        expr = "0.5*torsion_force_const*min(dtheta, 2*pi-dtheta)^2; dtheta = abs(theta-torsion_value); pi = 3.141592653589793"
+        torsion_indices = self._restraint.torsion_indices
+        torsion_force_constant = self._restraint.force_constant
+        torsion_values = self._restraint.torsion_values
+        torsionForce = openmm.CustomTorsionForce(expr)
+        torsionForce.setForceGroup(0)
+        torsionForce.addGlobalParameter("torsion_force_const", torsion_force_constant)
+        torsionForce.addPerTorsionParameter("torsion_value")
+        for i, torsion_index in enumerate(torsion_indices):
+            index1, index2, index3, index4 = torsion_index
+            torsionForce.addTorsion(index1, index2, index3, index4, [torsion_values[i]])
+        system.addForce(torsionForce)
+        return None
+
+@define
 class Pairwise_restraint_openmm_interface(Base_restraint_openmm_interface):
     """
     A Pairwise restraint using the OpenMM engine. Keep pairs of
@@ -248,6 +320,10 @@ def assign_restraints_interface(
         "Only OpenMM engines can be used in the openmm_interface module."
     if restraint.type == "positional":
         return Positional_restraint_openmm_interface(restraint)
+    elif restraint.type == "z":
+        return Z_restraint_openmm_interface(restraint)
+    elif restraint.type == "torsion":
+        return Torsion_restraint_openmm_interface(restraint)
     elif restraint.type == "pairwise":
         return Pairwise_restraint_openmm_interface(restraint)
     elif restraint.type == "proximity":

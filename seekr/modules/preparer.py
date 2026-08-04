@@ -63,6 +63,8 @@ stage_inputs: typing.Dict[str, typing.Type[scales_base.Base_input_stage]] \
                 .Input_stage_reassign_anchors}
 restraint_inputs: typing.Dict[str, typing.Type[restraints_preparer.Base_restraint_input]] \
         = {"positional": restraints_preparer.Positional_restraint_input,
+           "z": restraints_preparer.Z_restraint_input,
+           "torsion": restraints_preparer.Torsion_restraint_input,
            "pairwise": restraints_preparer.Pairwise_restraint_input,
            "proximity": restraints_preparer.Proximity_restraint_input,
            "cylinder": restraints_preparer.Cylinder_restraint_input,}

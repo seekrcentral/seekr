@@ -70,6 +70,8 @@ stages: typing.Dict[str, typing.Type[scales_base.Base_stage]] \
 
 restraints: typing.Dict[str, typing.Type[restraints_structures.Base_restraint]] \
         = {"positional": restraints_structures.Positional_restraint,
+           "z": restraints_structures.Z_restraint,
+           "torsion": restraints_structures.Torsion_restraint,
            "pairwise": restraints_structures.Pairwise_restraint,
            "proximity": restraints_structures.Proximity_restraint,
            "cylinder": restraints_structures.Cylinder_restraint}

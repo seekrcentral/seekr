@@ -35,7 +35,53 @@ class Positional_restraint(Base_restraint):
     coordinates_filename: typing.Optional[str] = field(
         default=None, 
         validator=validators.optional(validators.instance_of(str)))
-    
+
+@define
+class Z_restraint(Base_restraint):
+    """
+    Restraint that keeps a subset of atoms close to a set of coordinates,
+    if provided, or their starting Z-coordinates if not provided.
+    """
+    type: typing.Literal["z"] = "z"
+    atom_indices: list[int] = field(
+        default=Factory(list),
+        validator=validators.deep_iterable(
+            member_validator=[validators.instance_of(int),
+                        validators.ge(0)],
+            iterable_validator=validators.instance_of(list),))
+    force_constant: float = field(
+        default=400.0, validator=[
+            validators.instance_of(float),
+            validators.ge(0)])
+    coordinates_filename: typing.Optional[str] = field(
+        default=None, 
+        validator=validators.optional(validators.instance_of(str)))
+
+@define
+class Torsion_restraint(Base_restraint):
+    """
+    Restraint that keeps a set of atomic proper or improper torsions
+    close to a defined set of values.
+    """
+    type: typing.Literal["torsion"] = "torsion"
+    torsion_indices: list[tuple[int, int, int, int]] = field(
+        default=Factory(list),
+        validator=validators.deep_iterable(
+            member_validator=[validators.instance_of(tuple),
+                              validators.min_len(4),
+                              validators.max_len(4)],
+            iterable_validator=validators.instance_of(list),))
+    force_constant: float = field(
+        default=400.0,
+        validator=[validators.instance_of(float),
+                   validators.ge(0)])    
+    torsion_values: list[float] = field(
+        default=Factory(list),
+        validator=validators.deep_iterable(
+            member_validator=[validators.instance_of(float)],
+            iterable_validator=validators.instance_of(list),))
+                   
+
 @define
 class Pairwise_restraint(Base_restraint):
     """
