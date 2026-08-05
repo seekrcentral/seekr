@@ -358,6 +358,12 @@ class Base_md_openmm_interface:
     def get_cv_values(
             self,
             ) -> tuple[float, ...] | None:
+        # CustomCVForce collective-variable values are only refreshed when
+        # forces/energies are evaluated. Callers (e.g. reporters that request
+        # positions-only States) may otherwise read stale CVs.
+        assert self._simulation_obj is not None
+        assert self._openmm_cv_object is not None
+        self._simulation_obj.context.getState(getEnergy=True)
         cv_values = self._openmm_cv_object.getCollectiveVariableValues(
             self._simulation_obj.context)
         # Copy to a plain tuple so later OpenMM state changes cannot affect
@@ -754,6 +760,12 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
     def get_cv_values(
             self
             ) -> list | None:
+        # Same stale-CV issue as Base_md_openmm_interface.get_cv_values:
+        # Metadynamics wraps CVs in a CustomCVForce whose values are only
+        # updated on force/energy evaluation.
+        assert self._simulation_obj is not None
+        assert self._metadynamics_obj is not None
+        self._simulation_obj.context.getState(getEnergy=True)
         cv_values = list(self._metadynamics_obj.getCollectiveVariables(
             self._simulation_obj))
         for i in range(len(cv_values)):

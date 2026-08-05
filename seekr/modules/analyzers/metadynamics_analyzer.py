@@ -6,6 +6,7 @@ Analyze the results of a SEEKR metadynamics calculation.
 """
 
 import os
+import logging
 
 from attrs import define, field, validators
 import numpy as np
@@ -68,14 +69,15 @@ class Metadynamics_analyzer:
         Plot the pi_alpha values for each anchor in 2D.
         """
         import matplotlib.pyplot as plt
-        cv_0 = self.model.collective_variables[cv_indices[0]]
+        cv_0 = self.model.collective_variables[cv_index]
         boundaries = [cv_0.min_value, cv_0.max_value]
         cv_0_name = cv_0.name
         cv_0_unit = cv_0.unit
         x_coordinate_title = f"{cv_0_name} ({cv_0_unit})"
         dG_filename = os.path.join(self.directory, "dG_metaD.txt")
-        assert os.path.exists(dG_filename), \
-            "dG_metaD.txt file not found in metadynamics directory."
+        if not os.path.exists(dG_filename):
+            logging.info("dG_metaD.txt file not found in metadynamics directory.")
+            return None
         dG = np.loadtxt(dG_filename)
         x = np.linspace(boundaries[0], boundaries[1], 
                         dG.shape[0])
@@ -83,7 +85,6 @@ class Metadynamics_analyzer:
         plt.plot(x, dG)
         plt.title("Metadynamics Free Energy Landscape")
         plt.xlabel(x_coordinate_title)
-        plt.title(title)
         plt.tight_layout()
         if return_plot:
             return fig, ax
@@ -115,8 +116,9 @@ class Metadynamics_analyzer:
         y_coordinate_title = f"{cv_1_name} ({cv_1_unit})"
         
         dG_filename = os.path.join(self.directory, "dG_metaD.txt")
-        assert os.path.exists(dG_filename), \
-            "dG_metaD.txt file not found in metadynamics directory."
+        if not os.path.exists(dG_filename):
+            logging.info("dG_metaD.txt file not found in metadynamics directory.")
+            return None
         dG = np.loadtxt(dG_filename)
         p = plt.imshow(
             dG, extent=boundaries, vmax=np.max(dG), cmap=plt.cm.jet, origin="lower")

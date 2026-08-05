@@ -67,6 +67,7 @@ def _run_add_integrator(model, integrator_type, ensemble=None):
         sampling_method_interface=_make_sampling_mock(),
         completion_criteria_interface=MagicMock(),
         restart=False,
+        system=None
     )
     return s
 
