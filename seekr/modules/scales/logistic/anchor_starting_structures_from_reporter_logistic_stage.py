@@ -294,18 +294,20 @@ def _process_anchor_reporter(
                 break
             if reporter.mode == "save_first_frame" and anchor_idx in anchor_to_traj_frame:
                 continue
-            # Defense in depth: reject frames whose coordinates are not actually
-            # inside the claimed Voronoi cell (e.g. stale-CV mislabels from
-            # CustomCVForce / Metadynamics reporters).
+            # Defense in depth: frames whose coordinates are not in the claimed
+            # Voronoi cell indicate a corrupt Anchor_reporter output. Fail hard
+            # so run does not loop forever waiting for missing starting structures.
             cv_values = _compute_cv_values_from_frame(model, traj, fn)
             if cv_values is not None:
                 validated_idx = _find_anchor_index_from_cv_values(model, cv_values)
                 if validated_idx != anchor_idx:
-                    logger.warning(
-                        f"Skipping reporter frame {fn} labeled as anchor "
-                        f"{anchor_idx}: coordinates map to anchor "
-                        f"{validated_idx} (CV={cv_values}).")
-                    continue
+                    raise Exception(
+                        f"Anchor_reporter frame {fn} is labeled as anchor "
+                        f"{anchor_idx}, but coordinates map to anchor "
+                        f"{validated_idx} (CV={cv_values}). Re-run the "
+                        f"upstream sampling stage that produced the reporter "
+                        f"output, or check CV / periodic-boundary handling."
+                    )
             anchor_to_traj_frame[anchor_idx] = (traj, fn)
     output_ext = ".txt" if model.using_toy() else ".pdb"
     stage_dir_name = stage.get_directory_name()
