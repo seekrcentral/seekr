@@ -2,7 +2,7 @@ from __future__ import annotations
 """
 test_analyze.py
 
-Smoke tests for seekr.analyze — verify that analyze() returns without
+Smoke tests for seekr.analyze — verify that analyze_all() returns without
 exception after all non-BD stages have been run.
 """
 
@@ -145,7 +145,7 @@ def _make_synthetic_bulk_stats(model):
 # ---------------------------------------------------------------------------
 
 def test_analyze_returns_result(seekr_run):
-    """analyze() returns a non-None result after simulations."""
+    """analyze_all() returns a non-None result after simulations."""
     model, _, scenario_name = seekr_run
     # Only analyze models that completed the MMVT stage
     mmvt_stages = [s for s in model.stages if s.name == "MMVT"]
@@ -154,12 +154,12 @@ def test_analyze_returns_result(seekr_run):
     if ("hg_metad_dist" in scenario_name) or ("hg_smd_dist" in scenario_name)\
             or ("hg_encounters_bd" in scenario_name) \
             or ("hg_trajectories_bd" in scenario_name):
-        result = analyze.analyze(model, skip_checks=True,
+        result = analyze.analyze_all(model, skip_checks=True,
                                  only_extract_data=True)
     else:
-        result = analyze.analyze(model, skip_checks=True)
+        result = analyze.analyze_all(model, skip_checks=True)
     assert result is not None, (
-        f"[{scenario_name}] analyze() returned None"
+        f"[{scenario_name}] analyze_all() returned None"
     )
 
 
@@ -187,12 +187,12 @@ def test_analyze_full_pipeline(seekr_prepared):
         with patch(
                 "seekr.modules.scales.mmvt_analyzer.make_bulk_anchor_stats",
                 return_value=synthetic_bulk):
-            result = analyze.analyze(model, skip_checks=False)
+            result = analyze.analyze_all(model, skip_checks=False)
     else:
-        result = analyze.analyze(model, skip_checks=False)
+        result = analyze.analyze_all(model, skip_checks=False)
 
     assert result is not None, \
-        f"[{scenario_name}] analyze() returned None"
+        f"[{scenario_name}] analyze_all() returned None"
     assert result.main_data_window is not None, \
         f"[{scenario_name}] main_data_window is None"
     
@@ -208,7 +208,7 @@ def test_analyze_full_pipeline(seekr_prepared):
 @pytest.fixture(scope="module")
 def _toy_metad_1cv_analysis_state(tmp_path_factory):
     """Module-scoped fixture: prepare toy_metad_1cv, write synthetic
-    out-files, return model ready for analyze() calls."""
+    out-files, return model ready for analyze_all() calls."""
     import seekr.tests.create_seekr_input as create_seekr_input
     import seekr.prepare as prepare
     root_dir = str(tmp_path_factory.mktemp("toy_metad_1cv_err"))
@@ -229,7 +229,7 @@ def _toy_metad_1cv_analysis_state(tmp_path_factory):
 def test_error_analysis_resample(_toy_metad_1cv_analysis_state):
     """error_analysis_method='resample' runs without exception."""
     model = _toy_metad_1cv_analysis_state
-    result = analyze.analyze(model, skip_checks=False,
+    result = analyze.analyze_all(model, skip_checks=False,
                              error_analysis_method="resample")
     assert result is not None
     assert result.main_data_window is not None
@@ -238,7 +238,7 @@ def test_error_analysis_resample(_toy_metad_1cv_analysis_state):
 def test_error_analysis_montecarlo(_toy_metad_1cv_analysis_state):
     """error_analysis_method='montecarlo' runs without exception."""
     model = _toy_metad_1cv_analysis_state
-    result = analyze.analyze(model, skip_checks=False,
+    result = analyze.analyze_all(model, skip_checks=False,
                              error_analysis_method="montecarlo")
     assert result is not None
     assert result.main_data_window is not None

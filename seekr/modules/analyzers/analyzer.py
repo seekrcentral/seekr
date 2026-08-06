@@ -54,6 +54,8 @@ def analyze(
 
     stage = model.stages[stage_index-1]
     stage.load_sets_into_model(model)
+    assert hasattr(stage, "sampling_method"), \
+        f"Stage {stage_index} has no sampling method set - cannot analyze."
     if stage.sampling_method.type == "mmvt":
         from seekr.modules.analyzers.mmvt_analyzer import analyze_mmvt
         analysis = analyze_mmvt(

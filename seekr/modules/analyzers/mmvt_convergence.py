@@ -8,6 +8,7 @@ properties over time.
 """
 
 import os
+import logging
 import functools
 from collections import defaultdict
 
@@ -397,6 +398,9 @@ def write_convergence_plots(
     # TODO: assign converger to analysis object
     converger = Mmvt_converger()
     converger.compute_milestone_convergence(data_window_list)
+    if len(converger.data_window_times) == 0:
+        logging.info("No data window times found.")
+        return
     converger.plot_k_off(image_directory, return_plot=False)
     converger.plot_k_on(image_directory, return_plot=False)
     N_alpha_beta_directory = os.path.join(

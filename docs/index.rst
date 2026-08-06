@@ -1,67 +1,78 @@
-.. seekr documentation master file, created by
-   sphinx-quickstart on Thu Mar 15 13:55:56 2018.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
+.. seekr documentation, created by Lane Votapka.
 
 Welcome to seekr's documentation!
 =========================================================
 
-.. grid:: 1 1 2 2
+Seekr is a multiscale scientific software framework for estimating molecular
+kinetics and thermodynamics using enhanced sampling methods, such as
+milestoning. Applications include molecular processes such as ligand binding/
+unbinding, loop/hinge motion, membrane interactions, or just about anything
+you can model with an available simulation engine.
+
+.. grid:: 1 2 2 2
+    :gutter: 2
 
     .. grid-item-card:: Getting Started
-      :margin: 0 3 0 0
-      
-      Learn the basics of using seekr.
 
-      .. button-link:: ./getting_started.html
-         :color: primary
-         :outline:
-         :expand:
+        Install seekr and get up and running quickly with a basic example.
 
-         To the Getting Started Guide
+        .. button-link:: ./getting_started.html
+            :color: primary
+            :outline:
+            :expand:
 
-      
+            To the Getting Started Guide
 
-    .. grid-item-card::  User Guide
-      :margin: 0 3 0 0
-      
-      An in-depth guide for users.
+    .. grid-item-card:: Tutorials
 
-      .. button-link:: ./user_guide.html
-         :color: primary
-         :outline:
-         :expand:
+        Step-by-step tutorials covering common usage and advanced features.
 
-         To the User Guide
-      
-      
+        .. button-link:: ./tutorials.html
+            :color: primary
+            :outline:
+            :expand:
+
+            To the Tutorials
+
+    .. grid-item-card:: User Guide
+
+        An in-depth guide covering all aspects of using seekr.
+
+        .. button-link:: ./user_guide.html
+            :color: primary
+            :outline:
+            :expand:
+
+            To the User Guide
 
     .. grid-item-card:: API Reference
-      :margin: 0 3 0 0
-      
-      How to use the API of seekr.
 
-      .. button-link:: ./api.html
-         :color: primary
-         :outline:
-         :expand:
+        Complete technical reference for all modules, classes, and functions.
 
-         To the API Reference.
+        .. button-link:: ./api.html
+            :color: primary
+            :outline:
+            :expand:
 
-      
+            To the API Reference
 
-    .. grid-item-card::  Developer Guide
-      :margin: 0 3 0 0
-      
-      How to contribute to seekr.
+    .. grid-item-card:: Developer Guide
 
-      .. button-link:: ./developer_guide.html
-         :color: primary
-         :outline:
-         :expand:
+        Learn how to contribute to seekr and extend its functionality.
 
-         To the Developer Guide
+        .. button-link:: ./developer_guide.html
+            :color: primary
+            :outline:
+            :expand:
 
+            To the Developer Guide
+
+Citing seekr
+============
+
+If you use seekr, please cite the following paper:
+
+Votapka, L. W.; Stokely, A. M.; Ojha, A. A.; Amaro, R. E. SEEKR2: Versatile Multiscale Milestoning Utilizing the OpenMM Molecular Dynamics Engine. J. Chem. Inf. Mod. 2022 62 (13), 3253-3262. DOI: 10.1021/acs.jcim.2c00501
 
 .. toctree::
    :maxdepth: 2
@@ -69,7 +80,7 @@ Welcome to seekr's documentation!
    :titlesonly:
 
    getting_started
+   tutorials
    user_guide
    api
    developer_guide
-

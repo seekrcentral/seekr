@@ -86,9 +86,12 @@ class MD_unpartitioned_settings_input:
             else:
                 if self.md_parameters_topology is not None:
                     new_unpartitioned_settings.md_parameters_topology = self.md_parameters_topology
+                    positions_pdb = self.positions if isinstance(
+                        self.positions, str) else None
                     self.md_parameters_topology.copy_files(
                         unpartitioned_initial_directory,
-                        new_unpartitioned_settings.md_parameters_topology)
+                        new_unpartitioned_settings.md_parameters_topology,
+                        positions_pdb=positions_pdb)
 
                 if (self.positions is not None) and (self.positions != ""):
                     assert isinstance(self.positions, str), \

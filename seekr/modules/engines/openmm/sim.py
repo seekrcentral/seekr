@@ -105,7 +105,7 @@ def make_topology_system_from_charmm(
 
 def make_topology_system_from_forcefield(
         forcefield_parameters_topology: engines_structures.Forcefield_parameters,
-        topology_obj: openmm_app.PDBFile,
+        topology: openmm_app.Topology,
         directory: str,
         nonbonded_method: typing.Any,
         nonbonded_cutoff: unit.Quantity | None,
@@ -114,7 +114,7 @@ def make_topology_system_from_forcefield(
         ) -> openmm.System:
     """
     Load the OpenMM forcefield parameters and topology from the 
-    provided object, and return OpenMM system and topology.
+    provided object, and return OpenMM system.
     """
     forcefield_filenames = []
     for forcefield_filename in \
@@ -128,7 +128,7 @@ def make_topology_system_from_forcefield(
 
     forcefield = openmm_app.ForceField(*forcefield_filenames)
     system = forcefield.createSystem(
-        topology_obj.topology, nonbondedMethod=nonbonded_method,
+        topology, nonbondedMethod=nonbonded_method,
         nonbondedCutoff=nonbonded_cutoff,
         constraints=constraints,
         hydrogenMass=hydrogenMass)
@@ -137,33 +137,28 @@ def make_topology_system_from_forcefield(
 def make_topology_system_from_xml(
         openmm_system_obj: engines_structures.Openmm_system,
         directory: str, 
-        nonbonded_method: typing.Any,
-        nonbonded_cutoff: unit.Quantity | None,
-        constraints: typing.Any,
-        hydrogenMass: unit.Quantity | None
         ) -> openmm.System:
     """
     Load the OpenMM system XML from the 
     provided object, and return OpenMM system.
     """
-    # TODO: enforce these assertions since the prepare stage.
-    assert nonbonded_method is None, \
-        "When an OpenMM system is loaded from XML, the nonbonded method "\
-        "is already set within the XML file, so it should not be provided."
-    assert nonbonded_cutoff is None, \
-        "When an OpenMM system is loaded from XML, the nonbonded cutoff "\
-        "is already set within the XML file, so it should not be provided."
-    assert constraints is None, \
-        "When an OpenMM system is loaded from XML, the constraints "\
-        "are already set within the XML file, so it should not be provided."
-    assert hydrogenMass is None, \
-        "When an OpenMM system is loaded from XML, the hydrogen mass "\
-        "is already set within the XML file, so it should not be provided."
     system_xml_filename = os.path.join(
         directory, openmm_system_obj.system_filename)
     with open(system_xml_filename) as input:
         system = openmm.XmlSerializer.deserialize(input.read())
     return system
+
+def _load_topology_pdb(
+        md_parameters_directory: str,
+        topology_filename: str
+        ) -> openmm_app.Topology:
+    """
+    Load an OpenMM Topology from a topology PDB in the parameters directory.
+    """
+    assert topology_filename != "", \
+        "topology_filename must be set on the parameters/topology object."
+    topology_full_path = os.path.join(md_parameters_directory, topology_filename)
+    return openmm_app.PDBFile(topology_full_path).topology
 
 def make_toy_system_object(
         model: structures.Seekr_model
@@ -213,6 +208,7 @@ def create_openmm_system(
     # TODO: This isn't right - how do we get the correct stage parameters
     # Given a stage index? The list here will not be indexed correctly...
     # Solution: add Nones to stage_parameters
+    system = None
     md_engine = model.get_engine_by_scale_type("molecular_dynamics")
     assert md_engine.type == "openmm"
     nonbonded_method = md_engine.nonbonded_method
@@ -298,6 +294,7 @@ def create_openmm_system(
                 positions_basename != "":
             positions_full_path = os.path.join(positions_directory, positions_basename)
             ext = os.path.splitext(positions_full_path)[-1]
+            pdb_obj = None
             if ext == ".pdb":
                 pdb_obj = openmm_app.PDBFile(positions_full_path)
                 box_vectors = openmm_base.get_box_vectors_from_pdb(positions_full_path)
@@ -336,19 +333,52 @@ def create_openmm_system(
                 md_parameters_topology, md_parameters_directory,
                 nonbondedMethod, md_engine.nonbonded_cutoff,
                 constraints, hydrogenMass)
-        elif md_parameters_topology.type == "Forcefield":
+        elif md_parameters_topology.type == "OpenMM_forcefield":
+            topology = _load_topology_pdb(
+                md_parameters_directory, md_parameters_topology.topology_filename)
             system = make_topology_system_from_forcefield(
-                md_parameters_topology, pdb_obj,
+                md_parameters_topology, topology,
                 md_parameters_directory, nonbondedMethod,
                 md_engine.nonbonded_cutoff, constraints, hydrogenMass)
-            assert pdb_obj is not None
-            topology = pdb_obj.topology
+        elif md_parameters_topology.type == "OpenMM_system":
+            system = make_topology_system_from_xml(
+                md_parameters_topology, md_parameters_directory)
+            topology = _load_topology_pdb(
+                md_parameters_directory, md_parameters_topology.topology_filename)
 
+    assert system is not None, \
+        "md_parameters_topology.type not found: "\
+        f"{md_parameters_topology.type}"
+    _assert_hydrogen_mass(system, topology, hydrogenMass)
     # set all non-milestoning force groups to zero
     for force in system.getForces():
         force.setForceGroup(0)
 
     return system, topology, positions, box_vectors, num_frames, velocities
+
+def _assert_hydrogen_mass(
+        system: openmm.System,
+        topology: openmm_app.Topology,
+        expected_hydrogen_mass: unit.Quantity | None,
+        tolerance_amu: float = 1e-3,
+        ) -> None:
+    """
+    Assert that the first hydrogen in the topology has the expected mass
+    in the OpenMM System (e.g. after hydrogen-mass repartitioning).
+    If no expected mass is provided, or the topology has no hydrogens,
+    this is a no-op.
+    """
+    if expected_hydrogen_mass is None:
+        return
+    expected = expected_hydrogen_mass.value_in_unit(unit.amu)
+    for atom in topology.atoms():
+        if atom.element is not None and atom.element.symbol == "H":
+            actual = system.getParticleMass(atom.index).value_in_unit(unit.amu)
+            assert abs(actual - expected) <= tolerance_amu, (
+                f"Hydrogen mass mismatch: particle {atom.index} has "
+                f"{actual} amu, expected {expected} amu"
+            )
+            return
 
 def _compute_full_system_run_dofs(system: openmm.System):
     """

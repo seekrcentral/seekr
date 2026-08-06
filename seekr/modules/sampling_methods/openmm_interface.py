@@ -358,6 +358,12 @@ class Base_md_openmm_interface:
     def get_cv_values(
             self,
             ) -> tuple[float, ...] | None:
+        # CustomCVForce collective-variable values are only refreshed when
+        # forces/energies are evaluated. Callers (e.g. reporters that request
+        # positions-only States) may otherwise read stale CVs.
+        assert self._simulation_obj is not None
+        assert self._openmm_cv_object is not None
+        self._simulation_obj.context.getState(getEnergy=True)
         cv_values = self._openmm_cv_object.getCollectiveVariableValues(
             self._simulation_obj.context)
         # Copy to a plain tuple so later OpenMM state changes cannot affect
@@ -742,14 +748,26 @@ class Metadynamics_md_openmm_interface(Base_md_openmm_interface):
             saveFrequency=save_frequency, biasDir=metadyn_bias_dir)
         
         self._simulation_obj.context.reinitialize(preserveState=True)
+        # CustomCVForce collective-variable values are only populated after a
+        # force/energy evaluation. After reinitialize (and especially on
+        # checkpoint restart when currentStep lands on a reporter interval),
+        # reporters may call get_cv_values() before any MD force evaluation,
+        # which would otherwise return NaN. Warm up the force cache here.
+        self._simulation_obj.context.getState(getEnergy=True)
         self._running_directory = kwargs["directory"]
         return
     
     def get_cv_values(
             self
             ) -> list | None:
-        cv_values = self._metadynamics_obj.getCollectiveVariables(
-            self._simulation_obj)
+        # Same stale-CV issue as Base_md_openmm_interface.get_cv_values:
+        # Metadynamics wraps CVs in a CustomCVForce whose values are only
+        # updated on force/energy evaluation.
+        assert self._simulation_obj is not None
+        assert self._metadynamics_obj is not None
+        self._simulation_obj.context.getState(getEnergy=True)
+        cv_values = list(self._metadynamics_obj.getCollectiveVariables(
+            self._simulation_obj))
         for i in range(len(cv_values)):
             assert np.isfinite(cv_values[i]), \
                 f"CV value {cv_values[i]} is not finite."

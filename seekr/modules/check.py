@@ -209,8 +209,12 @@ def check_pre_sim_MD_and_BD_salt_concentration(
     traj = load_structure_with_mdtraj(model, anchor_or_unpartitioned, stage)
     if traj is None:
         return True
+    if stage.scope == "unpartitioned":
+        anchor_or_unpartitioned_str = "unpartitioned settings"
+    else:
+        anchor_or_unpartitioned_str = f"anchor {anchor_or_unpartitioned.index}"
     assert traj.unitcell_vectors is not None, "Unable to compute box volume for "\
-        f"structures in anchor {anchor_or_unpartitioned.index}"
+        f"structures in anchor {anchor_or_unpartitioned_str}"
     a, b, c = traj.unitcell_vectors[0]
     box_volume = abs(np.dot(a, np.cross(b, c)))  # nm^3
     particle_concentration = 1.0e24 / (AVOGADROS_NUMBER * box_volume)
@@ -236,10 +240,6 @@ def check_pre_sim_MD_and_BD_salt_concentration(
                     +"Charge is uncertain. Assuming its contribution to "\
                     "solvent ionic strength is zero.")
             """
-    if stage.scope == "unpartitioned":
-        anchor_or_unpartitioned_str = "unpartitioned settings"
-    else:
-        anchor_or_unpartitioned_str = f"anchor {anchor_or_unpartitioned.index}"
     if not np.isclose(md_ionic_strength, bd_ionic_strength, 
                     rtol=RELATIVE_TOLERANCE, atol=ABSOLUTE_TOLERANCE):
         print("CHECK FAILURE: BD simulation has significantly different "\

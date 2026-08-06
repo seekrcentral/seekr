@@ -101,9 +101,12 @@ def status(
                 
             elif scope == "partitioned":
                 num_anchors = len(model.anchors)
-                swarm_ids = model.anchors[0].get_starting_structure_swarm_ids(
-                    model.directory, stage.index, stage.set_name)
-                num_swarms = len(swarm_ids)
+                if num_anchors == 0:
+                    num_swarms = 0
+                else:
+                    swarm_ids = model.anchors[0].get_starting_structure_swarm_ids(
+                        model.directory, stage.index, stage.set_name)
+                    num_swarms = len(swarm_ids)
             else:
                 raise ValueError(f"Unsupported scope: {scope}")
 
@@ -160,7 +163,7 @@ def status(
                     + f"    Finished: {finished}\n{stage_message}"
 
     if instruction in ["statistics", "all"]:
-        analysis = analyze.analyze(model, stage_index=None, 
+        analysis = analyze.analyze_all(model, stage_arg=None, 
                                     skip_checks=True, only_extract_data=True)
         if analysis is None:
             return message
