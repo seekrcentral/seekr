@@ -241,8 +241,9 @@ class Anchor:
         """
         Generate the filetree for this anchor.
         """
-        assert len(self.scale_types) > 0, \
-            f"Anchor '{self.name}' has no defined scale_types."
+        if not self.bulk_anchor:
+            assert len(self.scale_types) > 0, \
+                f"Anchor '{self.name}' has no defined scale_types."
         for scale_type in self.scale_types:
             scale = model.get_scale_by_type(scale_type)
             scale.generate_filetree_anchor(self, root_directory, anchor_set_name)
