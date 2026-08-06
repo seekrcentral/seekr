@@ -3,11 +3,15 @@
 The docs for this project are built with [Sphinx](http://www.sphinx-doc.org/en/master/).
 To compile the docs, first ensure that the necessary dependencies are installed.
 
+```bash
+mamba install sphinx sphinx_rtd_theme sphinx-design sphinx-copybutton
+```
 
 
 Once installed, you can use the `Makefile` in this directory to compile static HTML pages by
 ```bash
 make html
+```
 ```
 
 The documentation contains default pages for "Getting Started", "User Guide", "Developer Guide" and API reference. 
