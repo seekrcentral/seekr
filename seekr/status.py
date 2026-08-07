@@ -89,11 +89,12 @@ def status(
             scope = stage.scope
             if scope == "unpartitioned":
                 num_anchors = None
-                if stage.scale_type == "molecular_dynamics":
+                if (stage.scale_type == "molecular_dynamics") \
+                        or (stage.scale_type == "logistic"):
                     md_engine = model.get_engine_by_scale_type("molecular_dynamics")
                     swarm_ids = md_engine.unpartitioned_settings\
                         .get_starting_structure_swarm_ids(
-                            model.directory, stage.index, 
+                            model.directory, stage.input_stage_index, 
                             stage.set_name)
                     num_swarms = len(swarm_ids)
                 else:
@@ -105,7 +106,7 @@ def status(
                     num_swarms = 0
                 else:
                     swarm_ids = model.anchors[0].get_starting_structure_swarm_ids(
-                        model.directory, stage.index, stage.set_name)
+                        model.directory, stage.input_stage_index, stage.set_name)
                     num_swarms = len(swarm_ids)
             else:
                 raise ValueError(f"Unsupported scope: {scope}")
