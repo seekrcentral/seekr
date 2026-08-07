@@ -90,7 +90,7 @@ class RMSD_CV(cv_base.Base_CV):
             self.group_align_name)
         #if ref_positions is None:
         # TODO: need to correct this path.
-        print("self.directory:", self.directory)
+        #print("self.directory:", self.directory)
         ref_traj_filename = os.path.join(
             model.directory, "collective_variable_sets", "main", self.directory, 
             self.ref_structure)

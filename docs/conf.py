@@ -23,7 +23,7 @@ import seekr
 # -- Project information -----------------------------------------------------
 
 project = 'seekr'
-copyright = ("2024, Lane Votapka. Project structure based on the "
+copyright = ("2026, Lane Votapka. Project structure based on the "
              "Computational Molecular Science Python Cookiecutter version 1.10")
 author = 'Lane Votapka'
 
@@ -93,7 +93,7 @@ pygments_style = 'default'
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
 #
-html_theme = 'pydata_sphinx_theme'
+html_theme = 'sphinx_rtd_theme'
 
 # Theme options are theme-specific and customize the look and feel of a theme
 # further.  For a list of options available for each theme, see the

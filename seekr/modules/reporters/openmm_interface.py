@@ -18,6 +18,7 @@ from attrs import define, field
 import numpy as np
 import openmm
 import openmm.app as openmm_app
+import openmm.unit as unit
 
 import seekr.modules.base as base
 import seekr.modules.collective_variables.base as cv_base
@@ -244,7 +245,10 @@ class CVValueReporter(object):
         self._dt = None
 
     def __del__(self):
-        self.finalize()
+        try:
+            self.finalize()
+        except Exception:
+            pass
 
     def describeNextReport(
             self, 
@@ -493,7 +497,10 @@ class Anchor_reporter(object):
         self._dt = None
         
     def __del__(self):
-        self.finalize()
+        try:
+            self.finalize()
+        except Exception:
+            pass
 
     def describeNextReport(
             self, 
@@ -527,14 +534,55 @@ class Anchor_reporter(object):
         if self._topology is None:
             self._topology = simulation.topology
             self._dt = simulation.integrator.getStepSize()
+
+        # Take CV values and positions from one live context snapshot. Using the
+        # reporter's `state` for positions after get_cv_values()/getEnergy can
+        # disagree with CustomCVForce CVs (observed: CV~1.4 nm while state
+        # positions were ~0.5 nm), which mis-labels Anchor_reporter frames.
+        synced = simulation.context.getState(getPositions=True, getEnergy=True)
         cv_values = self._sampling_method_interface.get_cv_values()
+        pos_nm = np.array(
+            synced.getPositions(asNumpy=True).value_in_unit(unit.nanometer),
+            dtype=float)
+        box_vectors = synced.getPeriodicBoxVectors()
+
+        # If Metadynamics/CustomCVForce CV still disagrees with coordinates,
+        # classify using a mass-weighted distance from the synced positions.
+        classify_cv_values = cv_values
+        try:
+            model = self._sampling_method_interface._model
+            if (model is not None
+                    and len(model.collective_variables) == 1
+                    and getattr(model.collective_variables[0], "type", None)
+                    == "distance"):
+                cv = model.collective_variables[0]
+                md_engine = model.get_engine_by_scale_type("molecular_dynamics")
+                g1 = md_engine.get_atom_indices_by_selection_name(cv.group1_name)
+                g2 = md_engine.get_atom_indices_by_selection_name(cv.group2_name)
+                system = simulation.context.getSystem()
+                masses = np.array([
+                    system.getParticleMass(i).value_in_unit(unit.dalton)
+                    for i in range(system.getNumParticles())
+                ])
+
+                def _mw_com(inds: list[int]) -> np.ndarray:
+                    m = masses[inds][:, None]
+                    return (pos_nm[inds] * m).sum(axis=0) / m.sum()
+
+                pos_distance = float(np.linalg.norm(_mw_com(g1) - _mw_com(g2)))
+                if (cv_values is not None
+                        and abs(float(cv_values[0]) - pos_distance) > 0.05):
+                    classify_cv_values = (pos_distance,)
+        except Exception:
+            pass
+
         anchor_index = self._sampling_method_interface\
-            .find_current_anchor_index(cv_values)
+            .find_current_anchor_index(classify_cv_values)
         if anchor_index is None or anchor_index not in self._md_anchor_indices:
             return
 
-        positions = state.getPositions(asNumpy=True)
-        box_vectors = state.getPeriodicBoxVectors()
+        # Independent copy — do not retain a view into OpenMM State memory.
+        positions = unit.Quantity(pos_nm.copy(), unit.nanometer)
 
         # Buffer the frame for the matching bin every checkInterval.
         if self._mode == "save_last_frame" \

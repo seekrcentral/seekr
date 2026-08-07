@@ -483,7 +483,7 @@ def create_host_guest_example_input(
     proximity_restraint_input = restraints_preparer.Proximity_restraint_input()
     proximity_restraint_input.selection1_name = "host"
     proximity_restraint_input.selection2_name = "guest"
-    proximity_restraint_input.radius = 1.05
+    proximity_restraint_input.radius = 2.0
     cylinder_restraint_input = restraints_preparer.Cylinder_restraint_input()
     cylinder_restraint_input.selection1_name = "guest"
     cylinder_restraint_input.selection2_name = "host"

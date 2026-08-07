@@ -1,6 +1,6 @@
 # Running the SEEKR test suite
 
-This directory contains the parametrized pytest suite for SEEKR.
+This directory contains the parametrized pytest suite for seekr.
 Scenario names such as `hg_metad_dist`, `hg_smd_dist`, and `toy_metad_2cvs`
 are defined in `seekr/tests/conftest.py` under `SCENARIO_PARAMS`.
 

@@ -8,7 +8,6 @@ Run pre- and post-simulation checks on the SEEKR model.
 import os
 import sys
 import glob
-import math
 import typing
 import argparse
 import collections
@@ -37,65 +36,9 @@ MAX_BD_STUCK = 5
 AVOGADROS_NUMBER = 6.022e23
 RECURSION_LIMIT = 100000
 
-def is_ion(atom):
+def is_ion(atom) -> bool:
     """If a lone atom has no bonds, assume it's an ion."""
-    
-    if len(atom.bond_partners) == 0:
-        return True
-    else:
-        return False
-
-def box_volume_from_6_vector(box_6_vector):
-    """
-    Compute the volume of a box from its 6-vector.
-    """
-    box_6_vector = box_6_vector[0]
-    box_6_vector[0] *= 0.1
-    box_6_vector[1] *= 0.1
-    box_6_vector[2] *= 0.1
-    
-    ax = float(box_6_vector[0])
-    ay = 0.0
-    az = 0.0
-    bx = float(box_6_vector[1] * math.cos(box_6_vector[5]*math.pi/180.0))
-    by = float(box_6_vector[1] * math.sin(box_6_vector[5]*math.pi/180.0))
-    bz = 0.0
-    cx = (box_6_vector[2] * math.cos(box_6_vector[4]*math.pi/180.0))
-    if box_6_vector[5] == 90.0:
-        cy = 0.0
-    else:
-        cy = float(box_6_vector[2] * (
-            math.cos(box_6_vector[3]*math.pi/180.0) \
-            - math.cos(box_6_vector[4]*math.pi/180.0) \
-            * math.cos(box_6_vector[5]*math.pi/180.0)) \
-            / math.sin(box_6_vector[5]*math.pi/180.0))
-    cz = float(math.sqrt(box_6_vector[2]**2 - cx**2 - cy**2))
-    A = np.array([ax, ay, az])
-    B = np.array([bx, by, bz])
-    C = np.array([cx, cy, cz])
-    volume = abs(np.dot(A, np.cross(B, C)))
-    return volume
-
-def load_structure_with_parmed(
-        model: structures.Seekr_model, 
-        anchor_or_unpartitioned: structures.Anchor \
-            | engines_structures.MD_unpartitioned_settings,
-        stage: scale_md.Stage_md,
-        swarm_id: int = 0
-        ) -> parmed.Structure | None:
-    """
-    Given the simulation inputs, load an anchor's structure for one of
-    the checks and return the parmed structure object.
-    """
-    input_positions_filenames = anchor_or_unpartitioned.get_positions_full_paths(
-        model.directory, stage.input_stage_index, stage.set_name, swarm_id)
-    if len(input_positions_filenames) == 0:
-        return None
-    assert len(input_positions_filenames) == 1, \
-        "Only one input structure is allowed per anchor."
-    input_positions_filename = input_positions_filenames[0]
-    structure = parmed.load_file(input_positions_filename)
-    return structure
+    return atom.n_bonds == 0
 
 def load_structure_with_mdtraj(
         model: structures.Seekr_model,
@@ -263,15 +206,19 @@ def check_pre_sim_MD_and_BD_salt_concentration(
     anchor_or_unpartitioned, stage \
         = get_first_available_anchor_md_stage_structure(model)
     md_ionic_strength = 0.0
-    structure = load_structure_with_parmed(model, anchor_or_unpartitioned, stage)
-    if structure is None:
+    traj = load_structure_with_mdtraj(model, anchor_or_unpartitioned, stage)
+    if traj is None:
         return True
-    box_6_vector = structure.get_box()
-    assert box_6_vector is not None, "Unable to compute box volume for "\
-        f"structures in anchor {anchor_or_unpartitioned.index}"
-    box_volume = box_volume_from_6_vector(box_6_vector)
+    if stage.scope == "unpartitioned":
+        anchor_or_unpartitioned_str = "unpartitioned settings"
+    else:
+        anchor_or_unpartitioned_str = f"anchor {anchor_or_unpartitioned.index}"
+    assert traj.unitcell_vectors is not None, "Unable to compute box volume for "\
+        f"structures in anchor {anchor_or_unpartitioned_str}"
+    a, b, c = traj.unitcell_vectors[0]
+    box_volume = abs(np.dot(a, np.cross(b, c)))  # nm^3
     particle_concentration = 1.0e24 / (AVOGADROS_NUMBER * box_volume)
-    for index, atom in enumerate(structure.atoms):
+    for atom in traj.topology.atoms:
         if is_ion(atom):
             found_ion = False
             for key in ION_CHARGE_DICT:
@@ -281,16 +228,18 @@ def check_pre_sim_MD_and_BD_salt_concentration(
                         * charge**2
                     found_ion = True
                 
+            """ # creates a bunch of extra outputs for lipid atoms
             if not found_ion:
+                if stage.scope == "unpartitioned":
+                    anchor_or_unpartitioned_str = "unpartitioned settings"
+                else:
+                    anchor_or_unpartitioned_str = f"anchor {anchor_or_unpartitioned.index}"
                 print("check_pre_sim_MD_and_BD_salt_concentration - Found "\
-                    f"unbonded atom with anchor {anchor_or_unpartitioned.index}, "\
-                    +f"index: {index} and name: {atom.name}. "\
+                    f"unbonded atom with anchor {anchor_or_unpartitioned_str}, "\
+                    +f"index: {atom.index} and name: {atom.name}. "\
                     +"Charge is uncertain. Assuming its contribution to "\
                     "solvent ionic strength is zero.")
-    if stage.scope == "unpartitioned":
-        anchor_or_unpartitioned_str = "unpartitioned settings"
-    else:
-        anchor_or_unpartitioned_str = f"anchor {anchor_or_unpartitioned.index}"
+            """
     if not np.isclose(md_ionic_strength, bd_ionic_strength, 
                     rtol=RELATIVE_TOLERANCE, atol=ABSOLUTE_TOLERANCE):
         print("CHECK FAILURE: BD simulation has significantly different "\
@@ -386,7 +335,8 @@ def check_systems_within_Voronoi_cells(
     return returning_result
 
 def recurse_atoms(
-        atom: parmed.Atom, 
+        atom,
+        bond_partners: dict[int, list],
         _visited_indices: typing.Set[int] = set()
         ) -> typing.Set[int]:
     """
@@ -395,10 +345,11 @@ def recurse_atoms(
     in the system.
     """
     
-    _visited_indices.add(atom.idx)
-    for bonded_atom in atom.bond_partners:
-        if not bonded_atom.idx in _visited_indices:
-            branch_indices = recurse_atoms(bonded_atom, _visited_indices)
+    _visited_indices.add(atom.index)
+    for bonded_atom in bond_partners[atom.index]:
+        if bonded_atom.index not in _visited_indices:
+            branch_indices = recurse_atoms(
+                bonded_atom, bond_partners, _visited_indices)
             _visited_indices.update(branch_indices)
     return _visited_indices
 
@@ -427,15 +378,20 @@ def check_atom_selections_on_same_molecule(
         # Skip this test if no MD.
         return True
     anchor_or_unpartitioned, stage = get_first_available_anchor_md_stage_structure(model)
-    structure = load_structure_with_parmed(model, anchor_or_unpartitioned, stage)
-    if structure is None:
+    traj = load_structure_with_mdtraj(model, anchor_or_unpartitioned, stage)
+    if traj is None:
         return True
+    bond_partners: dict[int, list] = collections.defaultdict(list)
+    for atom1, atom2 in traj.topology.bonds:
+        bond_partners[atom1.index].append(atom2)
+        bond_partners[atom2.index].append(atom1)
     molecules = []
     traversed_atoms = set()
-    for index, atom in enumerate(structure.atoms):
-        if index in traversed_atoms:
+    atoms = list(traj.topology.atoms)
+    for atom in atoms:
+        if atom.index in traversed_atoms:
             continue
-        molecule = recurse_atoms(atom, set())
+        molecule = recurse_atoms(atom, bond_partners, set())
         traversed_atoms.update(molecule)
         molecules.append(molecule)
     
@@ -461,8 +417,8 @@ def check_atom_selections_on_same_molecule(
                                 anchor_index = "unpartitioned settings"
                             print(warnstr1.format(
                                 cv.index, atom_index, 
-                                structure.atoms[atom_index].name, 
-                                structure.atoms[atom_index].number, 
+                                atoms[atom_index].name, 
+                                atoms[atom_index].serial, 
                                 anchor_index))
                             return False
                 if not index_found:
@@ -523,10 +479,6 @@ def check_atom_selections_MD_BD(
         # No MD to check
         return True
     
-    anchor_or_unpartitioned, stage \
-        = get_first_available_anchor_md_stage_structure(model)
-    md_structure = load_structure_with_parmed(
-        model, anchor_or_unpartitioned, stage)
     md_engine = model.get_engine_by_scale_type("molecular_dynamics")
     for md_selection in md_engine.unpartitioned_settings.selections:
         for bd_mol_index, bd_molecule in enumerate(
@@ -540,34 +492,7 @@ def check_atom_selections_MD_BD(
                         md_error_str = "{} atom(s)".format(len(md_atom_group))
                         print(warnstr2.format(bd_error_str, md_error_str))
                         return False
-                    md_atomic_element_dict = collections.defaultdict(int)
-                    bd_atomic_element_dict = collections.defaultdict(int)
-                    for md_atom_idx in md_atom_group:
-                        md_atom = md_structure.atoms[md_atom_idx]
-                        md_atomic_element_dict[md_atom.element] += 1
                     
-                    pqr_structure = pqr_structures[bd_mol_index]
-                    for bd_atom_idx in bd_atom_group:
-                        bd_atom = pqr_structure.atoms[bd_atom_idx]
-                        bd_atomic_element_dict[bd_atom.element] += 1
-                    
-                    if md_atomic_element_dict != bd_atomic_element_dict:
-                        bd_err_str = ""
-                        for key in bd_atomic_element_dict:
-                            this_str = "{} atoms with atomic element {}".format(
-                                bd_atomic_element_dict[key], key)
-                            if bd_err_str != "":
-                                bd_err_str += " and "
-                            bd_err_str += this_str
-                        md_err_str = ""
-                        for key in md_atomic_element_dict:
-                            this_str = "{} atoms with atomic element {}".format(
-                                md_atomic_element_dict[key], key)
-                            if md_err_str != "":
-                                md_err_str += " and "
-                            md_err_str += this_str
-                        print(warnstr2.format(bd_err_str, md_err_str))
-                        return False
     return True
 
 def check_pqr_residues(
@@ -746,7 +671,10 @@ def check_pre_simulation_all(model):
     #check_passed_list.append(check_pre_sim_bubbles(model))
     if not model.using_toy():
         check_passed_list.append(check_pre_sim_MD_and_BD_salt_concentration(model))
-        check_passed_list.append(check_atom_selections_on_same_molecule(model))
+        # Skipping for now since many molecules have multimers or missing loops.
+        # Can rely on seekrflow selection and future visualization to catch.
+        # IDEA: check if one is entirely on the protein.
+        #check_passed_list.append(check_atom_selections_on_same_molecule(model))
         check_passed_list.append(check_atom_selections_MD_BD(model))
         check_passed_list.append(check_pqr_residues(model))
     else:

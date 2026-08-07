@@ -9,6 +9,7 @@ import os
 import re
 import typing
 import glob
+import shutil
 from shutil import copyfile
 import json
 import logging
@@ -69,6 +70,8 @@ stages: typing.Dict[str, typing.Type[scales_base.Base_stage]] \
 
 restraints: typing.Dict[str, typing.Type[restraints_structures.Base_restraint]] \
         = {"positional": restraints_structures.Positional_restraint,
+           "z": restraints_structures.Z_restraint,
+           "torsion": restraints_structures.Torsion_restraint,
            "pairwise": restraints_structures.Pairwise_restraint,
            "proximity": restraints_structures.Proximity_restraint,
            "cylinder": restraints_structures.Cylinder_restraint}
@@ -238,8 +241,9 @@ class Anchor:
         """
         Generate the filetree for this anchor.
         """
-        assert len(self.scale_types) > 0, \
-            f"Anchor '{self.name}' has no defined scale_types."
+        if not self.bulk_anchor:
+            assert len(self.scale_types) > 0, \
+                f"Anchor '{self.name}' has no defined scale_types."
         for scale_type in self.scale_types:
             scale = model.get_scale_by_type(scale_type)
             scale.generate_filetree_anchor(self, root_directory, anchor_set_name)
@@ -740,6 +744,26 @@ class Seekr_model:
         self.num_milestones = tmp_num_milestones
         return
     
+    def clear_cv_set(
+            self,
+            directory: str,
+            set_name: str
+            ) -> None:
+        """
+        Remove an existing collective-variable set directory so prepare (or a
+        logistic stage) can rewrite it without leaving orphaned CV JSON files
+        or RMSD reference directories from a previous definition.
+        """
+        this_cv_set_directory = os.path.join(
+            directory, "collective_variable_sets", set_name)
+        if os.path.exists(this_cv_set_directory):
+            logger.info(
+                "Clearing collective variable set '%s' at %s",
+                set_name, this_cv_set_directory)
+            shutil.rmtree(this_cv_set_directory)
+        os.makedirs(this_cv_set_directory, exist_ok=True)
+        return
+
     def save_cvs(
             self, 
             directory: str,
@@ -747,6 +771,9 @@ class Seekr_model:
             ) -> None:
         """
         Save any collective variables that need to be saved during prepare.
+
+        Callers that rebuild a CV set (prepare, logistic stages) should call
+        clear_cv_set() first so renamed/removed CVs do not leave orphan files.
         """
         cv_directory = os.path.join(directory, "collective_variable_sets")
         if not os.path.exists(cv_directory):
@@ -867,6 +894,19 @@ class Seekr_model:
                 cv_structures.load_cv_from_file(cv_file))
         # Sort CVs by .index attribute
         self.collective_variables.sort(key=lambda cv: cv.index)
+        # Duplicate indices usually mean orphaned CV JSON files from a prior
+        # prepare were left on disk. clear_cv_set() before rewriting the set.
+        seen_indices: dict[int, str] = {}
+        for cv in self.collective_variables:
+            if cv.index in seen_indices:
+                raise ValueError(
+                    f"Duplicate CV index {cv.index} for "
+                    f"'{seen_indices[cv.index]}' and '{cv.name}' in "
+                    f"{this_cv_set_directory}. Stale collective-variable files "
+                    f"may remain from a previous prepare; re-run prepare "
+                    f"(which clears the CV set) or remove orphaned *.json "
+                    f"files under that directory.")
+            seen_indices[cv.index] = cv.name
         return
     
     def load_selections(

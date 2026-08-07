@@ -51,6 +51,11 @@ class SDA_molecule_input:
         Add ghost atoms to the SDA reaction file.
         """
         pqr_struct = parmed.load_file(self.pqr_filename, skip_bonds=True)
+        # ParmEd rebuilds the full Nx3 array on every `.coordinates` access.
+        # Cache it once; indexing inside a per-atom loop is otherwise O(N^2).
+        coords = pqr_struct.coordinates
+        assert coords is not None, (
+            f"PQR '{self.pqr_filename}' has no coordinates.")
         centers_of_mass = []
         original_indices: typing.Dict[str, typing.List[int]] = {}
         ghost_site_indices: typing.Dict[str, int] = {}
@@ -61,7 +66,7 @@ class SDA_molecule_input:
             center_of_mass = np.array([[0., 0., 0.]])
             total_mass = 0.0
             for atom_index in selection.atom_indices:
-                atom_pos = pqr_struct.coordinates[atom_index,:]
+                atom_pos = coords[atom_index, :]
                 atom_mass = pqr_struct.atoms[atom_index].mass
                 if atom_mass == 0.0:
                     atom_mass = 0.0001
@@ -75,7 +80,7 @@ class SDA_molecule_input:
             mol_center_of_mass = np.array([[0., 0., 0.]])
             mol_total_mass = 0.0
             for atom_index, atom in enumerate(pqr_struct.atoms):
-                atom_pos = pqr_struct.coordinates[atom_index,:]
+                atom_pos = coords[atom_index, :]
                 atom_mass = atom.mass
                 if atom_mass == 0.0:
                     atom_mass = 0.0001
@@ -98,16 +103,14 @@ class SDA_molecule_input:
             
         
         if center_molecule:
-            new_coordinates = np.zeros(pqr_complex.coordinates.shape)
-            for atom_index in range(len(pqr_complex.atoms)):
-                new_coordinates[atom_index,:] = pqr_complex.coordinates[atom_index,:] \
-                    - mol_center_of_mass[0,:]
-                    
-            pqr_complex.coordinates = new_coordinates
+            complex_coords = pqr_complex.coordinates
+            pqr_complex.coordinates = (
+                complex_coords - mol_center_of_mass[0, :])
         
+        complex_coords = pqr_complex.coordinates
         with open(new_pqr_filename, "w") as pqr_file:
             for i, atom in enumerate(pqr_complex.atoms):
-                x, y, z = pqr_complex.coordinates[i][:]
+                x, y, z = complex_coords[i][:]
                 if self.type == "protein":
                     atom_str = "ATOM{:>7d} {:4s} {:3s}  {:>4s}{:>12.3f}{:>8.3f}{:>8.3f} {:>8.4f} {:>8.4f}\n".format(
                         i+1, atom.name, atom.residue.name, str(atom.residue.idx+1), 
@@ -120,9 +123,10 @@ class SDA_molecule_input:
         
         for selection in self.selections:
             ghost_atom = pqr_complex.atoms[ghost_site_indices[selection.name]-1]
-            x, y, z = pqr_complex.coordinates[i][:]
+            ghost_i = ghost_site_indices[selection.name] - 1
+            x, y, z = complex_coords[ghost_i][:]
             ghost_atom_line = "ATOM{:>7s} {:4s} {:3s}  {:>4s}{:>12.3f}{:>8.3f}{:>8.3f}".format(
-                str(ghost_index), ghost_atom.name, ghost_atom.residue.name, str(ghost_atom.residue.idx), 
+                str(ghost_site_indices[selection.name]), ghost_atom.name, ghost_atom.residue.name, str(ghost_atom.residue.idx), 
                 x, y, z)
             ghost_atom_lines[selection.name] = ghost_atom_line
             ghost_atom_line_list.append(ghost_atom_line)
@@ -443,7 +447,7 @@ def run_hydropro(
         root_directory, bd_anchor.directory)
     curdir = os.getcwd()
     os.chdir(b_surface_directory)
-    hydropro_command = f"{hydropro_directory}/hydropro10-lnx.exe"
+    hydropro_command = os.path.join(hydropro_directory, "hydropro10-lnx.exe")
     for molecule in bd_engine.unpartitioned_settings.molecules:
         molecule.run_hydropro(
             temperature=model.temperature,

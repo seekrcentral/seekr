@@ -1,0 +1,322 @@
+{
+    "directory": "~/test_seekr_toy_muller_potential",
+    "plugins": [],
+    "temperature": 298.15,
+    "random_seed": 111,
+    "toy_settings": {
+        "potential_energy_expression": "-20*exp(-1 * (x1 - 1)^2 + 0 * (x1 - 1) * (y1 - 0) - 10 * (y1 - 0)^2) - 10*exp(-1 * (x1 - 0)^2 + 0 * (x1 - 0) * (y1 - 0.5) - 10 * (y1 - 0.5)^2) - 17*exp(-6.5 * (x1 + 0.5)^2 + 11 * (x1 + 0.5) * (y1 - 1.5) - 6.5 * (y1 - 1.5)^2) + 1.5*exp(0.7 * (x1 + 1)^2 + 0.6 * (x1 + 1) * (y1 - 1) + 0.7 * (y1 - 1)^2)",
+        "num_particles": 1,
+        "masses": [10.0]
+    },
+    "engine_settings_list": [
+        {
+            "type": "openmm",
+            "scale_type": "molecular_dynamics",
+            "nonbonded_method": "nocutoff",
+            "constraints": "hbonds",
+            "hydrogen_mass": null,
+            "timestep": 0.002,
+            "integrator_type": "brownian",
+            "platform_type": "reference",
+            "unpartitioned_settings": {
+                "directory": "unpartitioned_scope",
+                "md_parameters_topology": null,
+                "positions": [
+                    [
+                        [0.5, 0.0, 0.0]
+                    ]
+                ],
+                "selections": [
+                    {
+                        "name": "particle0",
+                        "atom_indices": [0]
+                    }
+                ]
+            }
+        }
+    ],
+    "initial_scopes": {
+        "molecular_dynamics": "unpartitioned",
+        "logistic": "unpartitioned"
+    },
+    "stages": [
+        {
+            "type": "md_stage",
+            "name": "metadynamics",
+            "input_stage_name": "initial",
+            "run_minimization": true,
+            "checkpoint_interval": 1000,
+            "ensemble": {
+                "type": "NVT"
+            },
+            "sampling_method": {
+                "type": "metadynamics",
+                "number_of_points": 101,
+                "bias_factor": 10.0,
+                "gaussian_height": 1.5,
+                "gaussian_width": 0.1,
+                "steps_per_update": 250,
+                "cv_names": [
+                    "x_coordinate",
+                    "y_coordinate"
+                ]
+            },
+            "completion_criteria": {
+                "type": "reporter_progress",
+                "reporter_name": "my_anchor_reporter",
+                "reporter_progress_threshold": 1.0,
+                "interval": 10,
+                "max_number_of_steps": 2000000000
+            },
+            "restraints": [],
+            "reporters": [
+                {
+                    "type": "anchor",
+                    "name": "my_anchor_reporter",
+                    "interval": 10,
+                    "enforce_periodic_box": false,
+                    "atom_subset": null,
+                    "extension": "dcd",
+                    "save_interval": null,
+                    "mode": "save_last_frame"
+                },
+                {
+                    "type": "state",
+                    "name": null,
+                    "to_stdout": true,
+                    "interval": 500
+                },
+                {
+                    "type": "position",
+                    "name": null,
+                    "interval": 5,
+                    "enforce_periodic_box": true,
+                    "atom_subset": null,
+                    "extension": "dcd"
+                }
+            ],
+            "timestep": null
+        },
+        {
+            "type": "anchor_starting_structures_from_reporter_stage",
+            "name": "anchor_structures_from_metaD",
+            "comment": "Assign anchor starting structures from a reporter.",
+            "input_stage_name": "metadynamics",
+            "set_name": "main",
+            "reporter_name": "my_anchor_reporter"
+        },
+        {
+            "type": "md_stage",
+            "name": "MMVT",
+            "input_stage_name": null,
+            "run_minimization": false,
+            "checkpoint_interval": 5000,
+            "ensemble": {
+                "type": "NVT"
+            },
+            "sampling_method": {
+                "type": "mmvt"
+            },
+            "completion_criteria": {
+                "type": "number_of_steps",
+                "number_of_steps": 200000
+            },
+            "restraints": [],
+            "reporters": [
+                {
+                    "type": "state",
+                    "name": null,
+                    "to_stdout": true,
+                    "interval": 5000
+                },
+                {
+                    "type": "position",
+                    "name": null,
+                    "interval": 50,
+                    "enforce_periodic_box": false,
+                    "atom_subset": null,
+                    "extension": "dcd"
+                }
+            ]
+        }
+    ],
+    "partitions": [
+        {
+            "cvs": [
+                {
+                    "name": "x_coordinate",
+                    "group_names": [
+                        "particle0"
+                    ],
+                    "expression": "x1",
+                    "type": "external",
+                    "_index": 0,
+                    "min_value": -2.0,
+                    "max_value": 1.5,
+                    "periodic": false
+                },
+                {
+                    "name": "y_coordinate",
+                    "group_names": [
+                        "particle0"
+                    ],
+                    "expression": "y1",
+                    "type": "external",
+                    "_index": 0,
+                    "min_value": -0.5,
+                    "max_value": 2.5,
+                    "periodic": false
+                }
+            ],
+            "state_points": [
+                {
+                    "name": "stateA",
+                    "value": [0.5, 0.0],
+                    "end_state": true,
+                    "bulk_state": false
+                },
+                {
+                    "name": "stateB",
+                    "value": [-0.5, 1.5],
+                    "end_state": true,
+                    "bulk_state": false
+                }
+            ],
+            "anchor_scheme": {
+                "type": "voronoi_cells",
+                "voronoi_cells": [
+                    {
+                        "name": "",
+                        "value": [ 0.5, 0.0 ],
+                        "scale_types": [
+                            "molecular_dynamics"
+                        ],
+                        "scale_parameters_topology": null,
+                        "positions": "",
+                        "selections": null,
+                        "end_anchor": false,
+                        "bulk_anchor": false,
+                        "connection_flags": []
+                    },
+                    {
+                        "name": "",
+                        "value": [ 0.28758519,  0.17390548],
+                        "scale_types": [
+                            "molecular_dynamics"
+                        ],
+                        "scale_parameters_topology": null,
+                        "positions": "",
+                        "selections": null,
+                        "end_anchor": false,
+                        "bulk_anchor": false,
+                        "connection_flags": []
+                    },
+                    {
+                        "name": "",
+                        "value": [ 0.12723983,  0.39527147],
+                        "scale_types": [
+                            "molecular_dynamics"
+                        ],
+                        "scale_parameters_topology": null,
+                        "positions": "",
+                        "selections": null,
+                        "end_anchor": false,
+                        "bulk_anchor": false,
+                        "connection_flags": []
+                    },
+                    {
+                        "name": "",
+                        "value": [-0.13155998,  0.4780188 ],
+                        "scale_types": [
+                            "molecular_dynamics"
+                        ],
+                        "scale_parameters_topology": null,
+                        "positions": "",
+                        "selections": null,
+                        "end_anchor": false,
+                        "bulk_anchor": false,
+                        "connection_flags": []
+                    },
+                    {
+                        "name": "",
+                        "value": [-0.40576271,  0.49624397],
+                        "scale_types": [
+                            "molecular_dynamics"
+                        ],
+                        "scale_parameters_topology": null,
+                        "positions": "",
+                        "selections": null,
+                        "end_anchor": false,
+                        "bulk_anchor": false,
+                        "connection_flags": []
+                    },
+                    {
+                        "name": "",
+                        "value": [-0.67569992,  0.54796236],
+                        "scale_types": [
+                            "molecular_dynamics"
+                        ],
+                        "scale_parameters_topology": null,
+                        "positions": "",
+                        "selections": null,
+                        "end_anchor": false,
+                        "bulk_anchor": false,
+                        "connection_flags": []
+                    },
+                    {
+                        "name": "",
+                        "value": [-0.88543314,  0.72015115],
+                        "scale_types": [
+                            "molecular_dynamics"
+                        ],
+                        "scale_parameters_topology": null,
+                        "positions": "",
+                        "selections": null,
+                        "end_anchor": false,
+                        "bulk_anchor": false,
+                        "connection_flags": []
+                    },
+                    {
+                        "name": "",
+                        "value": [-0.9437662,   0.98105707],
+                        "scale_types": [
+                            "molecular_dynamics"
+                        ],
+                        "scale_parameters_topology": null,
+                        "positions": "",
+                        "selections": null,
+                        "end_anchor": false,
+                        "bulk_anchor": false,
+                        "connection_flags": []
+                    },
+                    {
+                        "name": "",
+                        "value": [-0.78655156,  1.20328811],
+                        "scale_types": [
+                            "molecular_dynamics"
+                        ],
+                        "scale_parameters_topology": null,
+                        "positions": "",
+                        "selections": null,
+                        "end_anchor": false,
+                        "bulk_anchor": false,
+                        "connection_flags": []
+                    },
+                    {
+                        "name": "",
+                        "value": [-0.60161167,  1.4071803 ],
+                        "scale_types": [
+                            "molecular_dynamics"
+                        ],
+                        "scale_parameters_topology": null,
+                        "positions": "",
+                        "selections": null,
+                        "end_anchor": false,
+                        "bulk_anchor": false,
+                        "connection_flags": []
+                    }
+                ]
+            }
+        }
+    ]
+}

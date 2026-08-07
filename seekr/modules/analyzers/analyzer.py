@@ -15,20 +15,18 @@ import seekr.modules.base as base
 import seekr.modules.structures as structures
 import seekr.modules.analyzers.mmvt_analyzer as mmvt_analyzer
 
-AVAILABLE_ANALYZERS = ["mmvt"]
+AVAILABLE_ANALYZERS = ["mmvt", "metadynamics"]
 
-# TODO: correct typing return here
 def analyze(
         model: structures.Seekr_model,
-        stage_index: int | None = None,
+        stage_index: int,
         skip_checks: bool = False,
         min_time_ps: float = 0.0,
         max_time_ps: float | None = None,
         error_analysis_method: str = "bootstrap",
         only_extract_data: bool = False,
         num_error_samples: int | None = None
-    ) -> mmvt_analyzer.Mmvt_analyzer | None:
-    # TODO: create a more specific type for the return value above
+    ) -> typing.Any:
     """
     Analyze the results of SEEKR simulations for calculation of rate constants,
     free energies, convergence, and other properties and plots.
@@ -42,7 +40,6 @@ def analyze(
     -------
     
     """
-    # If stage_index is not provided, automatically select the last stage.
     available_analyzers = []
     available_analyzers += AVAILABLE_ANALYZERS
     for plugin_name in model.plugins:
@@ -55,22 +52,24 @@ def analyze(
             if hasattr(plugin_module_analyzer, "AVAILABLE_ANALYZERS"):
                 available_analyzers += plugin_module_analyzer.AVAILABLE_ANALYZERS
 
-    if stage_index is None:
-        assert len(model.stages) > 0, "Model has no stages to analyze."
-        for test_stage_index in range(len(model.stages) - 1, -1, -1):
-            if model.stages[test_stage_index].scale_type == "logistic":
-                continue
-            if model.stages[test_stage_index].sampling_method.type in available_analyzers:
-                stage_index = test_stage_index+1
-                break
-    if stage_index is None:
-        return None
-    assert 1 <= stage_index < len(model.stages)+1, "Invalid stage index."
     stage = model.stages[stage_index-1]
     stage.load_sets_into_model(model)
+    assert hasattr(stage, "sampling_method"), \
+        f"Stage {stage_index} has no sampling method set - cannot analyze."
     if stage.sampling_method.type == "mmvt":
         from seekr.modules.analyzers.mmvt_analyzer import analyze_mmvt
         analysis = analyze_mmvt(
+            model, stage_index=stage_index, skip_checks=skip_checks,
+            min_time_ps=min_time_ps, max_time_ps=max_time_ps,
+            error_analysis_method=error_analysis_method,
+            only_extract_data=only_extract_data,
+            num_error_samples=num_error_samples
+        )
+        return analysis
+    elif stage.sampling_method.type == "metadynamics":
+        from seekr.modules.analyzers.metadynamics_analyzer \
+            import analyze_metadynamics
+        analysis = analyze_metadynamics(
             model, stage_index=stage_index, skip_checks=skip_checks,
             min_time_ps=min_time_ps, max_time_ps=max_time_ps,
             error_analysis_method=error_analysis_method,
@@ -96,5 +95,6 @@ def analyze(
             if found:
                 return analysis
             
-    raise ValueError(f"Analysis for sampling method type not yet implemented: "
-                         f"{stage.sampling_method.type}")
+    #raise ValueError(f"Analysis for sampling method type not yet implemented: "
+    #                     f"{stage.sampling_method.type}")
+    return None

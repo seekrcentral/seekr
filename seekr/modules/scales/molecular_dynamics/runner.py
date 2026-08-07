@@ -36,12 +36,16 @@ def is_finished_md(
         stage: md_structures.Stage_md,
         anchor_or_unpartitioned: engines_structures.MD_unpartitioned_settings | structures.Anchor,
         swarm_id: int | None = None,
+        completion_criteria=None,
+        cv_values=None
     ) -> bool:
     """
     Check if the simulation is finished.
     """
     ending, _ = is_finished_md_with_message(
-        model, stage, anchor_or_unpartitioned, swarm_id)
+        model, stage, anchor_or_unpartitioned, swarm_id,
+        completion_criteria=completion_criteria,
+        cv_values=cv_values)
     return ending
 
 def is_finished_md_with_message(
@@ -49,7 +53,9 @@ def is_finished_md_with_message(
         stage: md_structures.Stage_md,
         anchor_or_unpartitioned: engines_structures.MD_unpartitioned_settings | structures.Anchor,
         swarm_id: int | None = None,
-        use_json: bool = True
+        use_json: bool = True,
+        completion_criteria=None,
+        cv_values=None
     ) -> tuple[bool, typing.Union[None, str, dict]]:
     """
     Check if the simulation is finished and return with message.
@@ -59,8 +65,10 @@ def is_finished_md_with_message(
     finished, and the reported progress is the mean of the per-swarm progress.
     If swarm_id is an integer, only that single swarm is evaluated.
     """
-    completion_criteria: completion_criteria_structures.MD_completion_criteria = \
-        stage.completion_criteria
+    completion_criteria: completion_criteria_structures.MD_completion_criteria
+    if completion_criteria is None:
+        completion_criteria = stage.completion_criteria
+    
     message = None
 
     if swarm_id is None:
@@ -83,11 +91,21 @@ def is_finished_md_with_message(
         swarm_messages = {}
         for this_swarm_id in swarm_ids:
             this_finished, this_message = is_finished_md_with_message(
-                model, stage, anchor_or_unpartitioned, swarm_id=this_swarm_id,
-                use_json=True)
+                    model, stage, anchor_or_unpartitioned, swarm_id=this_swarm_id,
+                    completion_criteria=completion_criteria,
+                    cv_values=cv_values, use_json=use_json)
+            if use_json:
+                progress = this_message.get("progress", 0.0)
+            else:
+                this_finished_json, this_message_json = is_finished_md_with_message(
+                    model, stage, anchor_or_unpartitioned, swarm_id=this_swarm_id,
+                    completion_criteria=completion_criteria,
+                    cv_values=cv_values, use_json=True)
+                progress = this_message_json.get("progress", 0.0)
+
             if not this_finished:
                 finished_all = False
-            progress_sum += this_message.get("progress", 0.0)
+            progress_sum += progress
             swarm_messages[this_swarm_id] = this_message
         progress = progress_sum / len(swarm_ids)
         if use_json:
@@ -144,7 +162,8 @@ def is_finished_md_with_message(
                 anchor_or_unpartitioned.directory,
                 stage_directory)
 
-        checkpoint_info_basename = _eng_runner.get_checkpoint_information_basename(swarm_id)
+        checkpoint_info_basename = _eng_runner\
+            .get_checkpoint_information_basename(swarm_id)
         basename = stage.sampling_method.get_output_positions_basename_noext()
         swarm_string = f".swarm_{swarm_id}"
         reporter_ext = stage.reporters[reporter_index].get_reporter_extension()
@@ -250,6 +269,8 @@ def is_finished_md_with_message(
             found, completed, message = plugin_module_scales_md_runner\
                 .is_finished_md_with_message(
                     model, stage, anchor_or_unpartitioned, swarm_id,
+                    completion_criteria=completion_criteria,
+                    cv_values=cv_values,
                     use_json=use_json)
             if found:
                 return completed, message

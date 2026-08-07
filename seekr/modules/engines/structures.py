@@ -20,6 +20,35 @@ import seekr.modules.base as base
 
 logger = logging.getLogger(__name__)
 
+TOPOLOGY_PDB_BASENAME = "topology.pdb"
+
+def _copy_topology_pdb(
+        topology_filename: str,
+        dest_directory: str,
+        positions_pdb: str | None = None
+        ) -> str:
+    """
+    Copy a topology PDB into dest_directory. Prefer topology_filename when
+    set; otherwise copy positions_pdb as TOPOLOGY_PDB_BASENAME.
+    Returns the basename stored on the model.
+    """
+    if topology_filename != "":
+        topology_basename = os.path.basename(topology_filename)
+        dest_path = os.path.join(dest_directory, topology_basename)
+        full_topology_filename = os.path.expanduser(topology_filename)
+        logger.info(f"Copying topology PDB file: {full_topology_filename} "
+                    f"to anchor directory: {dest_path}.")
+        copyfile(full_topology_filename, dest_path)
+        return topology_basename
+    assert positions_pdb is not None and positions_pdb != "", \
+        "topology_filename must be set, or a positions PDB must be provided."
+    dest_path = os.path.join(dest_directory, TOPOLOGY_PDB_BASENAME)
+    full_positions_pdb = os.path.expanduser(positions_pdb)
+    logger.info(f"Copying positions PDB as topology: {full_positions_pdb} "
+                f"to anchor directory: {dest_path}.")
+    copyfile(full_positions_pdb, dest_path)
+    return TOPOLOGY_PDB_BASENAME
+
 # NOTE: this one seems only to be used by modules/structures.py and
 # some engines structures.py modules, so it seems best placed here for
 # now, even though it's not exclusive to engines.
@@ -102,7 +131,9 @@ class Checkpoint_information:
     timestep: float = field(
         default=0.002, validator=[validators.instance_of(float),
                                   validators.gt(0)])
-    cv_values: tuple[float] | None = field(
+    # Must be tuple[float, ...], not tuple[float]: cattrs treats tuple[float]
+    # as a length-1 tuple and silently drops all but the first CV on save.
+    cv_values: tuple[float, ...] | None = field(
         default=None,
         validator=validators.optional(
             validators.deep_iterable(
@@ -132,11 +163,13 @@ def write_checkpoint_information_file(
         step: int, 
         restart_index: int,
         timestep: float,
-        cv_values: tuple[float] | None,
+        cv_values: tuple[float, ...] | list[float] | None,
         filename: str) -> None:
     """
     Write the checkpoint information to a file.
     """
+    if cv_values is not None:
+        cv_values = tuple(float(x) for x in cv_values)
     checkpoint_information = Checkpoint_information(
         step, restart_index, timestep, cv_values)
     checkpoint_information.save(filename)
@@ -206,10 +239,36 @@ class Verlet_integrator_settings:
         default=1e-6, validator=[validators.instance_of(float),
                                  validators.gt(0)])
 
+@define
+class Nose_hoover_integrator_settings:
+    type: typing.Literal["nose_hoover"] = "nose_hoover"
+    timestep: float = field(
+        default=0.002, validator=[validators.instance_of(float),
+                                   validators.gt(0)])
+    collision_frequency: float = field(
+        default=1.0, validator=[validators.instance_of(float),
+                                validators.ge(0)])
+    target_temperature: float = field(
+        default=298.15, validator=[validators.instance_of(float),
+                                   validators.gt(0)])
+    chain_length: int = field(
+        default=3, validator=[validators.instance_of(int),
+                              validators.ge(1)])
+    num_mts: int = field(
+        default=3, validator=[validators.instance_of(int),
+                              validators.ge(1)])
+    num_yoshida_suzuki: int = field(
+        default=7, validator=[validators.instance_of(int),
+                              validators.in_([1, 3, 5, 7])])
+    rigid_tolerance: float = field(
+        default=1e-6, validator=[validators.instance_of(float),
+                                 validators.gt(0)])
+
 Integrator_settings = typing.Union[Langevin_integrator_settings,
                                    Langevin_middle_integrator_settings,
                                    Brownian_integrator_settings,
-                                   Verlet_integrator_settings]
+                                   Verlet_integrator_settings,
+                                   Nose_hoover_integrator_settings]
 
 @define
 class Cuda_platform_settings:
@@ -252,7 +311,9 @@ class Amber_parameters_topology:
     def copy_files(
             self,
             dest_directory: str,
-            new_md_parameters_topology: "Parameters_topology") -> None:
+            new_md_parameters_topology: "Parameters_topology",
+            positions_pdb: str | None = None
+            ) -> None:
         """
         Copy the files for the initial 'stage' from this Anchor_input
         to the actual anchor.
@@ -291,7 +352,9 @@ class Gromacs_parameters_topology:
     def copy_files(
             self,
             dest_directory: str,
-            new_md_parameters_topology: "Parameters_topology") -> None:
+            new_md_parameters_topology: "Parameters_topology",
+            positions_pdb: str | None = None
+            ) -> None:
         """
         Copy the files for the initial 'stage' from this Anchor_input
         to the actual anchor.
@@ -340,9 +403,12 @@ class Charmm_parameters_topology:
         else:
             return False
         
-    def copy_files(self,
-                   dest_directory: str,
-                   new_md_parameters_topology: "Parameters_topology") -> None:
+    def copy_files(
+            self,
+            dest_directory: str,
+            new_md_parameters_topology: "Parameters_topology",
+            positions_pdb: str | None = None
+            ) -> None:
         """
         Copy the files for the initial 'stage' from this Anchor_input
         to the actual anchor.
@@ -359,7 +425,7 @@ class Charmm_parameters_topology:
                         f"to anchor directory: {anchor_psf_full_path}.")
         copyfile(full_psf_filename, anchor_psf_full_path)
         new_md_parameters_topology.psf_filename = psf_basename
-        new_md_parameters_topology.param_filename_list = []
+        new_param_filename_list = []
         for param_filename in self.param_filename_list:
             param_basename = os.path.basename(param_filename)
             anchor_param_full_path = os.path.join(dest_directory,
@@ -368,7 +434,8 @@ class Charmm_parameters_topology:
             logger.info(f"Copying Charmm parameter file: {full_param_filename} "
                             f"to anchor directory: {anchor_param_full_path}.")
             copyfile(full_param_filename, anchor_param_full_path)
-            new_md_parameters_topology.param_filename_list.append(param_basename)
+            new_param_filename_list.append(param_basename)
+        new_md_parameters_topology.param_filename_list = new_param_filename_list
         return
    
 # TODO: remove support for this - users can create their own systems from an
@@ -388,6 +455,8 @@ class Forcefield_parameters:
             member_validator=validators.instance_of(str),
             iterable_validator=validators.instance_of(list),
         ))
+    topology_filename: str = field(
+        default="", validator=validators.instance_of(str))
     
     def same_parameters(
             self, 
@@ -397,7 +466,8 @@ class Forcefield_parameters:
         if (self.built_in_forcefield_filenames \
                 == other.built_in_forcefield_filenames) \
                 and (self.custom_forcefield_filenames \
-                     == other.custom_forcefield_filenames):
+                     == other.custom_forcefield_filenames) \
+                and (self.topology_filename == other.topology_filename):
             return True
         else:
             return False
@@ -405,13 +475,15 @@ class Forcefield_parameters:
     def copy_files(
             self,
             dest_directory: str,
-            new_md_parameters_topology: "Parameters_topology") -> None:
+            new_md_parameters_topology: "Parameters_topology",
+            positions_pdb: str | None = None
+            ) -> None:
         """
         Copy the files for the initial 'stage' from this Anchor_input
         to the actual anchor.
         """
         assert self.type == new_md_parameters_topology.type, "Type mismatch."
-        new_md_parameters_topology.built_in_forcefield_filenames = []
+        new_built_in_forcefield_filenames = []
         for forcefield_filename in self.built_in_forcefield_filenames:
             forcefield_basename = os.path.basename(forcefield_filename)
             anchor_forcefield_full_path = os.path.join(
@@ -420,10 +492,10 @@ class Forcefield_parameters:
             logger.info(f"Copying OpenMM forcefield file: {full_forcefield_filename} "
                             f"to anchor directory: {anchor_forcefield_full_path}.")
             copyfile(full_forcefield_filename, anchor_forcefield_full_path)
-            new_md_parameters_topology.built_in_forcefield_filenames.append(
-                forcefield_basename)
-
-        new_md_parameters_topology.custom_forcefield_filenames = []
+            new_built_in_forcefield_filenames.append(forcefield_basename)
+        new_md_parameters_topology.built_in_forcefield_filenames \
+            = new_built_in_forcefield_filenames
+        new_custom_forcefield_filenames = []
         for forcefield_filename in self.custom_forcefield_filenames:
             forcefield_basename = os.path.basename(forcefield_filename)
             anchor_forcefield_full_path = os.path.join(dest_directory,
@@ -432,24 +504,28 @@ class Forcefield_parameters:
             logger.info(f"Copying OpenMM forcefield file: {full_forcefield_filename} "
                             f"to anchor directory: {anchor_forcefield_full_path}.")
             copyfile(full_forcefield_filename, anchor_forcefield_full_path)
-            new_md_parameters_topology.custom_forcefield_filenames.append(
-                forcefield_basename)
-
+            new_custom_forcefield_filenames.append(forcefield_basename)
+        new_md_parameters_topology.custom_forcefield_filenames \
+            = new_custom_forcefield_filenames
+        new_md_parameters_topology.topology_filename = _copy_topology_pdb(
+            self.topology_filename, dest_directory, positions_pdb)
         return
     
 @define
 class Openmm_system:
     type: typing.Literal["OpenMM_system"] = "OpenMM_system"
-    # TODO: add topology file? Make it optional?
     system_filename: str = field(default="",
                                 validator=validators.instance_of(str))
+    topology_filename: str = field(
+        default="", validator=validators.instance_of(str))
     
     def same_parameters(
             self, 
             other: "Parameters_topology"
             ) -> bool:
         assert self.type == other.type, "Type mismatch."
-        if self.system_filename == other.system_filename:
+        if (self.system_filename == other.system_filename) \
+                and (self.topology_filename == other.topology_filename):
             return True
         else:
             return False
@@ -457,7 +533,9 @@ class Openmm_system:
     def copy_files(
             self,
             dest_directory: str,
-            new_md_parameters_topology: "Parameters_topology") -> None:
+            new_md_parameters_topology: "Parameters_topology",
+            positions_pdb: str | None = None
+            ) -> None:
         """
         Copy the files for the initial 'stage' from this Anchor_input
         to the actual anchor.
@@ -472,6 +550,8 @@ class Openmm_system:
                         f"to anchor directory: {anchor_system_full_path}.")
         copyfile(full_system_filename, anchor_system_full_path)
         new_md_parameters_topology.system_filename = system_basename
+        new_md_parameters_topology.topology_filename = _copy_topology_pdb(
+            self.topology_filename, dest_directory, positions_pdb)
         return
 
 Parameters_topology = typing.Union[

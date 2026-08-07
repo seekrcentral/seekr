@@ -377,11 +377,14 @@ class SDA_molecule:
             os.system(full_hydropro_command)
 
             # Find and read hydropro output
+            output_file = None
             for _root, _dirs, files in os.walk("."):
                 for filename in files:
                     if self.name in filename and "res.txt" in filename:
                         output_file = filename
 
+            assert output_file is not None, "Problem running hydropro - "\
+                "output file not found."
             trans_diffusion, rot_diffusion = hydropro.read_output(output_file)
             self.diffusion_trans = trans_diffusion
             self.diffusion_rotat = rot_diffusion

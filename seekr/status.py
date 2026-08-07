@@ -15,7 +15,7 @@ import seekr.modules.scales.runner as scales_runner
 import seekr.run as run
 import seekr.analyze as analyze
 
-AVAILABLE_INSTRUCTIONS = ["progress", "statistics", "all"]
+AVAILABLE_INSTRUCTIONS = ["info", "progress", "statistics", "all"]
 
 def status(
         model: structures.Seekr_model, 
@@ -29,25 +29,108 @@ def status(
     if instruction not in AVAILABLE_INSTRUCTIONS:
         raise ValueError(f"Unsupported instruction: {instruction}")
     if stage_arg == "all":
-        stages_to_check = list(range(len(model.stages)))
+        stages_to_check = [None] + list(range(len(model.stages)))
     else:
         stage_index = run.extract_stage_index(model, stage_arg)
-        stages_to_check = [stage_index]
+        if stage_index is None:
+            stages_to_check = [None]
+        else:
+            stages_to_check = [stage_index]
+    
     anchor_index_instruction = run.extract_anchor_index(model, anchor_arg)
+    # Load info for the initial stage
+    if instruction in ["info", "all"]:
+        if None in stages_to_check:
+            model.load_cvs("main")
+            model.load_selections("main")
+            model.load_anchor_set("main")
+            stage_0_num_anchors = len(model.anchors)
+            md_engine = model.get_engine_by_scale_type("molecular_dynamics")
+            if md_engine is None:
+                stage_0_num_swarms = 1
+            else:
+                swarm_ids = md_engine.unpartitioned_settings\
+                .get_starting_structure_swarm_ids(
+                        model.directory, 0, "main")
+                stage_0_num_swarms = len(swarm_ids)
+
     if print_json:
         message = {}
+        if instruction in ["info", "all"]:
+            if None in stages_to_check:
+                message["info"] = {
+                    0: {
+                        "stage_name": "initial",
+                        "scope": "N/A",
+                        "num_anchors": stage_0_num_anchors,
+                        "num_swarms": stage_0_num_swarms
+                    }
+                }
+            else:
+                message["info"] = {}
+    else:
+        message = ""
+        if instruction in ["info", "all"]:
+            message += "Info:\n"
+            if None in stages_to_check:
+                message += f"  Stage 0 (initial):\n"
+                message += f"    Scope: N/A\n"
+                message += f"    Number of anchors: {stage_0_num_anchors}\n"
+                message += f"    Number of swarms: {stage_0_num_swarms}\n"
+    stages_to_check = [s for s in stages_to_check if s is not None]
+    choose_params = {
+        "device_index": None,
+        "anchor_index_instruction": anchor_index_instruction,
+    }
+    for stage_index in stages_to_check:
+        stage = model.stages[stage_index]
+        stage.load_sets_into_model(model)
+        if instruction in ["info", "all"]:
+            scope = stage.scope
+            if scope == "unpartitioned":
+                num_anchors = None
+                if stage.scale_type == "molecular_dynamics":
+                    md_engine = model.get_engine_by_scale_type("molecular_dynamics")
+                    swarm_ids = md_engine.unpartitioned_settings\
+                        .get_starting_structure_swarm_ids(
+                            model.directory, stage.index, 
+                            stage.set_name)
+                    num_swarms = len(swarm_ids)
+                else:
+                    num_swarms = 1
+                
+            elif scope == "partitioned":
+                num_anchors = len(model.anchors)
+                if num_anchors == 0:
+                    num_swarms = 0
+                else:
+                    swarm_ids = model.anchors[0].get_starting_structure_swarm_ids(
+                        model.directory, stage.index, stage.set_name)
+                    num_swarms = len(swarm_ids)
+            else:
+                raise ValueError(f"Unsupported scope: {scope}")
+
+            if print_json:
+                message["info"][stage.index] = {
+                    "stage_name": stage.name,
+                    "scope": scope,
+                    "num_anchors": num_anchors,
+                    "num_swarms": num_swarms
+                }
+            else:
+                message += f"  Stage {stage.index} ({stage.name}):\n"
+                message += f"    Scope: {scope}\n"
+                message += f"    Number of anchors: {num_anchors}\n"
+                message += f"    Number of swarms: {num_swarms}\n"
+
+    if print_json:
         if instruction in ["progress", "all"]:
             message["progress"] = {}
         if instruction in ["statistics", "all"]:
             message["statistics"] = {}
     else:
-        message = ""
         if instruction in ["progress", "all"]:
             message += "Progress:\n"
-    choose_params = {
-        "device_index": None,
-        "anchor_index_instruction": anchor_index_instruction,
-    }
     for stage_index in stages_to_check:
         stage = model.stages[stage_index]
         stage.load_sets_into_model(model)
@@ -80,7 +163,7 @@ def status(
                     + f"    Finished: {finished}\n{stage_message}"
 
     if instruction in ["statistics", "all"]:
-        analysis = analyze.analyze(model, stage_index=None, 
+        analysis = analyze.analyze_all(model, stage_arg=None, 
                                     skip_checks=True, only_extract_data=True)
         if analysis is None:
             return message
@@ -102,7 +185,7 @@ if __name__ == "__main__":
         "be the JSON file generated in the prepare stage.")
     argparser.add_argument(
         "-i", "--instruction", dest="instruction", type=str, default="all",
-        help="Which status information to print. Options are: 'progress', "\
+        help="Which status information to print. Options are: 'info', 'progress', "\
             "'statistics', or 'all'. Default: 'all'.")
     argparser.add_argument(
         "-S", "--stage", dest="stage", type=str, default="all",

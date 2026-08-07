@@ -105,7 +105,7 @@ def make_topology_system_from_charmm(
 
 def make_topology_system_from_forcefield(
         forcefield_parameters_topology: engines_structures.Forcefield_parameters,
-        topology_obj: openmm_app.PDBFile,
+        topology: openmm_app.Topology,
         directory: str,
         nonbonded_method: typing.Any,
         nonbonded_cutoff: unit.Quantity | None,
@@ -114,7 +114,7 @@ def make_topology_system_from_forcefield(
         ) -> openmm.System:
     """
     Load the OpenMM forcefield parameters and topology from the 
-    provided object, and return OpenMM system and topology.
+    provided object, and return OpenMM system.
     """
     forcefield_filenames = []
     for forcefield_filename in \
@@ -128,7 +128,7 @@ def make_topology_system_from_forcefield(
 
     forcefield = openmm_app.ForceField(*forcefield_filenames)
     system = forcefield.createSystem(
-        topology_obj.topology, nonbondedMethod=nonbonded_method,
+        topology, nonbondedMethod=nonbonded_method,
         nonbondedCutoff=nonbonded_cutoff,
         constraints=constraints,
         hydrogenMass=hydrogenMass)
@@ -137,33 +137,28 @@ def make_topology_system_from_forcefield(
 def make_topology_system_from_xml(
         openmm_system_obj: engines_structures.Openmm_system,
         directory: str, 
-        nonbonded_method: typing.Any,
-        nonbonded_cutoff: unit.Quantity | None,
-        constraints: typing.Any,
-        hydrogenMass: unit.Quantity | None
         ) -> openmm.System:
     """
     Load the OpenMM system XML from the 
     provided object, and return OpenMM system.
     """
-    # TODO: enforce these assertions since the prepare stage.
-    assert nonbonded_method is None, \
-        "When an OpenMM system is loaded from XML, the nonbonded method "\
-        "is already set within the XML file, so it should not be provided."
-    assert nonbonded_cutoff is None, \
-        "When an OpenMM system is loaded from XML, the nonbonded cutoff "\
-        "is already set within the XML file, so it should not be provided."
-    assert constraints is None, \
-        "When an OpenMM system is loaded from XML, the constraints "\
-        "are already set within the XML file, so it should not be provided."
-    assert hydrogenMass is None, \
-        "When an OpenMM system is loaded from XML, the hydrogen mass "\
-        "is already set within the XML file, so it should not be provided."
     system_xml_filename = os.path.join(
         directory, openmm_system_obj.system_filename)
     with open(system_xml_filename) as input:
         system = openmm.XmlSerializer.deserialize(input.read())
     return system
+
+def _load_topology_pdb(
+        md_parameters_directory: str,
+        topology_filename: str
+        ) -> openmm_app.Topology:
+    """
+    Load an OpenMM Topology from a topology PDB in the parameters directory.
+    """
+    assert topology_filename != "", \
+        "topology_filename must be set on the parameters/topology object."
+    topology_full_path = os.path.join(md_parameters_directory, topology_filename)
+    return openmm_app.PDBFile(topology_full_path).topology
 
 def make_toy_system_object(
         model: structures.Seekr_model
@@ -213,6 +208,7 @@ def create_openmm_system(
     # TODO: This isn't right - how do we get the correct stage parameters
     # Given a stage index? The list here will not be indexed correctly...
     # Solution: add Nones to stage_parameters
+    system = None
     md_engine = model.get_engine_by_scale_type("molecular_dynamics")
     assert md_engine.type == "openmm"
     nonbonded_method = md_engine.nonbonded_method
@@ -298,6 +294,7 @@ def create_openmm_system(
                 positions_basename != "":
             positions_full_path = os.path.join(positions_directory, positions_basename)
             ext = os.path.splitext(positions_full_path)[-1]
+            pdb_obj = None
             if ext == ".pdb":
                 pdb_obj = openmm_app.PDBFile(positions_full_path)
                 box_vectors = openmm_base.get_box_vectors_from_pdb(positions_full_path)
@@ -336,19 +333,92 @@ def create_openmm_system(
                 md_parameters_topology, md_parameters_directory,
                 nonbondedMethod, md_engine.nonbonded_cutoff,
                 constraints, hydrogenMass)
-        elif md_parameters_topology.type == "Forcefield":
+        elif md_parameters_topology.type == "OpenMM_forcefield":
+            topology = _load_topology_pdb(
+                md_parameters_directory, md_parameters_topology.topology_filename)
             system = make_topology_system_from_forcefield(
-                md_parameters_topology, pdb_obj,
+                md_parameters_topology, topology,
                 md_parameters_directory, nonbondedMethod,
                 md_engine.nonbonded_cutoff, constraints, hydrogenMass)
-            assert pdb_obj is not None
-            topology = pdb_obj.topology
+        elif md_parameters_topology.type == "OpenMM_system":
+            system = make_topology_system_from_xml(
+                md_parameters_topology, md_parameters_directory)
+            topology = _load_topology_pdb(
+                md_parameters_directory, md_parameters_topology.topology_filename)
 
+    assert system is not None, \
+        "md_parameters_topology.type not found: "\
+        f"{md_parameters_topology.type}"
+    _assert_hydrogen_mass(system, topology, hydrogenMass)
     # set all non-milestoning force groups to zero
     for force in system.getForces():
         force.setForceGroup(0)
 
     return system, topology, positions, box_vectors, num_frames, velocities
+
+def _assert_hydrogen_mass(
+        system: openmm.System,
+        topology: openmm_app.Topology,
+        expected_hydrogen_mass: unit.Quantity | None,
+        tolerance_amu: float = 1e-3,
+        ) -> None:
+    """
+    Assert that the first hydrogen in the topology has the expected mass
+    in the OpenMM System (e.g. after hydrogen-mass repartitioning).
+    If no expected mass is provided, or the topology has no hydrogens,
+    this is a no-op.
+    """
+    if expected_hydrogen_mass is None:
+        return
+    expected = expected_hydrogen_mass.value_in_unit(unit.amu)
+    for atom in topology.atoms():
+        if atom.element is not None and atom.element.symbol == "H":
+            actual = system.getParticleMass(atom.index).value_in_unit(unit.amu)
+            assert abs(actual - expected) <= tolerance_amu, (
+                f"Hydrogen mass mismatch: particle {atom.index} has "
+                f"{actual} amu, expected {expected} amu"
+            )
+            return
+
+def _compute_full_system_run_dofs(system: openmm.System):
+    """
+    Compute the number of degrees of freedom for a OpenMM system, particularly
+    used in the Nose-Hoover thermostat/integrator.
+    """
+    massive_particles = set()
+    for particle in range(system.getNumParticles()):
+        mass = system.getParticleMass(particle)
+        if mass.value_in_unit(unit.dalton) > 0:
+            massive_particles.add(particle)
+
+    num_dofs = 3*len(massive_particles)
+    for constraint_index in range(system.getNumConstraints()):
+        particle1, particle2, distance = system.getConstraintParameters(
+            constraint_index)
+        if particle1 in massive_particles and particle2 in massive_particles:
+            num_dofs -= 1
+
+    for force_index in range(system.getNumForces()):
+        if isinstance(system.getForce(force_index), openmm.CMMotionRemover):
+            num_dofs -= 3
+    return num_dofs
+
+def _get_yoshida_suzuki_weights(num_yoshida_suzuki):
+    if num_yoshida_suzuki == 1:
+        return [1.0]
+    if num_yoshida_suzuki == 3:
+        return [0.828981543588751, -0.657963087177502,
+                0.828981543588751]
+    if num_yoshida_suzuki == 5:
+        return [0.2967324292201065, 0.2967324292201065,
+                -0.186929716880426, 0.2967324292201065,
+                0.2967324292201065]
+    if num_yoshida_suzuki == 7:
+        return [0.784513610477560, 0.235573213359357,
+                -1.17767998417887, 1.31518632068391,
+                -1.17767998417887, 0.235573213359357,
+                0.784513610477560]
+    raise ValueError("num_yoshida_suzuki must be 1, 3, 5, or 7")
 
 class Sim_openmm:
     """
@@ -435,7 +505,8 @@ class Sim_openmm:
             completion_criteria_interface: completion_openmm_interface\
                 .Completion_criteria_openmm_interface,
             restart: bool,
-            timestep: float | None = None
+            system: openmm.System,
+            timestep: float | None = None,
             ) -> None:
         """
         Assign the proper integrator to this OpenMM simulation.
@@ -588,7 +659,145 @@ class Sim_openmm:
             integrator.addComputePerDof("v", "(x-old_x)/dt")
             sampling_method_interface.post_integration_instructions(
                 integrator=integrator, anchor=anchor)
-
+        elif integrator_type == "nose_hoover":
+            if ensemble is not None:
+                assert ensemble.type in ["NVT", "NPT", "NPT_membrane"], \
+                    "Ensemble type not allowed or recognized for Langevin "\
+                    f"middle integrator: {ensemble.type}"
+            temperature = integrator_settings.target_temperature * unit.kelvin
+            collision_frequency = integrator_settings.collision_frequency
+            chain_length = integrator_settings.chain_length
+            num_mts = integrator_settings.num_mts
+            num_yoshida_suzuki = integrator_settings.num_yoshida_suzuki
+            num_dofs = _compute_full_system_run_dofs(system)
+            
+            # Thermostat parameters shared by the full Nose-Hoover chain.
+            integrator.addGlobalVariable("thermal_energy", kB*temperature)
+            integrator.addGlobalVariable("collision_frequency", collision_frequency)
+            integrator.addGlobalVariable("num_dofs", num_dofs)
+            
+            # Work variables for particle kinetic energy and the accumulated
+            # velocity scale returned by the chain propagation.
+            integrator.addGlobalVariable("kinetic_energy", 0)
+            integrator.addGlobalVariable("twice_kinetic_energy", 0)
+            integrator.addGlobalVariable("scale", 1)
+            
+            # Temporary scalars used inside the Yoshida-Suzuki/MTS loop, plus the
+            # reported total heat bath energy.
+            integrator.addGlobalVariable("wdt", 0)
+            integrator.addGlobalVariable("aa", 0)
+            integrator.addGlobalVariable("heat_bath_energy", 0)
+            
+            # Persistent state for each chain bead: position, velocity, mass, and
+            # force.  These correspond to chainData, chainMasses, and chainForces
+            # in OpenMM's native kernels.
+            for bead in range(chain_length):
+                integrator.addGlobalVariable(f"chain_pos_{bead}", 0)
+                integrator.addGlobalVariable(f"chain_vel_{bead}", 0)
+                integrator.addGlobalVariable(f"chain_mass_{bead}", 0)
+                integrator.addGlobalVariable(f"chain_force_{bead}", 0)
+                
+            sampling_method_interface.add_global_variables_integrator(
+                integrator=integrator, anchor=anchor)
+            integrator.addPerDofVariable("x1", 0)
+            integrator.addPerDofVariable("old_x", 0)
+            integrator.addPerDofVariable("old_v", 0)
+            sampling_method_interface.add_per_DOF_variables_integrator(
+                integrator=integrator)
+                
+            sampling_method_interface.pre_integration_instructions(
+                integrator=integrator)
+                
+            # Update chain masses
+            frequency_sq = "collision_frequency*collision_frequency"
+            integrator.addComputeGlobal(
+                "chain_mass_0",
+                f"num_dofs*thermal_energy/({frequency_sq})")
+            for bead in range(1, chain_length):
+                integrator.addComputeGlobal(
+                    f"chain_mass_{bead}",
+                    f"thermal_energy/({frequency_sq})")
+                
+            integrator.addComputePerDof("old_x", "x")
+            integrator.addUpdateContextState()
+            integrator.addComputePerDof("v", "v + dt*f/m")
+            integrator.addConstrainVelocities()
+            integrator.addComputePerDof("old_v", "v")
+            integrator.addComputePerDof("x", "x + 0.5*dt*v")
+            integrator.addComputeSum("kinetic_energy", "0.5*m*v*v")
+            integrator.addComputeGlobal("twice_kinetic_energy", "2*kinetic_energy")
+            integrator.addComputeGlobal("scale", "1")
+            integrator.beginIfBlock("kinetic_energy >= 1e-8")
+            # Add initial chain forces
+            integrator.addComputeGlobal(
+                "chain_force_0",
+                "(twice_kinetic_energy - num_dofs*thermal_energy)"
+                "/chain_mass_0")
+            for bead in range(chain_length - 1):
+                integrator.addComputeGlobal(
+                    f"chain_force_{bead+1}", f"(chain_mass_{bead}*chain_vel_{bead}"
+                    f"*chain_vel_{bead} - thermal_energy)/chain_mass_{bead+1}")
+            # Propagate chain
+            last_bead = chain_length - 1
+            for mts in range(num_mts):
+                for weight in _get_yoshida_suzuki_weights(num_yoshida_suzuki):
+                    integrator.addComputeGlobal(
+                        "wdt", f"{weight}*dt/{num_mts}")
+                    integrator.addComputeGlobal(
+                        f"chain_vel_{last_bead}",
+                        f"chain_vel_{last_bead} + 0.5*wdt*chain_force_{last_bead}")
+                    for bead in range(chain_length - 2, -1, -1):
+                        integrator.addComputeGlobal(
+                            "aa", f"exp(-0.25*wdt*chain_vel_{bead+1})")
+                        integrator.addComputeGlobal(
+                            f"chain_vel_{bead}",
+                            f"aa*(chain_vel_{bead}*aa + 0.5*wdt*chain_force_{bead})")
+                    integrator.addComputeGlobal(
+                        "scale", "scale*exp(-wdt*chain_vel_0)")
+                    for bead in range(chain_length):
+                        integrator.addComputeGlobal(
+                            f"chain_pos_{bead}",
+                            f"chain_pos_{bead} + chain_vel_{bead}*wdt")
+                    integrator.addComputeGlobal(
+                        "chain_force_0",
+                        "(scale*scale*twice_kinetic_energy"
+                        " - num_dofs*thermal_energy)/chain_mass_0")
+                    for bead in range(chain_length - 1):
+                        integrator.addComputeGlobal(
+                            "aa", f"exp(-0.25*wdt*chain_vel_{bead+1})")
+                        integrator.addComputeGlobal(
+                            f"chain_vel_{bead}",
+                            f"aa*(aa*chain_vel_{bead}"
+                            f" + 0.5*wdt*chain_force_{bead})")
+                        integrator.addComputeGlobal(
+                            f"chain_force_{bead+1}",
+                            f"(chain_mass_{bead}*chain_vel_{bead}"
+                            f"*chain_vel_{bead} - thermal_energy)"
+                            f"/chain_mass_{bead+1}")
+                    integrator.addComputeGlobal(
+                        f"chain_vel_{last_bead}",
+                        f"chain_vel_{last_bead}"
+                        f" + 0.5*wdt*chain_force_{last_bead}")
+            integrator.endBlock()
+            integrator.addComputePerDof("v", "scale*v")
+            
+            integrator.addComputePerDof("x", "x + 0.5*dt*v")
+            integrator.addComputePerDof("x1", "x")
+            integrator.addConstrainPositions()
+            integrator.addComputePerDof("v", "v + (x-x1)/dt")
+            # Compute heat bath energies
+            energy_terms = []
+            for bead in range(chain_length):
+                prefac = "num_dofs" if bead == 0 else "1"
+                energy_terms.append(
+                    f"0.5*chain_mass_{bead}*chain_vel_{bead}"
+                    f"*chain_vel_{bead}"
+                    f" + {prefac}*thermal_energy*chain_pos_{bead}")
+            integrator.addComputeGlobal("heat_bath_energy", " + ".join(energy_terms))
+            
+            sampling_method_interface.post_integration_instructions(
+                integrator=integrator, anchor=anchor)
+            
         else:
             raise Exception("Integrator type not available: "\
                             f"{integrator_type}")
@@ -776,7 +985,7 @@ def create_sim_openmm(
     # A sampling method of None will be conventional MD.
     sim_openmm.add_integrator(
         model, anchor_index, ensemble, sampling_method_interface,
-        completion_criteria_interface, restart, timestep)
+        completion_criteria_interface, restart, system, timestep)
     if ensemble is not None:
         sim_openmm.add_barostat(model, ensemble)
     sim_openmm.add_platform(model)

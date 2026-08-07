@@ -8,6 +8,7 @@ Analyze the results of a SEEKR MMVT calculation.
 import os
 import io
 import math
+import logging
 import contextlib
 
 from attrs import define, field, validators
@@ -211,6 +212,9 @@ class Mmvt_analyzer:
 
     def _emit_results(self):
         """Emit results via print(); used by print_results to tee output."""
+        if self.main_data_window is None:
+            logging.info("No main data window found.")
+            return
         print("Printing results from MMVT SEEKR calculation")
         if self.main_data_window.k_off is not None:
             print("k_off (1/s):", analyzers_base.pretty_string_value_error(
@@ -296,7 +300,7 @@ class Mmvt_analyzer:
             use_json: bool = False
             ) -> str | dict:
         """
-
+        Statistics instruction output for status.py.
         """
         assert anchor_index_instruction is not None, \
             "MMVT may not use 'unpartitioned' statistics."
@@ -383,7 +387,11 @@ class Mmvt_analyzer:
             anchor_indices[i] = anchor.index
             anchor_values[i] = list(anchor.variables.values())[0]
 
+        if self.main_data_window is None:
+            logging.info("No main data window found.")
+            return
         if self.main_data_window.pi_alpha is None:
+            logging.info("No pi_alpha data found.")
             return
         pi_fig, ax = plt.subplots()
         plt.errorbar(
@@ -421,7 +429,11 @@ class Mmvt_analyzer:
         cv_1_name = self.model.collective_variables[cv_indices[1]].name
         cv_1_unit = self.model.collective_variables[cv_indices[1]].unit
         y_coordinate_title = f"{cv_1_name} ({cv_1_unit})"
+        if self.main_data_window is None:
+            logging.info("No main data window found.")
+            return
         if self.main_data_window.pi_alpha is None:
+            logging.info("No pi_alpha data found.")
             return
         anchor_pi_alpha = {}
         for alpha, fill_value in enumerate(self.main_data_window.pi_alpha):
@@ -453,7 +465,11 @@ class Mmvt_analyzer:
         """
         Plot the p_i values for each milestone.
         """
+        if self.main_data_window is None:
+            logging.info("No main data window found.")
+            return
         if self.main_data_window.p_i is None:
+            logging.info("No p_i data found.")
             return
         
         milestone_indices = np.zeros(self.main_data_window.p_i.shape[0], 
@@ -504,7 +520,11 @@ class Mmvt_analyzer:
         cv_1_name = self.model.collective_variables[cv_indices[1]].name
         cv_1_unit = self.model.collective_variables[cv_indices[1]].unit
         y_coordinate_title = f"{cv_1_name} ({cv_1_unit})"
+        if self.main_data_window is None:
+            logging.info("No main data window found.")
+            return
         if self.main_data_window.p_i is None:
+            logging.info("No p_i data found.")
             return
         milestone_p_i = {}
         for i, fill_value in enumerate(self.main_data_window.p_i):
@@ -534,7 +554,11 @@ class Mmvt_analyzer:
         """
         Plot the free energy profile by milestone.
         """
+        if self.main_data_window is None:
+            logging.info("No main data window found.")
+            return
         if self.main_data_window.p_i is None:
+            logging.info("No p_i data found.")
             return
         
         milestone_indices = np.zeros(
@@ -584,7 +608,12 @@ class Mmvt_analyzer:
         cv_1_name = self.model.collective_variables[cv_indices[1]].name
         cv_1_unit = self.model.collective_variables[cv_indices[1]].unit
         y_coordinate_title = f"{cv_1_name} ({cv_1_unit})"
+        
+        if self.main_data_window is None:
+            logging.info("No main data window found.")
+            return
         if self.main_data_window.p_i is None:
+            logging.info("No p_i data found.")
             return
         milestone_free_energies = {}
         for i, fill_value in enumerate(
@@ -622,7 +651,11 @@ class Mmvt_analyzer:
             anchor_indices[i] = anchor.index
             anchor_values[i] = list(anchor.variables.values())[0]
 
+        if self.main_data_window is None:
+            logging.info("No main data window found.")
+            return
         if self.main_data_window.free_energy_anchors is None:
+            logging.info("No free energy anchors data found.")
             return
         # save free energy anchor profile
         free_energy_anchors_fig, ax = plt.subplots()
@@ -661,7 +694,12 @@ class Mmvt_analyzer:
         cv_1_name = self.model.collective_variables[cv_indices[1]].name
         cv_1_unit = self.model.collective_variables[cv_indices[1]].unit
         y_coordinate_title = f"{cv_1_name} ({cv_1_unit})"
+        
+        if self.main_data_window is None:
+            logging.info("No main data window found.")
+            return
         if self.main_data_window.free_energy_anchors is None:
+            logging.info("No free energy anchors data found.")
             return
         anchor_free_energies = {}
         for alpha, fill_value in enumerate(

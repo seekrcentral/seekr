@@ -84,8 +84,6 @@ def run_compute_rate_constant(compute_rate_constant_program,
         dictionary whose keys are various milestoning states and
         whose values are the probabilities of reaching those states
         from the b-surface.
-
-logger = logging.getLogger(__name__)
     
     reaction_probability_errors : defaultdict
         dictionary whose keys are various milestoning states and
@@ -105,6 +103,7 @@ logger = logging.getLogger(__name__)
     transition_counts = defaultdict(int)
     k_b = 0.0
     transition_counts = compute_transition_counts(results_filename_list)
+    logger = logging.getLogger(__name__)
     for results_filename in results_filename_list:
         cmd = "%s < %s" % (compute_rate_constant_program, 
                            results_filename)

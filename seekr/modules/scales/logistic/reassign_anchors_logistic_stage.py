@@ -353,6 +353,7 @@ def do_run_instruction_reassign_anchors_logistic(
     # NOTE: need to save a new CV and selection set, even tho they are
     # unchanged from main, since the stage output set_name will be 
     # loaded by later stages.
+    model.clear_cv_set(model.directory, set_name)
     model.save_cvs(model.directory, set_name)
     model.save_selections(model.directory, set_name)
     return
