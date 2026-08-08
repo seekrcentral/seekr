@@ -326,8 +326,10 @@ class Runner_openmm():
             reporter_interface.add_reporter_to_simulation(
                 simulation=simulation, filename=reporter_filename, 
                 toy_mode=self.model.using_toy())
+        #lock_filename = os.path.join(
+        #    self.running_directory, "LOCK")
         lock_filename = os.path.join(
-            self.running_directory, "LOCK")
+            self.running_directory, f"LOCK.swarm_{self.swarm_id}")
         steps_between_evals_compl_crit = output_stage.completion_criteria\
             .get_evaluation_interval()
         steps_between_evals_sampling = self.sampling_method_interface\
