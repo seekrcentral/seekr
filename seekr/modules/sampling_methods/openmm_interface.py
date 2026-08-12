@@ -523,7 +523,7 @@ class Base_md_openmm_interface:
                 assert not found_anchor, "Found system in two "\
                     "different anchors in the same step."
                 found_anchor = True
-                current_anchor_index = alpha
+                current_anchor_index = anchor.index
 
         # NOTE: the system might be in no anchors if there are no anchors
         #  in the model.

@@ -87,7 +87,12 @@ def status(
         stage.load_sets_into_model(model)
         if instruction in ["info", "all"]:
             scope = stage.scope
-            if scope == "unpartitioned":
+            if stage.input_stage_index == 0:
+                input_scope = scope
+            else:
+                input_stage = model.stages[stage.input_stage_index-1]
+                input_scope = input_stage.scope
+            if input_scope == "unpartitioned":
                 num_anchors = None
                 if (stage.scale_type == "molecular_dynamics") \
                         or (stage.scale_type == "logistic"):
@@ -100,7 +105,7 @@ def status(
                 else:
                     num_swarms = 1
                 
-            elif scope == "partitioned":
+            elif input_scope == "partitioned":
                 num_anchors = len(model.anchors)
                 if num_anchors == 0:
                     num_swarms = 0

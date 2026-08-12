@@ -546,8 +546,9 @@ class Anchor_reporter(object):
             dtype=float)
         box_vectors = synced.getPeriodicBoxVectors()
 
-        # If Metadynamics/CustomCVForce CV still disagrees with coordinates,
-        # classify using a mass-weighted distance from the synced positions.
+        # Always classify distance CVs from the same positions we buffer.
+        # CustomCVForce/Metadynamics CVs can disagree by <<0.05 nm near a
+        # Voronoi face; that still mis-labels the saved structure.
         classify_cv_values = cv_values
         try:
             model = self._sampling_method_interface._model
@@ -564,15 +565,16 @@ class Anchor_reporter(object):
                     system.getParticleMass(i).value_in_unit(unit.dalton)
                     for i in range(system.getNumParticles())
                 ])
+                self._distance_group1 = list(g1)
+                self._distance_group2 = list(g2)
+                self._distance_masses = masses
 
                 def _mw_com(inds: list[int]) -> np.ndarray:
                     m = masses[inds][:, None]
                     return (pos_nm[inds] * m).sum(axis=0) / m.sum()
 
-                pos_distance = float(np.linalg.norm(_mw_com(g1) - _mw_com(g2)))
-                if (cv_values is not None
-                        and abs(float(cv_values[0]) - pos_distance) > 0.05):
-                    classify_cv_values = (pos_distance,)
+                classify_cv_values = (
+                    float(np.linalg.norm(_mw_com(g1) - _mw_com(g2))),)
         except Exception:
             pass
 
@@ -597,14 +599,58 @@ class Anchor_reporter(object):
 
         return
 
+    def _classify_positions_nm(self, pos_nm: np.ndarray) -> tuple[int | None, float | None]:
+        """Voronoi-classify a position array using mass-weighted distance CV.
+
+        Returns (anchor_index, pos_distance).
+        """
+        model = self._sampling_method_interface._model
+        if (model is None
+                or not hasattr(self, "_distance_masses")
+                or not hasattr(self, "_distance_group1")):
+            return None, None
+        masses = self._distance_masses
+        g1 = self._distance_group1
+        g2 = self._distance_group2
+
+        def _mw_com(inds: list[int]) -> np.ndarray:
+            m = masses[inds][:, None]
+            return (pos_nm[inds] * m).sum(axis=0) / m.sum()
+
+        pos_distance = float(np.linalg.norm(_mw_com(g1) - _mw_com(g2)))
+        anchor_index = self._sampling_method_interface.find_current_anchor_index(
+            (pos_distance,))
+        return anchor_index, pos_distance
+
     def finalize(self) -> None:
         """
         Write all buffered frames to the output file in ascending anchor order,
         then emit the JSON index file. Re-entrant: safe to call at every
         saveInterval and from __del__.
+
+        Buffers whose coordinates do not map to their slot are discarded so
+        on-disk labels never disagree with structures (missing anchors are
+        preferable to mislabeled ones; assign will error clearly).
         """
         if not hasattr(self, '_buffered_positions'):
             return
+
+        n = len(self._buffered_positions)
+        new_positions = [None] * n
+        new_boxes = [None] * n
+        for i in self._md_anchor_indices:
+            if self._buffered_positions[i] is None:
+                continue
+            pos_q = self._buffered_positions[i]
+            pos_nm = np.array(
+                pos_q.value_in_unit(unit.nanometer), dtype=float).copy()
+            validated, _pos_distance = self._classify_positions_nm(pos_nm)
+            if validated != i:
+                continue
+            new_positions[i] = unit.Quantity(pos_nm, unit.nanometer)
+            new_boxes[i] = self._buffered_box_vectors[i]
+        self._buffered_positions = new_positions
+        self._buffered_box_vectors = new_boxes
 
         sampled_indices = [
             i for i in self._md_anchor_indices

@@ -292,8 +292,6 @@ def _process_anchor_reporter(
         for fn, anchor_idx in enumerate(file_filled_indices):
             if fn >= len(traj):
                 break
-            if reporter.mode == "save_first_frame" and anchor_idx in anchor_to_traj_frame:
-                continue
             # Defense in depth: frames whose coordinates are not in the claimed
             # Voronoi cell indicate a corrupt Anchor_reporter output. Fail hard
             # so run does not loop forever waiting for missing starting structures.
@@ -308,16 +306,27 @@ def _process_anchor_reporter(
                         f"upstream sampling stage that produced the reporter "
                         f"output, or check CV / periodic-boundary handling."
                     )
+            if reporter.mode == "save_first_frame" and anchor_idx in anchor_to_traj_frame:
+                continue
             anchor_to_traj_frame[anchor_idx] = (traj, fn)
     output_ext = ".txt" if model.using_toy() else ".pdb"
     stage_dir_name = stage.get_directory_name()
     anchor_set_directory = os.path.join(
             model.directory, "anchor_sets", stage.get_output_set_name())
+    missing_anchors = [
+        anchor.index for anchor in model.anchors
+        if ("molecular_dynamics" in anchor.scale_types
+            and not anchor.bulk_anchor
+            and anchor.index not in anchor_to_traj_frame)
+    ]
+    if missing_anchors:
+        raise Exception(
+            f"Anchor_reporter did not provide starting structures for "
+            f"anchor(s) {missing_anchors}. Re-run the upstream sampling "
+            f"stage that produced the reporter output."
+        )
     for anchor in model.anchors:
         if anchor.index not in anchor_to_traj_frame:
-            logger.warning(
-                f"Anchor {anchor.index} was not visited by the Anchor_reporter. "
-                "No starting structure assigned.")
             continue
         traj, frame_num = anchor_to_traj_frame[anchor.index]
         output_path = os.path.join(
