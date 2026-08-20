@@ -132,7 +132,8 @@ class Runner_openmm():
             .assign_sampling_method_interface(
                 self.stage_output_index, sampling_method, md_engine,
                 self.model.plugins)
-        self.sampling_method_interface.set_random_seed(self.model.get_random_seed())
+        self.sampling_method_interface.set_random_seed(
+            self.model.get_random_seed()+swarm_id*10000)
         # Reporters interfaces.
         self.reporters_interfaces = []
         for reporter in stage_output.reporters:

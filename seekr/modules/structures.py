@@ -317,11 +317,6 @@ class Anchor:
         using a glob of the PDB or TXT files that are the 'positions'
         of a stage.
         """
-        print("stage_parameters", self.stage_parameters)
-        print("self.directory", self.directory)
-        print("input_stage_index", input_stage_index)
-        print("set_name", set_name)
-        print("root_directory", root_directory)
         # TODO: fix docstring
         # NOTE: this used to be the code to handle multiple frames
         #  in a single PDB file

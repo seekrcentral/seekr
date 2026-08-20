@@ -103,4 +103,7 @@ if __name__ == "__main__":
         model_dir = os.path.dirname(file_path)
         model.directory = os.path.abspath(model_dir)
     if not skip_checks:
-        check.check_pre_simulation_all(model)
+        # NOTE: model needs to be reloaded to ensure that the plugins are 
+        #   properly loaded
+        reloaded_model = structures.load_model(file_path)
+        check.check_pre_simulation_all(reloaded_model)
