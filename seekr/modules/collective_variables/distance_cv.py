@@ -8,6 +8,7 @@ groups of atoms.
 """
 
 import typing
+import logging
 
 from attrs import define, field, validators
 import numpy as np
@@ -15,6 +16,8 @@ import mdtraj
 
 import seekr.modules.base as base
 import seekr.modules.collective_variables.base as cv_base
+
+logger = logging.getLogger(__name__)
 
 if typing.TYPE_CHECKING:
     import seekr.modules.structures as structures
@@ -70,24 +73,60 @@ class Distance_CV(cv_base.Base_CV):
             self, 
             model: "structures.Seekr_model", 
             traj: mdtraj.Trajectory, 
-            frame_index: int = 0
+            frame_index: int = 0,
+            masses: np.ndarray | None = None,
             ) -> float:
         """
         Determine the current CV value for an mdtraj object.
+
+        Uses the same COM definition as OpenMM CustomCentroidBondForce:
+        mass-weighted group COM and minimum-image PBC on the group–group
+        vector when unit cell vectors are present.
+
+        Masses (amu) prefer OpenMM System particles (HMR included) when
+        available. Pass `masses` to override. If neither is available,
+        element masses plus HMR from the mdtraj topology bonds are used.
         """
         md_engine = model.get_engine_by_scale_type("molecular_dynamics")
         group1_atom_indices = md_engine.get_atom_indices_by_selection_name(
             self.group1_name)
         group2_atom_indices = md_engine.get_atom_indices_by_selection_name(
             self.group2_name)
-        traj1 = traj.atom_slice(group1_atom_indices)
-        traj2 = traj.atom_slice(group2_atom_indices)
-        com1_array = base.mdtraj_center_of_mass(traj1)
-        com2_array = base.mdtraj_center_of_mass(traj2)
-        com1 = com1_array[frame_index,:]
-        com2 = com2_array[frame_index,:]
-        radius = np.linalg.norm(com2-com1)
-        return radius
+        if masses is None:
+            from seekr.modules.engines.openmm import sim as openmm_sim
+            omm_masses = openmm_sim.particle_masses_from_openmm_parameters(
+                model)
+            if omm_masses is not None and len(omm_masses) == traj.n_atoms:
+                masses = omm_masses
+            elif omm_masses is not None:
+                logger.warning(
+                    "OpenMM particle masses length %s does not match "
+                    "trajectory n_atoms %s; falling back to mdtraj masses.",
+                    len(omm_masses), traj.n_atoms)
+        if masses is None:
+            masses = base.particle_masses_from_mdtraj_topology(traj.topology)
+            hydrogen_mass = getattr(md_engine, "hydrogen_mass", None)
+            if isinstance(hydrogen_mass, (int, float)):
+                masses, n_transfers = base.apply_hydrogen_mass_repartitioning(
+                    masses, traj.topology, float(hydrogen_mass))
+                if n_transfers == 0:
+                    logger.warning(
+                        "hydrogen_mass=%s is set but the topology has no "
+                        "H–heavy bonds; element masses will be used. "
+                        "A PDB without CONECT/connectivity cannot apply HMR.",
+                        hydrogen_mass)
+        else:
+            masses = np.asarray(masses, dtype=float)
+            if len(masses) != traj.n_atoms:
+                raise ValueError(
+                    f"masses length {len(masses)} does not match "
+                    f"trajectory n_atoms {traj.n_atoms}")
+        box = None
+        if traj.unitcell_vectors is not None:
+            box = np.asarray(traj.unitcell_vectors[frame_index], dtype=float)
+        xyz = np.asarray(traj.xyz[frame_index], dtype=float)
+        return base.group_com_distance(
+            xyz, group1_atom_indices, group2_atom_indices, masses, box)
     
     def get_atom_group_names(self) -> typing.List[str]:
         """

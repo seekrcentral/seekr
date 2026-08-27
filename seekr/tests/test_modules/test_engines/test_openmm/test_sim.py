@@ -10,6 +10,7 @@ Tests for modules/engines/openmm/sim.py.
 import os
 from unittest.mock import MagicMock
 
+import pytest
 import openmm
 import openmm.app as openmm_app
 import openmm.unit as unit
@@ -166,4 +167,44 @@ def test_write_pdb_file(tmp_path):
     assert os.path.exists(out_file)
     content = open(out_file).read()
     assert "ATOM" in content or "HETATM" in content
+
+
+def test_particle_masses_from_openmm_parameters_toy():
+    model = MagicMock()
+    model.using_toy.return_value = True
+    assert sim_mod.particle_masses_from_openmm_parameters(model) is None
+
+
+def test_particle_masses_from_openmm_system_xml(tmp_path):
+    """OpenMM_system XML particle masses are read without createSystem."""
+    system = openmm.System()
+    system.addParticle(6.034 * unit.dalton)
+    system.addParticle(16.0 * unit.dalton)
+    param_dir = tmp_path / "unpartitioned_scope" / "stage_0_initial"
+    param_dir.mkdir(parents=True)
+    xml_name = "system.xml"
+    (param_dir / xml_name).write_text(openmm.XmlSerializer.serialize(system))
+
+    topo = engines_structures.Openmm_system(
+        system_filename=xml_name, topology_filename="dummy.pdb")
+    settings = MagicMock()
+    settings.directory = "unpartitioned_scope"
+    settings.stage_parameters = {
+        "initial": {"directory": "stage_0_initial"},
+    }
+    settings.md_parameters_topology = topo
+    md_engine = MagicMock()
+    md_engine.unpartitioned_settings = settings
+    md_engine.hydrogen_mass = 3.0
+    model = MagicMock()
+    model.using_toy.return_value = False
+    model.directory = str(tmp_path)
+    model.get_engine_by_scale_type.return_value = md_engine
+
+    sim_mod._OPENMM_PARTICLE_MASSES_CACHE.clear()
+    masses = sim_mod.particle_masses_from_openmm_parameters(model)
+    assert masses is not None
+    assert list(masses) == pytest.approx([6.034, 16.0])
+    cached = sim_mod.particle_masses_from_openmm_parameters(model)
+    assert cached is masses
 

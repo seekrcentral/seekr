@@ -439,14 +439,14 @@ class RMSD_cv_openmm_interface:
                 pdb_file.positions, self.group_align_atom_indices, 
                 self.group_rmsd_atom_indices)
         
-        me_expr = f"(me_val - {self.CV_EXPRESSION})^2"
+        me_expr = f"({me_val} - {self.CV_EXPRESSION})^2"
         me_force = openmm.CustomCVForce(me_expr)
-        me_force.addGlobalParameter("me_val", me_val)
+        #me_force.addGlobalParameter(f"me_val_{cv_index}", me_val)
         me_force.addCollectiveVariable("RMSD", rmsd_me_force)
         
-        neighbor_expr = f"(neighbor_val - {self.CV_EXPRESSION})^2"
+        neighbor_expr = f"({neighbor_val} - {self.CV_EXPRESSION})^2"
         neighbor_force = openmm.CustomCVForce(neighbor_expr)
-        neighbor_force.addGlobalParameter("neighbor_val", neighbor_val)
+        #neighbor_force.addGlobalParameter(f"neighbor_val_{cv_index}", neighbor_val)
         neighbor_force.addCollectiveVariable("RMSD", rmsd_neighbor_force)
         return me_force, neighbor_force
 

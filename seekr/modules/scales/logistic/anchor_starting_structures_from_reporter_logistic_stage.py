@@ -270,6 +270,34 @@ def _write_frame(
     return
 
 
+def _merge_anchor_reporter_frames(
+        traj_json_pairs: list,
+        mode: str,
+        ) -> dict[int, tuple]:
+    """
+    Map filled JSON slots onto DCD frame order, then merge across restart
+    files. Returns anchor_index → (traj, frame_num_within_that_traj).
+
+    JSON filled indices are sorted and aligned with DCD frames 0..N-1
+    (same mapping as the reporter write). For 'save_last_frame' later
+    files overwrite; for 'save_first_frame' the first encounter wins.
+    Validation is intentionally not done here — callers should Voronoi-
+    check only the winning frames.
+    """
+    anchor_to_traj_frame: dict[int, tuple] = {}
+    for traj, json_data in traj_json_pairs:
+        file_filled_indices = sorted(
+            v["index"] for v in json_data.values() if v.get("filled", False)
+        )
+        for fn, anchor_idx in enumerate(file_filled_indices):
+            if fn >= len(traj):
+                break
+            if mode == "save_first_frame" and anchor_idx in anchor_to_traj_frame:
+                continue
+            anchor_to_traj_frame[anchor_idx] = (traj, fn)
+    return anchor_to_traj_frame
+
+
 def _process_anchor_reporter(
         model: "Seekr_model",
         stage: Stage_anchor_starting_structures_from_reporter,
@@ -281,34 +309,28 @@ def _process_anchor_reporter(
     starting structures into each anchor's logistic-stage directory.
     Iterates all restart files oldest→newest. For 'save_last_frame' (default)
     later files overwrite earlier ones; for 'save_first_frame' the first
-    encounter per anchor wins.
+    encounter per anchor wins. Voronoi validation runs only on the winning
+    frame for each anchor.
     """
     # anchor_index → (traj, frame_num_within_that_traj)
-    anchor_to_traj_frame: dict[int, tuple] = {}
-    for traj, json_data in traj_json_pairs:
-        file_filled_indices = sorted(
-            v["index"] for v in json_data.values() if v.get("filled", False)
-        )
-        for fn, anchor_idx in enumerate(file_filled_indices):
-            if fn >= len(traj):
-                break
-            # Defense in depth: frames whose coordinates are not in the claimed
-            # Voronoi cell indicate a corrupt Anchor_reporter output. Fail hard
-            # so run does not loop forever waiting for missing starting structures.
-            cv_values = _compute_cv_values_from_frame(model, traj, fn)
-            if cv_values is not None:
-                validated_idx = _find_anchor_index_from_cv_values(model, cv_values)
-                if validated_idx != anchor_idx:
-                    raise Exception(
-                        f"Anchor_reporter frame {fn} is labeled as anchor "
-                        f"{anchor_idx}, but coordinates map to anchor "
-                        f"{validated_idx} (CV={cv_values}). Re-run the "
-                        f"upstream sampling stage that produced the reporter "
-                        f"output, or check CV / periodic-boundary handling."
-                    )
-            if reporter.mode == "save_first_frame" and anchor_idx in anchor_to_traj_frame:
-                continue
-            anchor_to_traj_frame[anchor_idx] = (traj, fn)
+    anchor_to_traj_frame = _merge_anchor_reporter_frames(
+        traj_json_pairs, reporter.mode)
+    for anchor_idx, (traj, fn) in anchor_to_traj_frame.items():
+        # Defense in depth: the assigned frame must sit in the claimed
+        # Voronoi cell. Fail hard so run does not loop forever waiting
+        # for missing starting structures. Stale frames from earlier
+        # restart files are ignored because they lost the merge.
+        cv_values = _compute_cv_values_from_frame(model, traj, fn)
+        if cv_values is not None:
+            validated_idx = _find_anchor_index_from_cv_values(model, cv_values)
+            if validated_idx != anchor_idx:
+                raise Exception(
+                    f"Anchor_reporter frame {fn} is labeled as anchor "
+                    f"{anchor_idx}, but coordinates map to anchor "
+                    f"{validated_idx} (CV={cv_values}). Re-run the "
+                    f"upstream sampling stage that produced the reporter "
+                    f"output, or check CV / periodic-boundary handling."
+                )
     output_ext = ".txt" if model.using_toy() else ".pdb"
     stage_dir_name = stage.get_directory_name()
     anchor_set_directory = os.path.join(

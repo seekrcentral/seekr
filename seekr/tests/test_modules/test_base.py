@@ -140,3 +140,53 @@ def test_mdtraj_center_of_mass(tmp_path):
     com = base.mdtraj_center_of_mass(traj)
     assert com.shape == (2, 3)
     assert np.allclose(com, np.array([[0.0, -0.7, 0.0], [0.0, -0.701, 0.0]]))
+
+
+def test_apply_hydrogen_mass_repartitioning():
+    """OpenMM HMR transfers (hydrogen_mass - orig_H) from the heavy atom to H."""
+    top = mdtraj.Topology()
+    chain = top.add_chain()
+    res = top.add_residue("DUM", chain)
+    atom_c = top.add_atom("C", mdtraj.element.carbon, res)
+    atom_h = top.add_atom("H", mdtraj.element.hydrogen, res)
+    top.add_bond(atom_c, atom_h)
+    masses = base.particle_masses_from_mdtraj_topology(top)
+    orig_c = masses[0]
+    orig_h = masses[1]
+    new_masses, n_transfers = base.apply_hydrogen_mass_repartitioning(
+        masses, top, 3.0)
+    assert n_transfers == 1
+    assert new_masses[1] == pytest.approx(3.0)
+    assert new_masses[0] == pytest.approx(orig_c - (3.0 - orig_h))
+    assert new_masses.sum() == pytest.approx(orig_c + orig_h)
+
+
+def test_apply_hydrogen_mass_repartitioning_no_bonds():
+    """No H–heavy bonds: masses unchanged and transfer count is zero."""
+    top = mdtraj.Topology()
+    chain = top.add_chain()
+    res = top.add_residue("DUM", chain)
+    top.add_atom("C", mdtraj.element.carbon, res)
+    top.add_atom("H", mdtraj.element.hydrogen, res)
+    masses = base.particle_masses_from_mdtraj_topology(top)
+    new_masses, n_transfers = base.apply_hydrogen_mass_repartitioning(
+        masses, top, 3.0)
+    assert n_transfers == 0
+    assert np.allclose(new_masses, masses)
+
+
+def test_minimum_image_delta_orthorhombic():
+    box = np.eye(3) * 10.0
+    delta = np.array([9.0, 0.0, 0.0])
+    wrapped = base.minimum_image_delta(delta, box)
+    assert wrapped == pytest.approx(np.array([-1.0, 0.0, 0.0]))
+
+
+def test_group_com_distance_minimum_image():
+    xyz = np.array([[0.1, 0.0, 0.0], [9.1, 0.0, 0.0]])
+    masses = np.array([12.0, 12.0])
+    box = np.eye(3) * 10.0
+    raw = base.group_com_distance(xyz, [0], [1], masses, box_vectors=None)
+    wrapped = base.group_com_distance(xyz, [0], [1], masses, box_vectors=box)
+    assert raw == pytest.approx(9.0)
+    assert wrapped == pytest.approx(1.0)

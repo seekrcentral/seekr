@@ -57,6 +57,8 @@ MAX_CONSECUTIVE_BOUNCES = 1000
 kB = unit.BOLTZMANN_CONSTANT_kB * unit.AVOGADRO_CONSTANT_NA
 kcal_per_mol = unit.kilocalories / unit.mole
 
+_BAROSTAT_TYPES = (openmm.MonteCarloBarostat, openmm.MonteCarloMembraneBarostat)
+
 # TODO: put into a lower-level module?
 def open_pdb_file_for_simulation(
         filename: str,
@@ -561,6 +563,7 @@ class Conventional_md_openmm_interface(Base_md_openmm_interface):
                              .CV_openmm_interface] | None = None
     _openmm_cv_object: typing.Any | None = None
     _fail_on_save_to_current_anchor_if_outside_milestones: bool = True
+    _barostat: openmm.Force | None = None
 
     def pre_simulation_preparations(
             self, 
@@ -571,7 +574,36 @@ class Conventional_md_openmm_interface(Base_md_openmm_interface):
         """
         model: structures.Seekr_model = kwargs["model"]
         self._model = model
-        
+        self._barostat = None
+        if self._system_obj is not None:
+            for force in self._system_obj.getForces():
+                if isinstance(force, _BAROSTAT_TYPES):
+                    self._barostat = force
+                    break
+        return
+
+    def _apply_heat_ramp_temperature(
+            self,
+            new_temperature: float,
+            velocity_seed: int
+            ) -> None:
+        """
+        Set thermostat, barostat, and velocities to a heat-ramp temperature.
+        """
+        assert self._simulation_obj is not None
+        integrator = self._simulation_obj.context.getIntegrator()
+        try:
+            thermal_energy = kB * new_temperature * unit.kelvin
+            integrator.setGlobalVariableByName(
+                "thermal_energy", thermal_energy)
+        except Exception:
+            # It's probably a Verlet integrator or something.
+            pass
+        if self._barostat is not None:
+            self._simulation_obj.context.setParameter(
+                self._barostat.Temperature(), new_temperature * unit.kelvin)
+        self._simulation_obj.context.setVelocitiesToTemperature(
+            new_temperature * unit.kelvin, velocity_seed)
         return
     
     def perform_early_simulation_eval(
@@ -587,17 +619,8 @@ class Conventional_md_openmm_interface(Base_md_openmm_interface):
             step_interval = self.sampling_method.heat_ramp_step_interval
             self._steps_between_evals = step_interval
             new_temperature = self.sampling_method.heat_ramp_temperatures[0]
-            integrator = self._simulation_obj.context.getIntegrator()
-            try:
-                thermal_energy = kB*new_temperature*unit.kelvin
-                integrator.setGlobalVariableByName(
-                    "thermal_energy", thermal_energy)
-            except Exception:
-                # It's probably a Verlet integrator or something.
-                pass
-            self._simulation_obj.context.setVelocitiesToTemperature(
-                new_temperature * unit.kelvin,
-                self._random_seed)
+            self._apply_heat_ramp_temperature(
+                new_temperature, self._random_seed)
 
     
     def perform_eval(
@@ -625,17 +648,8 @@ class Conventional_md_openmm_interface(Base_md_openmm_interface):
                 # in the heat ramp.
                 new_temperature = self.sampling_method\
                     .heat_ramp_temperatures[-1]
-            integrator = self._simulation_obj.context.getIntegrator()
-            try:
-                thermal_energy = kB*new_temperature*unit.kelvin
-                integrator.setGlobalVariableByName(
-                    "thermal_energy", thermal_energy)
-            except Exception:
-                # It's probably a Verlet integrator or something.
-                pass
-            self._simulation_obj.context.setVelocitiesToTemperature(
-                new_temperature * unit.kelvin,
-                self._random_seed + current_step)
+            self._apply_heat_ramp_temperature(
+                new_temperature, self._random_seed + current_step)
 
         return False
     

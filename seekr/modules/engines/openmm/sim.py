@@ -7,6 +7,7 @@ Objects needed for OpenMM Simulation and System objects.
 
 import os
 import typing
+import logging
 
 import numpy as np
 import openmm.unit as unit
@@ -26,6 +27,14 @@ SWARM_ID_RANDOM_SEED_FACTOR = 10000
 RANDOM_VEL_SEED_FACTOR = 1234
 
 kB = unit.BOLTZMANN_CONSTANT_kB * unit.AVOGADRO_CONSTANT_NA
+
+logger = logging.getLogger(__name__)
+
+# Particle masses from md_parameters_topology, keyed by
+# (directory, topology type, filename, hydrogen_mass).
+_OPENMM_PARTICLE_MASSES_CACHE: dict[
+    tuple[str, str, str, float | None], np.ndarray
+] = {}
 
 def make_topology_system_from_amber(
         amber_parameters_topology: engines_structures.Amber_parameters_topology,
@@ -147,6 +156,125 @@ def make_topology_system_from_xml(
     with open(system_xml_filename) as input:
         system = openmm.XmlSerializer.deserialize(input.read())
     return system
+
+def _md_parameters_directory(
+        model: structures.Seekr_model,
+        md_engine: typing.Any,
+        ) -> str | None:
+    """
+    Directory that holds copied MD parameter/topology files
+    (unpartitioned_scope/stage_0_initial), matching Openmm_runner.
+    """
+    settings = getattr(md_engine, "unpartitioned_settings", None)
+    if settings is None:
+        return None
+    stage_params = getattr(settings, "stage_parameters", None)
+    if not isinstance(stage_params, dict):
+        return None
+    initial = stage_params.get("initial")
+    if not isinstance(initial, dict) or "directory" not in initial:
+        return None
+    unpart_dir = getattr(settings, "directory", None)
+    model_dir = getattr(model, "directory", None)
+    if not isinstance(unpart_dir, str) or not isinstance(model_dir, str):
+        return None
+    return os.path.join(model_dir, unpart_dir, initial["directory"])
+
+
+def _topology_cache_filename(topo: typing.Any) -> str:
+    topo_type = getattr(topo, "type", None)
+    if topo_type == "Amber":
+        return str(getattr(topo, "prmtop_filename", "") or "")
+    if topo_type == "Charmm":
+        return str(getattr(topo, "psf_filename", "") or "")
+    if topo_type == "Gromacs":
+        return str(getattr(topo, "top_filename", "") or "")
+    if topo_type == "OpenMM_system":
+        return str(getattr(topo, "system_filename", "") or "")
+    if topo_type == "OpenMM_forcefield":
+        return str(getattr(topo, "topology_filename", "") or "")
+    return ""
+
+
+def particle_masses_from_openmm_parameters(
+        model: structures.Seekr_model,
+        ) -> np.ndarray | None:
+    """
+    Particle masses (amu) from the OpenMM System used for MD.
+
+    Looks up files from unpartitioned_settings.md_parameters_topology in
+    the initial-stage parameters directory (no glob). Amber/Charmm/Gromacs
+    use createSystem(NoCutoff, hydrogenMass=...); OpenMM_system deserializes
+    the XML (masses already include HMR). Returns None for toy systems or
+    when parameters are unavailable.
+    """
+    using_toy = getattr(model, "using_toy", None)
+    if callable(using_toy) and using_toy():
+        return None
+    md_engine = model.get_engine_by_scale_type("molecular_dynamics")
+    if md_engine is None:
+        return None
+    settings = getattr(md_engine, "unpartitioned_settings", None)
+    topo = getattr(settings, "md_parameters_topology", None) \
+        if settings is not None else None
+    if topo is None:
+        return None
+    topo_type = getattr(topo, "type", None)
+    if not isinstance(topo_type, str):
+        return None
+    directory = _md_parameters_directory(model, md_engine)
+    if directory is None or not os.path.isdir(directory):
+        return None
+    hydrogen_mass = getattr(md_engine, "hydrogen_mass", None)
+    if not isinstance(hydrogen_mass, (int, float)):
+        hydrogen_mass = None
+    cache_name = _topology_cache_filename(topo)
+    cache_key = (directory, topo_type, cache_name, hydrogen_mass)
+    cached = _OPENMM_PARTICLE_MASSES_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+    hydrogenMass = None if hydrogen_mass is None \
+        else float(hydrogen_mass) * unit.amu
+    # Masses do not depend on electrostatics; pass a dummy cutoff because
+    # AmberPrmtopFile.createSystem(NoCutoff, nonbondedCutoff=None) can raise
+    # UnboundLocalError (boxX) on periodic prmtops.
+    dummy_cutoff = 0.9 * unit.nanometer
+    try:
+        if topo_type == "Amber":
+            system, _topology = make_topology_system_from_amber(
+                topo, directory, openmm_app.NoCutoff, dummy_cutoff, None,
+                hydrogenMass)
+        elif topo_type == "Charmm":
+            system, _topology = make_topology_system_from_charmm(
+                topo, directory, openmm_app.NoCutoff, dummy_cutoff, None,
+                hydrogenMass)
+        elif topo_type == "Gromacs":
+            system, _topology = make_topology_system_from_gromacs(
+                topo, directory, openmm_app.NoCutoff, dummy_cutoff, None,
+                hydrogenMass)
+        elif topo_type == "OpenMM_system":
+            system = make_topology_system_from_xml(topo, directory)
+        elif topo_type == "OpenMM_forcefield":
+            topology = _load_topology_pdb(
+                directory, topo.topology_filename)
+            system = make_topology_system_from_forcefield(
+                topo, topology, directory, openmm_app.NoCutoff, dummy_cutoff,
+                None, hydrogenMass)
+        else:
+            return None
+    except Exception as exc:
+        logger.warning(
+            "Could not load OpenMM particle masses from %s (%s): %s. "
+            "Falling back to mdtraj topology masses.",
+            directory, topo_type, exc)
+        return None
+    masses = np.array(
+        [system.getParticleMass(i).value_in_unit(unit.dalton)
+         for i in range(system.getNumParticles())],
+        dtype=float)
+    _OPENMM_PARTICLE_MASSES_CACHE[cache_key] = masses
+    return masses
+
 
 def _load_topology_pdb(
         md_parameters_directory: str,

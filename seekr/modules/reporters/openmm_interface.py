@@ -29,6 +29,33 @@ if typing.TYPE_CHECKING:
     import seekr.modules.sampling_methods.openmm_interface as sampl_meth_omm_int
 
 
+def _openmm_box_to_array(box_vectors) -> np.ndarray | None:
+    """
+    Convert OpenMM periodic box vectors (Quantity, Vec3 tuple, or array)
+    to a (3, 3) array whose rows are box vectors in nanometers.
+    """
+    if box_vectors is None:
+        return None
+    if hasattr(box_vectors, "value_in_unit"):
+        arr = np.asarray(
+            box_vectors.value_in_unit(unit.nanometer), dtype=float)
+    else:
+        rows = []
+        for v in box_vectors:
+            if hasattr(v, "value_in_unit"):
+                rows.append(np.asarray(
+                    v.value_in_unit(unit.nanometer), dtype=float))
+            elif hasattr(v, "x"):
+                rows.append(np.array(
+                    [float(v.x), float(v.y), float(v.z)], dtype=float))
+            else:
+                rows.append(np.asarray(v, dtype=float).reshape(3))
+        arr = np.array(rows, dtype=float)
+    if arr.shape != (3, 3):
+        arr = np.reshape(arr, (3, 3))
+    return arr
+
+
 def _load_prior_filled(json_filename: str, format: str) -> frozenset:
     """
     Scan all reporter JSON files from prior restarts and return a frozenset of
@@ -568,13 +595,10 @@ class Anchor_reporter(object):
                 self._distance_group1 = list(g1)
                 self._distance_group2 = list(g2)
                 self._distance_masses = masses
-
-                def _mw_com(inds: list[int]) -> np.ndarray:
-                    m = masses[inds][:, None]
-                    return (pos_nm[inds] * m).sum(axis=0) / m.sum()
-
+                box = _openmm_box_to_array(box_vectors)
                 classify_cv_values = (
-                    float(np.linalg.norm(_mw_com(g1) - _mw_com(g2))),)
+                    base.group_com_distance(
+                        pos_nm, g1, g2, masses, box),)
         except Exception:
             pass
 
@@ -599,9 +623,15 @@ class Anchor_reporter(object):
 
         return
 
-    def _classify_positions_nm(self, pos_nm: np.ndarray) -> tuple[int | None, float | None]:
+    def _classify_positions_nm(
+            self,
+            pos_nm: np.ndarray,
+            box_vectors=None,
+            ) -> tuple[int | None, float | None]:
         """Voronoi-classify a position array using mass-weighted distance CV.
 
+        When box_vectors are present, the COM–COM distance uses the
+        minimum-image convention (same as OpenMM CustomCentroidBondForce).
         Returns (anchor_index, pos_distance).
         """
         model = self._sampling_method_interface._model
@@ -612,12 +642,8 @@ class Anchor_reporter(object):
         masses = self._distance_masses
         g1 = self._distance_group1
         g2 = self._distance_group2
-
-        def _mw_com(inds: list[int]) -> np.ndarray:
-            m = masses[inds][:, None]
-            return (pos_nm[inds] * m).sum(axis=0) / m.sum()
-
-        pos_distance = float(np.linalg.norm(_mw_com(g1) - _mw_com(g2)))
+        box = _openmm_box_to_array(box_vectors)
+        pos_distance = base.group_com_distance(pos_nm, g1, g2, masses, box)
         anchor_index = self._sampling_method_interface.find_current_anchor_index(
             (pos_distance,))
         return anchor_index, pos_distance
@@ -628,9 +654,11 @@ class Anchor_reporter(object):
         then emit the JSON index file. Re-entrant: safe to call at every
         saveInterval and from __del__.
 
-        Buffers whose coordinates do not map to their slot are discarded so
-        on-disk labels never disagree with structures (missing anchors are
-        preferable to mislabeled ones; assign will error clearly).
+        For a distance CV, buffers whose coordinates do not map to their
+        slot are discarded so on-disk labels never disagree with structures
+        (missing anchors are preferable to mislabeled ones). If distance-CV
+        classification is not available (e.g. an external/toy CV), keep the
+        live Voronoi label from report().
         """
         if not hasattr(self, '_buffered_positions'):
             return
@@ -644,8 +672,10 @@ class Anchor_reporter(object):
             pos_q = self._buffered_positions[i]
             pos_nm = np.array(
                 pos_q.value_in_unit(unit.nanometer), dtype=float).copy()
-            validated, _pos_distance = self._classify_positions_nm(pos_nm)
-            if validated != i:
+            validated, _pos_distance = self._classify_positions_nm(
+                pos_nm, self._buffered_box_vectors[i])
+            # None means "could not classify" (non-distance CV), not "mismatch".
+            if validated is not None and validated != i:
                 continue
             new_positions[i] = unit.Quantity(pos_nm, unit.nanometer)
             new_boxes[i] = self._buffered_box_vectors[i]
