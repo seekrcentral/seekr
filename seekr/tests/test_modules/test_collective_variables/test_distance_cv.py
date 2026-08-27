@@ -8,7 +8,7 @@ Unit tests for seekr/modules/collective_variables/distance_cv.py.
 import numpy as np
 import mdtraj
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import seekr.modules.collective_variables.distance_cv as distance_cv
 
@@ -145,7 +145,7 @@ def test_get_mdtraj_cv_value_minimum_image():
     assert result < raw
 
 
-def test_get_mdtraj_cv_value_hmr_warns_without_bonds(caplog):
+def test_get_mdtraj_cv_value_hmr_warns_without_bonds():
     """HMR requested on a topology with no H–heavy bonds logs a warning."""
     cv = distance_cv.Distance_CV(index=0, group1_name="a", group2_name="b")
     top = mdtraj.Topology()
@@ -163,11 +163,13 @@ def test_get_mdtraj_cv_value_hmr_warns_without_bonds(caplog):
     )
     mock_model = MagicMock()
     mock_model.get_engine_by_scale_type.return_value = mock_engine
+    mock_model.using_toy.return_value = True
 
-    with caplog.at_level("WARNING", logger="seekr.modules.collective_variables.distance_cv"):
+    with patch.object(distance_cv.logger, "warning") as warn:
         result = cv.get_mdtraj_cv_value(mock_model, traj, frame_index=0)
     assert result == pytest.approx(1.0, abs=1e-5)
-    assert "no H–heavy bonds" in caplog.text
+    warn.assert_called()
+    assert "no H–heavy bonds" in warn.call_args[0][0]
 
 
 def test_get_mdtraj_cv_value_provided_masses_without_bonds():

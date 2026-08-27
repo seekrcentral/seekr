@@ -97,10 +97,11 @@ def status(
                 if (stage.scale_type == "molecular_dynamics") \
                         or (stage.scale_type == "logistic"):
                     md_engine = model.get_engine_by_scale_type("molecular_dynamics")
+                    set_name = getattr(stage, "set_name", None) or getattr(stage, "input_set_name", None)
                     swarm_ids = md_engine.unpartitioned_settings\
                         .get_starting_structure_swarm_ids(
                             model.directory, stage.input_stage_index, 
-                            stage.set_name)
+                            set_name)
                     num_swarms = len(swarm_ids)
                 else:
                     num_swarms = 1
