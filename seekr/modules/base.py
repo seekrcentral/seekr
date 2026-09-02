@@ -22,6 +22,7 @@ import logging
 import importlib
 
 from attrs import define, field, validators, Factory
+import numpy as np
 import numpy.typing as nptyping
 import mdtraj
 
@@ -310,6 +311,98 @@ def mdtraj_center_of_mass(
     else:
         com_array = mdtraj.compute_center_of_mass(traj)
     return com_array
+
+def particle_masses_from_mdtraj_topology(
+        topology: mdtraj.Topology
+        ) -> np.ndarray:
+    """
+    Element masses (amu) for every atom in an mdtraj Topology.
+    """
+    return np.array(
+        [atom.element.mass if atom.element is not None else 0.0
+         for atom in topology.atoms],
+        dtype=float)
+
+def apply_hydrogen_mass_repartitioning(
+        masses: np.ndarray,
+        topology: mdtraj.Topology,
+        hydrogen_mass: float
+        ) -> tuple[np.ndarray, int]:
+    """
+    Apply OpenMM createSystem(hydrogenMass=...) mass transfer.
+
+    For each H–heavy bond, set the hydrogen mass to hydrogen_mass and
+    subtract (hydrogen_mass - original_H_mass) from the heavy atom.
+    Returns (new_masses, number of H–heavy bonds updated).
+    """
+    masses = np.array(masses, dtype=float, copy=True)
+    n_transfers = 0
+    for atom1, atom2 in topology.bonds:
+        e1 = atom1.element
+        e2 = atom2.element
+        if e1 is None or e2 is None:
+            continue
+        if e1.atomic_number == 1:
+            atom1, atom2 = atom2, atom1
+            e1, e2 = e2, e1
+        if e2.atomic_number == 1 and e1.atomic_number != 1:
+            orig_h = masses[atom2.index]
+            transfer = hydrogen_mass - orig_h
+            masses[atom2.index] = hydrogen_mass
+            masses[atom1.index] -= transfer
+            n_transfers += 1
+    return masses, n_transfers
+
+def mass_weighted_com(
+        xyz: np.ndarray,
+        indices: typing.Sequence[int],
+        masses: np.ndarray
+        ) -> np.ndarray:
+    """
+    Mass-weighted center of mass of atoms `indices` in a single-frame xyz.
+    """
+    inds = np.asarray(indices, dtype=int)
+    m = masses[inds][:, None]
+    return (xyz[inds] * m).sum(axis=0) / m.sum()
+
+def minimum_image_delta(
+        delta: np.ndarray,
+        box_vectors: np.ndarray
+        ) -> np.ndarray:
+    """
+    Minimum-image vector for a triclinic box whose rows are the box vectors.
+    """
+    inv_box = np.linalg.inv(box_vectors)
+    frac = np.dot(delta, inv_box)
+    frac -= np.round(frac)
+    return np.dot(frac, box_vectors)
+
+def group_com_distance(
+        xyz: np.ndarray,
+        group1_indices: typing.Sequence[int],
+        group2_indices: typing.Sequence[int],
+        masses: np.ndarray,
+        box_vectors: np.ndarray | None = None
+        ) -> float:
+    """
+    Distance between mass-weighted COMs of two groups.
+
+    If box_vectors is a (3, 3) array (rows = box vectors) with a
+    non-singular finite cell, the COM–COM vector uses the minimum-image
+    convention (OpenMM CustomCentroidBondForce with periodic boundary
+    conditions). Group atoms are not unwrapped. Toy / missing / degenerate
+    boxes stay as the raw Euclidean distance.
+    """
+    com1 = mass_weighted_com(xyz, group1_indices, masses)
+    com2 = mass_weighted_com(xyz, group2_indices, masses)
+    delta = com2 - com1
+    if box_vectors is not None:
+        box = np.asarray(box_vectors, dtype=float)
+        if (box.shape == (3, 3)
+                and np.all(np.isfinite(box))
+                and abs(float(np.linalg.det(box))) > 1e-12):
+            delta = minimum_image_delta(delta, box)
+    return float(np.linalg.norm(delta))
 
 def get_plugin_str(
         plugin_name: str,

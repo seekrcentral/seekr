@@ -132,7 +132,8 @@ class Runner_openmm():
             .assign_sampling_method_interface(
                 self.stage_output_index, sampling_method, md_engine,
                 self.model.plugins)
-        self.sampling_method_interface.set_random_seed(self.model.get_random_seed())
+        self.sampling_method_interface.set_random_seed(
+            self.model.get_random_seed()+swarm_id*10000)
         # Reporters interfaces.
         self.reporters_interfaces = []
         for reporter in stage_output.reporters:
@@ -326,8 +327,10 @@ class Runner_openmm():
             reporter_interface.add_reporter_to_simulation(
                 simulation=simulation, filename=reporter_filename, 
                 toy_mode=self.model.using_toy())
+        #lock_filename = os.path.join(
+        #    self.running_directory, "LOCK")
         lock_filename = os.path.join(
-            self.running_directory, "LOCK")
+            self.running_directory, f"LOCK.swarm_{self.swarm_id}")
         steps_between_evals_compl_crit = output_stage.completion_criteria\
             .get_evaluation_interval()
         steps_between_evals_sampling = self.sampling_method_interface\

@@ -196,11 +196,6 @@ def test_analyze_full_pipeline(seekr_prepared):
     assert result.main_data_window is not None, \
         f"[{scenario_name}] main_data_window is None"
     
-    result.print_results()
-    result.make_image_directory(analyzer_base.DEFAULT_IMAGE_DIR)
-    result.save_plots(analyzer_base.DEFAULT_IMAGE_DIR)
-
-
 # ---------------------------------------------------------------------------
 # Error analysis method tests
 # ---------------------------------------------------------------------------

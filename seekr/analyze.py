@@ -37,16 +37,18 @@ def analyze_all(
     os.chdir(model.directory)
     synopsis_filename = model.get_synopsis_filename(model.directory)
     base.configure_logging(synopsis_filename)
-    logger.info(
-        f"Analyzing with stage instruction {stage_arg} (error_analysis_method: "
-        f"{error_analysis_method}, num_error_samples: {num_error_samples}, "
-        f"min_time_ps: {min_time_ps}, max_time_ps: {max_time_ps}).")
+    if not only_extract_data:
+        logger.info(
+            f"Analyzing with stage instruction {stage_arg} (error_analysis_method: "
+            f"{error_analysis_method}, num_error_samples: {num_error_samples}, "
+            f"min_time_ps: {min_time_ps}, max_time_ps: {max_time_ps}).")
     base.log_invocation_metadata(__version__)
     if stage_arg is None:
         stages_to_analyze = [stage.index for stage in model.stages]
     else:
         stages_to_analyze = [run.extract_stage_index(model, stage_arg)]
     anything_analyzed = False
+    last_significant_analysis = None
     for stage_index in stages_to_analyze:
         if not hasattr(model.stages[stage_index-1], "sampling_method"):
             # Logistic stage without a sampling method.
@@ -59,17 +61,19 @@ def analyze_all(
             num_error_samples=num_error_samples
         )
         stage = model.stages[stage_index-1]
-        if analysis is not None:
+        if (analysis is not None) and (not only_extract_data):
             print(f"Analysis for stage index {stage.name} (index: {stage.index})")
             analysis.print_results()
             analysis.make_image_directory(analyzer_base.DEFAULT_IMAGE_DIR)
             analysis.save_plots(analyzer_base.DEFAULT_IMAGE_DIR)
             anything_analyzed = True
+        if analysis is not None:
+            last_significant_analysis = analysis
     os.chdir(curdir)
-    if not anything_analyzed:
+    if (not anything_analyzed) and (not only_extract_data):
         print("No stages were analyzed.")
     # return the last stage analyzed.
-    return analysis
+    return last_significant_analysis
     
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser(description=__doc__)
