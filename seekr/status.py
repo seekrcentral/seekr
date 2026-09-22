@@ -8,6 +8,8 @@ and times observed in a MMVT stage. Equivalent to the anchor_steps script
 from seekr2.
 """
 
+# TODO: change "progress" option to "state" - don't forget the runner returns of "progress"
+
 import argparse
 
 import seekr.modules.structures as structures
@@ -37,23 +39,22 @@ def status(
         else:
             stages_to_check = [stage_index]
     
-    anchor_index_instruction = run.extract_anchor_index(model, anchor_arg)
-    # Load info for the initial stage
-    if instruction in ["info", "all"]:
-        if None in stages_to_check:
-            model.load_cvs("main")
-            model.load_selections("main")
-            model.load_anchor_set("main")
-            stage_0_num_anchors = len(model.anchors)
-            md_engine = model.get_engine_by_scale_type("molecular_dynamics")
-            if md_engine is None:
-                stage_0_num_swarms = 1
-            else:
-                swarm_ids = md_engine.unpartitioned_settings\
-                .get_starting_structure_swarm_ids(
-                        model.directory, 0, "main")
-                stage_0_num_swarms = len(swarm_ids)
+    model.load_cvs("main")
+    model.load_selections("main")
+    model.load_anchor_set("main")
+    if None in stages_to_check:
+        stage_0_num_anchors = len(model.anchors)
+        md_engine = model.get_engine_by_scale_type("molecular_dynamics")
+        if md_engine is None:
+            stage_0_num_swarms = 1
+        else:
+            swarm_ids = md_engine.unpartitioned_settings\
+            .get_starting_structure_swarm_ids(
+                    model.directory, 0, "main")
+            stage_0_num_swarms = len(swarm_ids)
 
+    anchor_index_instruction = run.extract_anchor_index(model, anchor_arg)
+    
     if print_json:
         message = {}
         if instruction in ["info", "all"]:
@@ -163,14 +164,14 @@ def status(
                 message["progress"][stage.index] = {
                     "stage_name": stage.name,
                     "finished": finished,
-                    "progress": stage_message
+                    "anchors": stage_message
                 }
             else:
                 message += f"  Stage {stage.index} ({stage.name}):\n" \
                     + f"    Finished: {finished}\n{stage_message}"
 
     if instruction in ["statistics", "all"]:
-        analysis = analyze.analyze_all(model, stage_arg=None, 
+        analysis = analyze.analyze_all(model, stage_arg=stage_arg, 
                                     skip_checks=True, only_extract_data=True)
         if analysis is None:
             return message

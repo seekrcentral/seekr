@@ -741,6 +741,15 @@ def cleanse_outputs_stage(
             for backup_file in glob.glob(backup_glob):
                 #print("removing file:", backup_file)
                 os.remove(backup_file)
+                backup_tmp_file = backup_file + ".tmp"
+                if os.path.exists(backup_tmp_file):
+                    os.remove(backup_tmp_file)
+            backup_prev_glob = os.path.join(full_directory, 
+                engines_base.RESTART_CHECKPOINT_FILENAME_NOEXT \
+                + f"{swarm_id}.prev*" + engines_base.RESTART_CHECKPOINT_FILENAME_EXT)
+            for backup_prev_file in glob.glob(backup_prev_glob):
+                #print("removing file:", backup_file)
+                os.remove(backup_prev_file)
             lock_filename = os.path.join(full_directory, "LOCK")
             if os.path.exists(lock_filename):
                 #print("removing file:", lock_filename)

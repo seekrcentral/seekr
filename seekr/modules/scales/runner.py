@@ -44,15 +44,17 @@ def is_finished_with_message(
             if anchor_or_unpartitioned_index is None:
                 assert md_engine.unpartitioned_settings is not None
                 anchor_or_unpartitioned = md_engine.unpartitioned_settings
+                anchor_key = "unpartitioned"
             else:
                 anchor_or_unpartitioned \
                     = model.anchors[anchor_or_unpartitioned_index]
+                anchor_key = str(anchor_or_unpartitioned_index)
             tmp_finished, message = md_runner.is_finished_md_with_message(
                 model, stage, anchor_or_unpartitioned, use_json=use_json)
             if not tmp_finished:
                 finished = False
             if use_json:
-                final_message[anchor_or_unpartitioned_index] = message
+                final_message[anchor_key] = message
             else:
                 if anchor_or_unpartitioned_index is None:
                     final_message += f"    Unpartitioned: {message}\n"
@@ -62,16 +64,18 @@ def is_finished_with_message(
     elif stage.scale_type == "brownian_dynamics":
         finished, message = bd_runner.is_finished_bd_with_message(
             model, stage, use_json=use_json)
+        anchor_key = "unpartitioned"
         if use_json:
-            final_message[None] = message
+            final_message[anchor_key] = message
         else:
             final_message += f"    Unpartitioned: {message}\n"
 
     elif stage.scale_type == "logistic":
         finished, message = logistic_runner.is_finished_logistic_with_message(
             model, stage, use_json=use_json)
+        anchor_key = "unpartitioned"
         if use_json:
-            final_message[None] = message
+            final_message[anchor_key] = message
         else:
             final_message += f"    Unpartitioned: {message}\n"
     else:

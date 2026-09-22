@@ -121,7 +121,10 @@ class Runner_openmm():
         stage_output_directory = next_stage_params["directory"]
         assert stage_output.type == "md_stage"
         self.ensemble = stage_output.ensemble
-        self.run_minimization = stage_output.run_minimization
+        if self.restart:
+            self.run_minimization = False
+        else:
+            self.run_minimization = stage_output.run_minimization
         self.needs_cv_values = False
         # Sampling method interfaces
         sampling_method = stage_output.sampling_method
@@ -280,6 +283,7 @@ class Runner_openmm():
         """
         Run the SEEKR simulation.
         """
+        import openmm
         self.sim_openmm = sim_openmm_obj
         system = self.sim_openmm.system
         simulation = self.sim_openmm.simulation
@@ -291,13 +295,27 @@ class Runner_openmm():
         assert self.completion_criteria_interface is not None
         self.restart_checkpoint_interval \
             = output_stage.md_restart_checkpoint_interval
+        self.sampling_method_interface.pre_simulation_preparations(
+            model=self.model,
+            directory=self.running_directory,)
         # TODO: have multiple kinds of simulation? Like umbrella stage, other stages?
         # This can be handled by making elber umbrella vs. elber reverse vs. elber forward
         if restart:
-            simulation.loadCheckpoint(self.restart_checkpoint_filename)
-            currentStep = simulation.context.getState().getStepCount()
-            self.start_step = currentStep 
+            canonical = self.restart_checkpoint_filename
+            root, ext = os.path.splitext(canonical)
+            candidates = [canonical, f"{root}.prev1{ext}", f"{root}.prev2{ext}"]
+            for candidate in candidates:
+                try:
+                    simulation.loadCheckpoint(candidate)
+                    currentStep = simulation.context.getState().getStepCount()
+                    self.sampling_method_interface.validate_restart()
+                    break
+                except openmm.OpenMMException or RuntimeError as e:
+                    # Log a warning and continue
+                    logger.warning(f"Failed to load checkpoint {candidate}: {e}")
+                    continue
 
+            self.start_step = currentStep 
             simulation.currentStep = currentStep
             logger.info(
                   "restarting from saved checkpoint:"\
@@ -315,9 +333,6 @@ class Runner_openmm():
         
         self.min_steps = output_stage.completion_criteria.get_min_sim_len()
         self.max_steps = output_stage.completion_criteria.get_max_sim_len()
-        self.sampling_method_interface.pre_simulation_preparations(
-            model=self.model,
-            directory=self.running_directory,)
         for i, reporter_interface in enumerate(self.reporters_interfaces):
             reporter_ext = reporter_interface.get_reporter_extension()
             reporter_name = reporter_interface._reporter.name

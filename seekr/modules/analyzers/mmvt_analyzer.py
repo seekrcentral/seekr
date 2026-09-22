@@ -227,8 +227,11 @@ class Mmvt_analyzer:
                 diss_constant = self.main_data_window.k_off / k_on
             else:
                 diss_constant = float("inf")
-            delta_G = analyzers_base.GAS_CONSTANT*self.model.temperature\
-                *math.log(diss_constant)
+            if diss_constant > 0.0:
+                delta_G = analyzers_base.GAS_CONSTANT*self.model.temperature\
+                    *math.log(diss_constant)
+            else:
+                delta_G = float("inf")
             if key in self.main_data_window.k_ons_err:
                 k_on_err = float(self.main_data_window.k_ons_err[key])
                 print("  k_on (1/s * 1/M) to state", key, ":", 
@@ -307,7 +310,7 @@ class Mmvt_analyzer:
         final_message = "" if not use_json else {}
         for alpha, anchor in enumerate(model.anchors):
             if anchor_index_instruction != "any" \
-                    and alpha != anchor_index_instruction:
+                    and str(alpha) != anchor_index_instruction:
                 continue
             anchor_stats_anchor = self.anchor_stats_alpha_list[alpha]
             if anchor_stats_anchor is None:
@@ -324,12 +327,13 @@ class Mmvt_analyzer:
             else:
                 final_message += f"  Anchor {alpha}:\n{message}"
 
-        if self.bulk_stats is not None:
-            message = self.bulk_stats.get_statistics_message(use_json=use_json)
-            if use_json:
-                final_message["bulk"] = message
-            else:
-                final_message += "  Bulk anchor statistics:\n" + message
+            if anchor.bulk_anchor:
+                if self.bulk_stats is not None:
+                    message = self.bulk_stats.get_statistics_message(use_json=use_json)
+                    if use_json:
+                        final_message["bulk"] = message
+                    else:
+                        final_message += "  Bulk anchor statistics:\n" + message
 
         return final_message
 

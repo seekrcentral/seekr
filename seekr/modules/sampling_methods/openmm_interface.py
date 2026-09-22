@@ -152,6 +152,28 @@ def make_list_from_ambig_entry(value, num_elements):
     else:
         return [value for i in range(num_elements)]
 
+def save_restart_checkpoint(
+        simulation: openmm_app.Simulation,
+        canonical: str,
+        n_copies: int = 2
+    ) -> None:
+    """
+    Save a restart checkpoint using extra copies so that an overwrite-
+    in-place doesn't leave a truncated checkpoint file from a walltime
+    kill or other such reason.
+    """
+    root, ext = os.path.splitext(canonical)
+    tmp = canonical + ".tmp"
+    simulation.saveCheckpoint(tmp)
+    # shift prev1 -> prev2 -> ... then latest -> prev1
+    for k in range(n_copies - 1, 0, -1):
+        newer = canonical if k == 1 else f"{root}.prev{k-1}{ext}"
+        older = f"{root}.prev{k}{ext}"
+        if os.path.exists(newer):
+            os.rename(newer, older)
+    os.rename(tmp, canonical)
+    return
+
 @define
 class Base_md_openmm_interface:
     """
@@ -479,7 +501,9 @@ class Base_md_openmm_interface:
                         current_step=on_step, print_update=False, cv_values=cv_values, 
                         swarm_id=swarm_id)
                 if make_checkpoint:
-                    self._simulation_obj.saveCheckpoint(checkpoint_filename)
+                    #self._simulation_obj.saveCheckpoint(checkpoint_filename)
+                    save_restart_checkpoint(
+                        self._simulation_obj, checkpoint_filename)
                     engines_structures.write_checkpoint_information_file(
                         on_step, restart_index, timestep, cv_values, checkpoint_info_filename)
                     lock_string = engines_base.update_lock(
@@ -494,7 +518,9 @@ class Base_md_openmm_interface:
 
         if needs_cv_values:
             cv_values = self.get_cv_values()
-        self._simulation_obj.saveCheckpoint(checkpoint_filename)
+        #self._simulation_obj.saveCheckpoint(checkpoint_filename)
+        save_restart_checkpoint(
+            self._simulation_obj, checkpoint_filename)
         engines_structures.write_checkpoint_information_file(
             on_step, restart_index, timestep, cv_values, checkpoint_info_filename)
         os.remove(lock_filename)
@@ -543,6 +569,11 @@ class Base_md_openmm_interface:
     def get_random_seed(self) -> int:
         return self._random_seed 
     
+    def validate_restart(self) -> None:
+        """
+        Perform a check to make sure that the restart was properly loaded.
+        """
+        return
             
 
 @define
@@ -1573,6 +1604,33 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
             abort = True
             
         return abort
+
+    def validate_restart(self) -> None:
+        """
+        Perform a check to make sure that the restart was properly loaded.
+        In this case, that means to ensure that the OpenMM system step
+        counts and the MMVT integrator step counts match. Also, that the
+        'last_milestone_alias_touched' wasn't reset to 0, which should never
+        naturally happen.
+        """
+        if self._simulation_obj is None:
+            return
+        simulation = self._simulation_obj
+        integrator = simulation.context.getIntegrator()
+        openmm_steps = simulation.context.getState().getStepCount()
+        mmvt_steps = int(integrator.getGlobalVariableByName("step_count"))
+        if abs(openmm_steps - mmvt_steps) > 1:
+            raise RuntimeError(
+                f"MMVT step_count ({mmvt_steps}) does not match OpenMM "
+                f"checkpoint step ({openmm_steps})"
+            )
+        last_ms = int(integrator.getGlobalVariableByName(
+            "last_milestone_alias_touched"))
+        valid = {-1} | {m.alias_index for m in self._anchor_obj.milestones}
+        if last_ms not in valid:
+            raise RuntimeError(
+                f"last_milestone_alias_touched={last_ms} not in {sorted(valid)}"
+            )
     
 Sampling_md_openmm_interface = typing.Union[Conventional_md_openmm_interface,
                                             Metadynamics_md_openmm_interface,

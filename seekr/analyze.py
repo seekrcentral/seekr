@@ -7,8 +7,9 @@ free energies, convergence, and other properties and plots.
 """
 
 import os
-import argparse
+import typing
 import logging
+import argparse
 
 import seekr._version as seekr_version
 import seekr.modules.base as base
@@ -43,10 +44,10 @@ def analyze_all(
             f"{error_analysis_method}, num_error_samples: {num_error_samples}, "
             f"min_time_ps: {min_time_ps}, max_time_ps: {max_time_ps}).")
     base.log_invocation_metadata(__version__)
-    if stage_arg is None:
+    if (stage_arg is None) or (stage_arg == "all"):
         stages_to_analyze = [stage.index for stage in model.stages]
     else:
-        stages_to_analyze = [run.extract_stage_index(model, stage_arg)]
+        stages_to_analyze = [run.extract_stage_index(model, stage_arg)+1]
     anything_analyzed = False
     last_significant_analysis = None
     for stage_index in stages_to_analyze:

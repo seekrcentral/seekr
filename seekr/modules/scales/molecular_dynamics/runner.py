@@ -80,9 +80,10 @@ def is_finished_md_with_message(
             if use_json:
                 return False, {
                     "completion_criteria": completion_criteria.type,
-                    "attained": False,
+                    "finished": False,
                     "progress": 0.0,
                     "num_swarms": 0,
+                    "swarms": {},
                     "error": no_swarms_msg,
                 }
             return False, no_swarms_msg
@@ -106,12 +107,12 @@ def is_finished_md_with_message(
             if not this_finished:
                 finished_all = False
             progress_sum += progress
-            swarm_messages[this_swarm_id] = this_message
+            swarm_messages[str(this_swarm_id)] = this_message
         progress = progress_sum / len(swarm_ids)
         if use_json:
             return finished_all, {
                 "completion_criteria": completion_criteria.type,
-                "attained": finished_all,
+                "finished": finished_all,
                 "progress": round(progress, 4),
                 "num_swarms": len(swarm_ids),
                 "swarms": swarm_messages,
@@ -137,7 +138,7 @@ def is_finished_md_with_message(
                 break
         if reporter_index is None:
             message = {"completion_criteria": "reporter_progress",
-                       "attained": False,
+                       "finished": False,
                        "timed_out": False,
                        "progress": 0.0,
                        "threshold": completion_criteria.reporter_progress_threshold,
@@ -166,7 +167,7 @@ def is_finished_md_with_message(
             .get_checkpoint_information_basename(swarm_id)
         basename = stage.sampling_method.get_output_positions_basename_noext()
         swarm_string = f".swarm_{swarm_id}"
-        reporter_ext = stage.reporters[reporter_index].get_reporter_extension()
+        #reporter_ext = stage.reporters[reporter_index].get_reporter_extension()
         reporter_name = stage.reporters[reporter_index].name
         json_glob = os.path.join(
             running_dir,
@@ -222,7 +223,7 @@ def is_finished_md_with_message(
         if use_json:
             message = {
                 "completion_criteria": "reporter_progress",
-                "attained": attained,
+                "finished": ending,
                 "timed_out": timed_out,
                 "progress": round(progress, 4),
                 "threshold": threshold,
@@ -243,7 +244,7 @@ def is_finished_md_with_message(
                 if completion_criteria.number_of_steps > 0 else 1.0
             message = {
                 "completion_criteria": completion_criteria.type,
-                "attained": current_step >= completion_criteria.number_of_steps,
+                "finished": current_step >= completion_criteria.number_of_steps,
                 "progress": round(progress, 4),
                 "current_step": current_step,
                 "total_steps": completion_criteria.number_of_steps

@@ -241,9 +241,22 @@ def is_finished_reassign_anchors_logistic_with_message(
     """
     model.load_anchor_set(stage.output_set_name)
     if use_json:
+        final_message: dict[str, dict] = {
+            "finished": False,
+            "num_swarms": 1,
+            "swarms": {
+                "0": {
+                    "finished": False,
+                    "progress": 0.0,
+                }
+            }
+        }
         if len(model.anchors) == 0:
-            return False, {"new_anchor_set_created": False}
-        return True, {"new_anchor_set_created": True}
+            return False, final_message
+        final_message["finished"] = True
+        final_message["swarms"]["0"]["finished"] = True
+        final_message["swarms"]["0"]["progress"] = 1.0
+        return True, final_message
     else:
         if len(model.anchors) == 0:
             return False, "New anchor set has not been created."

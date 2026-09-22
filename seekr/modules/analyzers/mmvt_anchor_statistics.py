@@ -113,7 +113,10 @@ class Mmvt_anchor_statistics:
         for key in self.N_i_j_alpha:
             if self.N_i_j_alpha[key] > 0:
                 existing_alias_i_j.append(key)
-
+        # DEBUG
+        if alpha == 13:
+            print("alpha:", alpha)
+        # END DEBUG
         for milestone in anchor.milestones:
             key = (anchor.index, milestone.neighbor_anchor_index)
             key_str = str(key)
@@ -133,6 +136,13 @@ class Mmvt_anchor_statistics:
                         self.N_i_j_alpha[(milestone.alias_index, milestone2.alias_index)]
                 else:
                     counts_milestone_to_milestone[key2_str] = 0
+
+            # DEBUG
+            if alpha == 13:
+                print("milestone.index:", milestone.index)
+                print("milestone.alias_index:", milestone.alias_index)
+                print("self.N_alpha_beta[milestone.alias_index]:", self.N_alpha_beta[milestone.alias_index])
+            # END DEBUG
 
         if use_json:
             # Use JSON-style message

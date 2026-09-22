@@ -478,17 +478,39 @@ def is_finished_anchor_starting_structures_from_reporter_logistic_with_message(
     """
     all_have_files = True
     if use_json:
-        final_message: dict[int, dict] = {}
+        final_message: dict[str, typing.Any] = {
+            "structures_assigned": {},
+            "finished": all_have_files,
+            "progress": 0.0,
+            "num_swarms": 1,
+            "swarms": {}
+        }
+        total_progress = 0.0
+        total_anchors = 0
         for anchor in model.anchors:
             if "molecular_dynamics" not in anchor.scale_types or anchor.bulk_anchor:
                 continue
             has_files = stage.has_files(model, anchor_index=anchor.index)
-            if not has_files:
+            if has_files:
+                total_progress += 1.0
+            else:
                 all_have_files = False
-            final_message[anchor.index] = {
+            total_anchors += 1
+            final_message["structures_assigned"][anchor.index] = {
                 "anchor_index": anchor.index,
                 "has_files": has_files,
             }
+        if total_anchors > 0:
+            progress = total_progress / total_anchors
+        else:
+            progress = 0.0
+        final_message["finished"] = all_have_files
+        final_message["progress"] = round(progress, 4)
+        final_message["swarms"] = {"0": {
+                "finished": all_have_files,
+                "progress": round(progress, 4),
+            }
+        }
         return all_have_files, final_message
     else:
         message = ""

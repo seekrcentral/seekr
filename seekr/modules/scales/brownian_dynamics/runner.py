@@ -82,10 +82,20 @@ def is_finished_bd_with_message(
         if use_json:
             message = {
                 "completion_criteria": stage_bd.completion_criteria.type,
-                "attained": attained,
+                "finished": attained,
                 "progress": round(progress, 4),
                 "trajectories_needed": num_trajs_needed,
-                "trajectories_completed": num_trajs_so_far
+                "trajectories_completed": num_trajs_so_far,
+                "num_swarms": 1,
+                "swarms": {
+                    "0": {
+                        "completion_criteria": stage_bd.completion_criteria.type,
+                        "finished": attained,
+                        "progress": round(progress, 4),
+                        "trajectories_needed": num_trajs_needed,
+                        "trajectories_completed": num_trajs_so_far
+                    }
+                }
             }
         else:
             message = f"Trajectories {num_trajs_so_far} of {num_trajs_needed} completed."
@@ -109,11 +119,22 @@ def is_finished_bd_with_message(
         if use_json:
             message = {
                 "completion_criteria": stage_bd.completion_criteria.type,
-                "attained": attained,
+                "finished": attained,
                 "progress": round(progress, 4),
                 "encounters_needed": num_encounters_needed,
                 "encounters_completed": min_b_surface_encounters,
-                "trajectories_completed": num_trajs_so_far
+                "trajectories_completed": num_trajs_so_far,
+                "num_swarms": 1,
+                "swarms": {
+                    "0": {
+                        "completion_criteria": stage_bd.completion_criteria.type,
+                        "finished": attained,
+                        "progress": round(progress, 4),
+                        "encounters_needed": num_encounters_needed,
+                        "encounters_completed": min_b_surface_encounters,
+                        "trajectories_completed": num_trajs_so_far
+                    }
+                }
             }
         else:
             message = f"Encounters {min_b_surface_encounters} of {num_encounters_needed} completed."
