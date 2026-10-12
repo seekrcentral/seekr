@@ -121,7 +121,7 @@ class Runner_openmm():
         stage_output_directory = next_stage_params["directory"]
         assert stage_output.type == "md_stage"
         self.ensemble = stage_output.ensemble
-        if self.restart:
+        if restart:
             self.run_minimization = False
         else:
             self.run_minimization = stage_output.run_minimization

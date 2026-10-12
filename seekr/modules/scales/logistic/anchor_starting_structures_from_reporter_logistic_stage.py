@@ -593,14 +593,19 @@ def do_run_instruction_anchor_starting_structures_from_reporter_logistic(
         json_sidecar = os.path.splitext(reporter_file)[0] + ".json"
         if not os.path.exists(json_sidecar):
             continue
-        with open(json_sidecar, "r") as f:
-            json_data = json.load(f)
-        if ext == "pdb":
-            traj = mdtraj.load(reporter_file)
-        elif ext == "dcd":
-            traj = mdtraj.load(reporter_file, top=topology_file)
-        else:
-            raise Exception(f"Unsupported reporter file extension: {ext}")
+        if os.path.getsize(reporter_file) == 0:
+            continue
+        try:
+            with open(json_sidecar, "r") as f:
+                json_data = json.load(f)
+            if ext == "pdb":
+                traj = mdtraj.load(reporter_file)
+            elif ext == "dcd":
+                traj = mdtraj.load(reporter_file, top=topology_file)
+            else:
+                raise Exception(f"Unsupported reporter file extension: {ext}")
+        except OSError:
+            continue
         traj_json_pairs.append((traj, json_data))
     assert len(traj_json_pairs) > 0, \
         f"No reporter files with JSON sidecars found matching: {reporter_glob}"
