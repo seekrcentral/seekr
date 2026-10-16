@@ -20,6 +20,8 @@ import mdtraj
 from attrs import define, field, validators, Factory
 
 import seekr.modules.base as base
+import seekr.modules.structures as structures
+import seekr.modules.scales.base as scales_base
 import seekr.modules.scales.logistic.base as logistic_scale_base
 
 logger = logging.getLogger(__name__)
@@ -470,59 +472,39 @@ def _process_cv_value_reporter(
 def is_finished_anchor_starting_structures_from_reporter_logistic_with_message(
         model: "Seekr_model",
         stage: Stage_anchor_starting_structures_from_reporter,
+        anchor_or_unpartitioned: structures.Anchor | None,
         use_json: bool = True
     ) -> tuple[bool, str | dict]:
     """
-    A reassign anchors logistic stage is finished when all of the new anchor
-    directories have files in them.
+    An anchor starting structures from reporter logistic stage is finished when 
+    all of the new anchor starting structures have been assigned.
     """
-    all_have_files = True
+    assert anchor_or_unpartitioned is not None, \
+        "anchor_starting_structures_from_reporter_logistic doesn't support unpartitioned scope."
+    has_files = stage.has_files(model, anchor_index=anchor_or_unpartitioned.index)
     if use_json:
-        final_message: dict[str, typing.Any] = {
-            "structures_assigned": {},
-            "finished": all_have_files,
-            "progress": 0.0,
-            "num_swarms": 1,
-            "swarms": {}
-        }
-        total_progress = 0.0
-        total_anchors = 0
-        for anchor in model.anchors:
-            if "molecular_dynamics" not in anchor.scale_types or anchor.bulk_anchor:
-                continue
-            has_files = stage.has_files(model, anchor_index=anchor.index)
-            if has_files:
-                total_progress += 1.0
-            else:
-                all_have_files = False
-            total_anchors += 1
-            final_message["structures_assigned"][anchor.index] = {
-                "anchor_index": anchor.index,
-                "has_files": has_files,
+        if has_files:
+            message: dict[str, typing.Any] = {
+                "finished": True,
+                "progress": 1.0,
+                "num_swarms": 1,
+                "swarms": {"0": { "finished": True, "progress": 1.0 }}
             }
-        if total_anchors > 0:
-            progress = total_progress / total_anchors
         else:
-            progress = 0.0
-        final_message["finished"] = all_have_files
-        final_message["progress"] = round(progress, 4)
-        final_message["swarms"] = {"0": {
-                "finished": all_have_files,
-                "progress": round(progress, 4),
+            message: dict[str, typing.Any] = {
+                "finished": False,
+                "progress": 0.0,
+                "num_swarms": 1,
+                "swarms": {"0": { "finished": False, "progress": 0.0 }}
             }
-        }
-        return all_have_files, final_message
+        
     else:
-        message = ""
-        for anchor in model.anchors:
-            if "molecular_dynamics" not in anchor.scale_types or anchor.bulk_anchor:
-                continue
-            if not stage.has_files(model, anchor_index=anchor.index):
-                all_have_files = False
-                message += f"    Anchor {anchor.index} has no files.\n"
-        if all_have_files:
-            message = "    All anchors have files."
-        return all_have_files, message
+        if has_files:
+            message = f"    Anchor {anchor_or_unpartitioned.index} has files.\n"
+        else:
+            message = f"    Anchor {anchor_or_unpartitioned.index} has no files.\n"
+
+    return has_files, message
 
 def choose_next_simulation_anchor_starting_structures_from_reporter_logistic(
         model: "Seekr_model",
@@ -535,10 +517,23 @@ def choose_next_simulation_anchor_starting_structures_from_reporter_logistic(
     Choose the next simulation to run for a reassign anchors logistic stage.
     """
     run_instructions: list[typing.NamedTuple] = []
-    completed, message \
-        = is_finished_anchor_starting_structures_from_reporter_logistic_with_message(
-            model, stage, use_json)
-    if not completed or force_overwrite:
+    all_completed = True
+    message: str | dict = ""
+    anchor_or_unpartitioned_index_list = scales_base\
+        .construct_anchor_or_unpartitioned_index_list(model, stage, "any")
+    for anchor_or_unpartitioned_index in anchor_or_unpartitioned_index_list:
+        if anchor_or_unpartitioned_index is None:
+            anchor_or_unpartitioned = None
+        else:
+            anchor_or_unpartitioned = model.anchors[anchor_or_unpartitioned_index]
+            if anchor_or_unpartitioned.bulk_anchor:
+                continue
+        completed, message \
+            = is_finished_anchor_starting_structures_from_reporter_logistic_with_message(
+                model, stage, anchor_or_unpartitioned, use_json)
+        if not completed:
+            all_completed = False
+    if not all_completed or force_overwrite:
         run_instruction = logistic_scale_base.Run_instruction_logistic(
             anchor_index=None,
             swarm_id=0,

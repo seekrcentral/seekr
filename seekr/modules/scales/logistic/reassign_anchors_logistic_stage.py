@@ -20,6 +20,7 @@ import cattrs
 from attrs import define, field, validators, Factory
 
 import seekr.modules.base as base
+import seekr.modules.structures as structures
 import seekr.modules.anchor_schemes.base as anchor_schemes_base
 import seekr.modules.scales.logistic.base as logistic_scale_base
 
@@ -239,10 +240,10 @@ def is_finished_reassign_anchors_logistic_with_message(
     A reassign anchors logistic stage is finished if the new anchor set has 
     been created.
     """
-    model.load_anchor_set(stage.output_set_name)
     if use_json:
         final_message: dict[str, dict] = {
             "finished": False,
+            "progress": 0.0,
             "num_swarms": 1,
             "swarms": {
                 "0": {
@@ -254,6 +255,7 @@ def is_finished_reassign_anchors_logistic_with_message(
         if len(model.anchors) == 0:
             return False, final_message
         final_message["finished"] = True
+        final_message["progress"] = 1.0
         final_message["swarms"]["0"]["finished"] = True
         final_message["swarms"]["0"]["progress"] = 1.0
         return True, final_message
@@ -261,7 +263,6 @@ def is_finished_reassign_anchors_logistic_with_message(
         if len(model.anchors) == 0:
             return False, "New anchor set has not been created."
         return True, "New anchor set has been created."
-
 
 def choose_next_simulation_reassign_anchors_logistic(
         model: "Seekr_model", 
@@ -276,6 +277,7 @@ def choose_next_simulation_reassign_anchors_logistic(
     # Check to see if the new anchor set has been created. If not, add the necessary
     # instruction.
     run_instructions: list[typing.NamedTuple] = []
+    model.load_anchor_set(stage.output_set_name)
     completed, message = is_finished_reassign_anchors_logistic_with_message(
         model, stage, use_json)
     if not completed or force_overwrite:

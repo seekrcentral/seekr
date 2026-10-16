@@ -16,6 +16,7 @@ import seekr.modules.base as base
 import seekr.modules.structures as structures
 import seekr.modules.engines.structures as engines_structures
 import seekr.modules.completion_criteria.structures as completion_criteria_structures
+import seekr.modules.scales.base as scales_base
 import seekr.modules.scales.molecular_dynamics.structures as md_structures
 import seekr.modules.engines.runner as engines_runner
 
@@ -364,31 +365,6 @@ def get_restart_checkpoint_filename(
         full_directory, restart_checkpoint_basename)
     return restart_checkpoint_filename
 
-def construct_anchor_or_unpartitioned_index_list(
-        model: structures.Seekr_model,
-        stage_md: md_structures.Stage_md,
-        anchor_index: str
-        ) -> list[int | None]:
-    """
-    
-    """
-    anchor_or_unpartitioned_index_list: list[int | None] = []
-    if stage_md.scope == "unpartitioned":
-        anchor_or_unpartitioned_index_list.append(None)
-    elif stage_md.scope == "partitioned":
-        for alpha, anchor in enumerate(model.anchors):
-            if "molecular_dynamics" not in anchor.scale_types:
-                continue
-            if anchor_index not in ["any"]:
-                try:
-                    anchor_index_int = int(anchor_index)
-                except ValueError:
-                    return []
-                if alpha != anchor_index_int:
-                    continue
-            anchor_or_unpartitioned_index_list.append(alpha)
-    return anchor_or_unpartitioned_index_list
-
 def choose_next_simulation_md(
         model: structures.Seekr_model, 
         stage_md: md_structures.Stage_md,
@@ -409,8 +385,8 @@ def choose_next_simulation_md(
         md_engine.platform_settings.device_index = \
             device_index
     
-    anchor_or_unpartitioned_index_list = construct_anchor_or_unpartitioned_index_list(
-        model, stage_md, anchor_index)
+    anchor_or_unpartitioned_index_list = scales_base\
+        .construct_anchor_or_unpartitioned_index_list(model, stage_md, anchor_index)
     if force_overwrite:
         # Eagerly delete all outputs in the targeted scope up front, so that a
         # separate status check reports the correct (reset) progress for every

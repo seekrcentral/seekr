@@ -32,7 +32,7 @@ def is_finished_with_message(
         final_message = ""
     if stage.scale_type == "molecular_dynamics":
         md_engine = model.get_engine_by_scale_type("molecular_dynamics")
-        anchor_or_unpartitioned_index_list = md_runner\
+        anchor_or_unpartitioned_index_list = scales_base\
             .construct_anchor_or_unpartitioned_index_list(model, stage, anchor_index)
         anchor_or_unpartitioned: engines_structures.MD_unpartitioned_settings \
             | structures.Anchor
@@ -71,13 +71,47 @@ def is_finished_with_message(
             final_message += f"    Unpartitioned: {message}\n"
 
     elif stage.scale_type == "logistic":
-        finished, message = logistic_runner.is_finished_logistic_with_message(
-            model, stage, use_json=use_json)
-        anchor_key = "unpartitioned"
-        if use_json:
-            final_message[anchor_key] = message
+        if stage.type == "reassign_anchors_stage":
+            model.load_anchor_set(stage.output_set_name)
+        anchor_or_unpartitioned_index_list = scales_base\
+            .construct_anchor_or_unpartitioned_index_list(model, stage, anchor_index)
+        if len(anchor_or_unpartitioned_index_list) == 0:
+            finished = False
         else:
-            final_message += f"    Unpartitioned: {message}\n"
+            finished = True
+        for anchor_or_unpartitioned_index in anchor_or_unpartitioned_index_list:
+            if anchor_or_unpartitioned_index is None:
+                #assert md_engine.unpartitioned_settings is not None
+                #anchor_or_unpartitioned = md_engine.unpartitioned_settings
+                anchor_or_unpartitioned = None
+                anchor_key = "unpartitioned"
+            else:
+                anchor_or_unpartitioned \
+                    = model.anchors[anchor_or_unpartitioned_index]
+                if anchor_or_unpartitioned.bulk_anchor:
+                    continue
+                anchor_key = str(anchor_or_unpartitioned_index)
+            
+            tmp_finished, message = logistic_runner.is_finished_logistic_with_message(
+                model, stage, anchor_or_unpartitioned, use_json=use_json)
+            if not tmp_finished:
+                finished = False
+            if use_json:
+                final_message[anchor_key] = message
+            else:
+                if anchor_or_unpartitioned_index is None:
+                    final_message += f"    Unpartitioned: {message}\n"
+                else:
+                    final_message += f"    Anchor {anchor_or_unpartitioned_index}: {message}\n"
+        
+        #if stage.scope == "unpartitioned":
+        #    anchor_key = "unpartitioned"
+        #    if use_json:
+        #        final_message[anchor_key] = message
+        #    else:
+        #        final_message += f"    Unpartitioned: {message}\n"
+        #else:
+        #    # TODO: Implement for partitioned scopes
     else:
         found = False
         for plugin in model.plugins:
@@ -108,7 +142,7 @@ def construct_anchor_or_unpartitioned_index_list(
     anchor index.
     """
     if stage.scale_type == "molecular_dynamics":
-        return md_runner.construct_anchor_or_unpartitioned_index_list(
+        return scales_base.construct_anchor_or_unpartitioned_index_list(
             model, stage, anchor_index)
     elif stage.scale_type == "brownian_dynamics":
         raise NotImplementedError("BD stages do not support anchor-specific "\
@@ -121,6 +155,7 @@ def construct_anchor_or_unpartitioned_index_list(
                 require_openmm_interface=False, require_runner=True)
             if scales_module_str is not None:
                 scales_module_run = importlib.import_module(scales_module_str+".runner")
+                # TODO: this functions needs to be moved to scales.base module in each plugin
                 this_module_found, result \
                     = scales_module_run.construct_anchor_or_unpartitioned_index_list(
                         model, stage, anchor_index)
