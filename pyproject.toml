@@ -30,7 +30,11 @@ dependencies = [
     "parmed",
     "pytest",
     "networkx",
-    "PyGT"
+    "PyGT",
+    "radical.asyncflow",
+    "rhapsody-py",
+    "opentelemetry-api",
+    "opentelemetry-sdk"
 ]
 
 # Update the urls once the hosting is set up.
