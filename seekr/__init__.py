@@ -1,5 +1,4 @@
-from __future__ import annotations
-__version__ = "{version}"
+from ._version import __version__
 
 __all__ = [
     "prepare",
