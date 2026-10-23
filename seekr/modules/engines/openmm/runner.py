@@ -297,23 +297,33 @@ class Runner_openmm():
             = output_stage.md_restart_checkpoint_interval
         self.sampling_method_interface.pre_simulation_preparations(
             model=self.model,
-            directory=self.running_directory,)
+            directory=self.running_directory,
+            restart=restart)
+        if self.needs_cv_values:
+            # NOTE: added recently to resolve checkpoint load error with 
+            #  CustomCVForce systems.
+            self.sampling_method_interface.create_openmm_cv_list()
+            self.sampling_method_interface.create_openmm_cv_object()
         # TODO: have multiple kinds of simulation? Like umbrella stage, other stages?
         # This can be handled by making elber umbrella vs. elber reverse vs. elber forward
         if restart:
             canonical = self.restart_checkpoint_filename
             root, ext = os.path.splitext(canonical)
             candidates = [canonical, f"{root}.prev1{ext}", f"{root}.prev2{ext}"]
+            loaded = False
             for candidate in candidates:
                 try:
                     simulation.loadCheckpoint(candidate)
                     currentStep = simulation.context.getState().getStepCount()
                     self.sampling_method_interface.validate_restart()
+                    loaded = True
                     break
-                except openmm.OpenMMException or RuntimeError as e:
+                except (openmm.OpenMMException, RuntimeError) as e:
                     # Log a warning and continue
                     logger.warning(f"Failed to load checkpoint {candidate}: {e}")
-                    continue
+                    
+            if not loaded:
+                raise RuntimeError(f"Could not load a restart checkpoint for {canonical}")
 
             self.start_step = currentStep 
             simulation.currentStep = currentStep
