@@ -7,6 +7,7 @@ the analysis is performed, and results are returned in the form of an analysis
 object.
 """
 
+import typing
 import importlib
 
 import numpy as np
@@ -21,11 +22,7 @@ def analyze(
         model: structures.Seekr_model,
         stage_index: int,
         skip_checks: bool = False,
-        min_time_ps: float = 0.0,
-        max_time_ps: float | None = None,
-        error_analysis_method: str = "bootstrap",
-        only_extract_data: bool = False,
-        num_error_samples: int | None = None
+        stage_extra_arguments: dict | None = None
     ) -> typing.Any:
     """
     Analyze the results of SEEKR simulations for calculation of rate constants,
@@ -40,6 +37,8 @@ def analyze(
     -------
     
     """
+    if stage_extra_arguments is None:
+        stage_extra_arguments = {}
     available_analyzers = []
     available_analyzers += AVAILABLE_ANALYZERS
     for plugin_name in model.plugins:
@@ -60,10 +59,7 @@ def analyze(
         from seekr.modules.analyzers.mmvt_analyzer import analyze_mmvt
         analysis = analyze_mmvt(
             model, stage_index=stage_index, skip_checks=skip_checks,
-            min_time_ps=min_time_ps, max_time_ps=max_time_ps,
-            error_analysis_method=error_analysis_method,
-            only_extract_data=only_extract_data,
-            num_error_samples=num_error_samples
+            **stage_extra_arguments
         )
         return analysis
     elif stage.sampling_method.type == "metadynamics":
@@ -71,10 +67,7 @@ def analyze(
             import analyze_metadynamics
         analysis = analyze_metadynamics(
             model, stage_index=stage_index, skip_checks=skip_checks,
-            min_time_ps=min_time_ps, max_time_ps=max_time_ps,
-            error_analysis_method=error_analysis_method,
-            only_extract_data=only_extract_data,
-            num_error_samples=num_error_samples
+            **stage_extra_arguments
         )
         return analysis
     
@@ -87,10 +80,7 @@ def analyze(
                     analyzers_module_str+".analyzer")
             found, analysis = plugin_module_analyzer.analyze(
                 model, stage_index=stage_index, skip_checks=skip_checks,
-                min_time_ps=min_time_ps, max_time_ps=max_time_ps,
-                error_analysis_method=error_analysis_method,
-                only_extract_data=only_extract_data,
-                num_error_samples=num_error_samples
+                stage_extra_arguments=stage_extra_arguments
             )
             if found:
                 return analysis

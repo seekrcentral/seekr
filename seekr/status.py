@@ -171,8 +171,10 @@ def status(
                     + f"    Finished: {finished}\n{stage_message}"
 
     if instruction in ["statistics", "all"]:
-        analysis = analyze.analyze_all(model, stage_arg=stage_arg, 
-                                    skip_checks=True, only_extract_data=True)
+        analysis = analyze.analyze_all(
+            model, stage_arg=stage_arg, skip_checks=True, 
+            extra_arguments={str(stage_index): {"only_extract_data": True}}, 
+            silent=True)
         if analysis is None:
             return message
         stats_message = analysis.get_statistics_message(

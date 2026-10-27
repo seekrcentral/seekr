@@ -207,7 +207,7 @@ class Mmvt_converger:
             self,
             k_off_directory: str,
             return_plot: bool = True
-            ) -> tuple | None:
+            ) -> tuple | str | None:
         filename = os.path.join(k_off_directory, "k_off_convergence.png")
         ret = analyzers_base.plot_scalar_conv(
             self.k_off_conv, self.data_window_times, filename, 
@@ -271,7 +271,7 @@ class Mmvt_converger:
             self,
             pi_alpha_filename: str,
             return_plot: bool = False
-            ) -> tuple | None:
+            ) -> tuple | str | None:
         ret = analyzers_base.plot_2d_conv(
             self.pi_alpha_conv, self.data_window_times,
             filename=pi_alpha_filename, title="$\\pi_{\\alpha}$ Convergence",
@@ -329,7 +329,7 @@ class Mmvt_converger:
             self,
             p_i_filename: str,
             return_plot: bool = False
-            ) -> tuple | None:
+            ) -> tuple | str | None:
         ret = analyzers_base.plot_2d_conv(
             self.p_i_conv, self.data_window_times, filename=p_i_filename,
             title="$p_i$ Convergence", xlabel="Milestone index $i$",
@@ -340,7 +340,7 @@ class Mmvt_converger:
             self,
             free_energy_milestones_filename: str,
             return_plot: bool = False
-            ) -> tuple | None:
+            ) -> tuple | str | None:
         ret = analyzers_base.plot_2d_conv(
             self.free_energy_milestones_conv, self.data_window_times,
             filename=free_energy_milestones_filename,
@@ -353,7 +353,7 @@ class Mmvt_converger:
             self,
             free_energy_anchors_filename: str,
             return_plot: bool = False
-            ) -> tuple | None:
+            ) -> tuple | str | None:
         ret = analyzers_base.plot_2d_conv(
             self.free_energy_anchors_conv, self.data_window_times,
             filename=free_energy_anchors_filename,
@@ -391,7 +391,7 @@ class Mmvt_converger:
 def write_convergence_plots(
         image_directory: str,
         data_window_list: list[mmvt_data_window.Mmvt_data_window],
-        ) -> None:
+        ) -> list[str] | None:
     """
     
     """
@@ -401,43 +401,67 @@ def write_convergence_plots(
     if len(converger.data_window_times) == 0:
         logging.info("No data window times found.")
         return
-    converger.plot_k_off(image_directory, return_plot=False)
-    converger.plot_k_on(image_directory, return_plot=False)
+    plot_filenames = []
+    filename_k_off = converger.plot_k_off(image_directory, return_plot=False)
+    plot_filenames.append(filename_k_off)
+    filenames_k_on = converger.plot_k_on(image_directory, return_plot=False)
+    plot_filenames.extend(filenames_k_on)
     N_alpha_beta_directory = os.path.join(
         image_directory, analyzers_base.N_ALPHA_BETA_DIR)
-    converger.plot_N_alpha_beta(N_alpha_beta_directory, return_plot=False)
+    filenames_N_alpha_beta = converger.plot_N_alpha_beta(
+        N_alpha_beta_directory, return_plot=False)
+    plot_filenames.extend(filenames_N_alpha_beta)
     T_alpha_fig_directory = os.path.join(
         image_directory, analyzers_base.T_ALPHA_DIR)
-    converger.plot_T_alpha(T_alpha_fig_directory, return_plot=False)
+    filenames_T_alpha = converger.plot_T_alpha(
+        T_alpha_fig_directory, return_plot=False)
+    plot_filenames.extend(filenames_T_alpha)
     k_alpha_fig_directory = os.path.join(
         image_directory, analyzers_base.K_ALPHA_BETA_DIR)
-    converger.plot_k_alpha_beta(k_alpha_fig_directory, return_plot=False)
+    filenames_k_alpha_beta = converger.plot_k_alpha_beta(
+        k_alpha_fig_directory, return_plot=False)
+    plot_filenames.extend(filenames_k_alpha_beta)
     pi_alpha_fig_filename = os.path.join(
         image_directory, "pi_alpha_convergence.png")
-    converger.plot_pi_alpha_2d(pi_alpha_fig_filename, return_plot=False)
+    filenames_pi_alpha_2d = converger.plot_pi_alpha_2d(
+        pi_alpha_fig_filename, return_plot=False)
+    plot_filenames.append(filenames_pi_alpha_2d)
     N_ij_alpha_fig_directory = os.path.join(
         image_directory, analyzers_base.N_IJ_ALPHA_DIR)
-    converger.plot_N_ij_alpha(N_ij_alpha_fig_directory, return_plot=False)
+    filenames_N_ij_alpha = converger.plot_N_ij_alpha(
+        N_ij_alpha_fig_directory, return_plot=False)
+    plot_filenames.extend(filenames_N_ij_alpha)
     R_i_alpha_fig_directory = os.path.join(
         image_directory, analyzers_base.R_I_ALPHA_DIR)
-    converger.plot_R_i_alpha(R_i_alpha_fig_directory, return_plot=False)
+    filenames_R_i_alpha = converger.plot_R_i_alpha(
+        R_i_alpha_fig_directory, return_plot=False)
+    plot_filenames.extend(filenames_R_i_alpha)
     N_ij_fig_directory = os.path.join(
         image_directory, analyzers_base.N_IJ_DIR)
-    converger.plot_N_ij(N_ij_fig_directory, return_plot=False)
+    filenames_N_ij = converger.plot_N_ij(N_ij_fig_directory, return_plot=False)
+    plot_filenames.extend(filenames_N_ij)
     R_i_fig_directory = os.path.join(
         image_directory, analyzers_base.R_I_DIR)
-    converger.plot_R_i(R_i_fig_directory, return_plot=False)
+    filenames_R_i = converger.plot_R_i(R_i_fig_directory, return_plot=False)
+    plot_filenames.extend(filenames_R_i)
     p_i_filename = os.path.join(
         image_directory, "p_i_convergence.png")
-    converger.plot_p_i(p_i_filename, return_plot=False)
+    filename_p_i = converger.plot_p_i(p_i_filename, return_plot=False)
+    plot_filenames.append(filename_p_i)
     free_energy_milestones_filename = os.path.join(
         image_directory, "free_energy_milestones_convergence.png")
-    converger.plot_free_energy_milestones(free_energy_milestones_filename, 
-                                          return_plot=False)
+    filename_free_energy_milestones = converger.plot_free_energy_milestones(
+        free_energy_milestones_filename, return_plot=False)
+    plot_filenames.append(filename_free_energy_milestones)
     free_energy_anchors_filename = os.path.join(
         image_directory, "free_energy_anchors_convergence.png")
-    converger.plot_free_energy_anchors(free_energy_anchors_filename, 
-                                        return_plot=False)
-    converger.plot_MFPTs_anchors(image_directory, return_plot=False)
-    converger.plot_MFPTs_milestones(image_directory, return_plot=False)
-    return
+    filename_free_energy_anchors = converger.plot_free_energy_anchors(
+        free_energy_anchors_filename, return_plot=False)
+    plot_filenames.append(filename_free_energy_anchors)
+    mfpt_anchor_plots = converger.plot_MFPTs_anchors(
+        image_directory, return_plot=False)
+    plot_filenames.extend(mfpt_anchor_plots)
+    mfpt_milestone_plots = converger.plot_MFPTs_milestones(
+        image_directory, return_plot=False)
+    plot_filenames.extend(mfpt_milestone_plots)
+    return plot_filenames

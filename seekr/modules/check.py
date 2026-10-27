@@ -652,7 +652,9 @@ def check_for_stuck_BD(
                 return True
     return True
 
-def check_pre_simulation_all(model):
+def check_pre_simulation_all(
+        model, 
+        silent: bool = False):
     """
     After the completion of the prepare stage, check inputs for some
     of the most common problems and mistakes a user is likely to 
@@ -694,7 +696,8 @@ def check_pre_simulation_all(model):
     
     os.chdir(curdir)
     if no_failures:
-        print("All pre-simulation checks passed.")
+        if not silent:
+            print("All pre-simulation checks passed.")
         return
     else:
         check_fail_str = "One or more fatal pre-simulation checks failed. It "\
@@ -711,6 +714,7 @@ def check_pre_simulation_all(model):
 
 def check_post_simulation_all(
         model: structures.Seekr_model,
+        silent: bool = False,
         ) -> None:
     """
     After the completion of the run stage, check simulation files
@@ -747,7 +751,8 @@ def check_post_simulation_all(
     
     os.chdir(curdir)
     if no_failures:
-        print("All post-simulation checks passed.")
+        if not silent:
+            print("All post-simulation checks passed.")
         return
     else:
         check_fail_str = "One or more fatal post-simulation checks failed. It "\

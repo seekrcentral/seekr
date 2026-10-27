@@ -27,7 +27,7 @@ class Metadynamics_analyzer:
     directory: str = field(
         validator=validators.instance_of(str), default="")
 
-    def print_results(self):
+    def print_results(self, print_json: bool = False):
         """
         Print results of metadynamics analysis - does nothing yet.
         """
@@ -92,7 +92,7 @@ class Metadynamics_analyzer:
             filename = os.path.join(image_directory, f"dG_metaD_stage_{self.stage_index}.png")
             plt.savefig(filename)
             plt.close()
-            return
+            return filename
 
     def plot_deltaG_landscape_2d(
             self,
@@ -134,12 +134,13 @@ class Metadynamics_analyzer:
             filename = os.path.join(image_directory, f"dG_metaD_stage_{self.stage_index}.png")
             plt.savefig(filename)
             plt.close()
-            return
+            return filename
 
     def save_plots(
             self, 
-            image_directory: str
-            ) -> None:
+            image_directory: str,
+            silent: bool = False
+            ) -> list[str] | None:
         """
         Save a potentially useful series of plots of some quantities
         obtained during the analysis.
@@ -147,13 +148,16 @@ class Metadynamics_analyzer:
         #print("All plots being saved to:", analyzers_base.DEFAULT_IMAGE_DIR)
         stage = self.model.stages[self.stage_index-1]
         metad_image_dir = os.path.join(image_directory, METADYNAMICS_IMAGE_DIR)
+        plot_filenames = []
         if len(stage.sampling_method.cv_names) == 1:
-            self.plot_deltaG_landscape_1d(
+            filename_deltaG_landscape_1d = self.plot_deltaG_landscape_1d(
                 image_directory=metad_image_dir, return_plot=False)
-
+            plot_filenames.append(filename_deltaG_landscape_1d)
         elif len(stage.sampling_method.cv_names) > 1:
-            self.plot_deltaG_landscape_2d(
+            filename_deltaG_landscape_2d = self.plot_deltaG_landscape_2d(
                 image_directory=metad_image_dir, return_plot=False)
+            plot_filenames.append(filename_deltaG_landscape_2d)
+        return plot_filenames
 
 def analyze_metadynamics(
         model: structures.Seekr_model,

@@ -717,7 +717,7 @@ def plot_scalar_conv(
         y_axis_logarithmic: bool = True,
         return_plot: bool = True,
         xlabel: str = "time per anchor (ns)",
-        ) -> None | tuple:
+        ) -> None | str | tuple:
     """
     Plot convergence of off/on rate or other scalar values as a 
     function of simulation time.
@@ -782,7 +782,7 @@ def plot_scalar_conv(
     else:
         plt.savefig(filename)
         plt.close()
-        return
+        return filename
 
 def plot_2d_conv(
         conv_dict: dict, 
@@ -796,7 +796,7 @@ def plot_2d_conv(
         num_convergence_steps: int | None = 8,
         return_plot: bool = True,
         ylabel: str = "time (ns)"
-        ) -> None | tuple:
+        ) -> None | str | tuple:
     """
     
     """
@@ -879,7 +879,7 @@ def plot_2d_conv(
     else:
         plt.savefig(filename)
         plt.close(fig)
-        return
+        return filename
 
 def plot_dict_conv(
         conv_dict: dict, 
@@ -895,7 +895,7 @@ def plot_dict_conv(
         draw_double: bool = True,
         return_plot: bool = True,
         xlabel: str = "time per anchor (ns)",
-        ) -> None | tuple:
+        ) -> list:
     """
     Plot convergence of N_ij or R_i or other dictionary-based value 
     as a function of simulation time.
@@ -944,6 +944,7 @@ def plot_dict_conv(
     ax_list = []
     title_list = []
     name_list = []
+    plot_filenames = []
     if return_plot:
         plot_list = []
 
@@ -1033,16 +1034,19 @@ def plot_dict_conv(
         if return_plot:
             plot_list.append((fig, ax1))
         else:
-            plt.savefig(os.path.join(directory, name + ".png"))
+            filename = os.path.join(directory, name + ".png")
+            plt.savefig(filename)
+            plot_filenames.append(filename)
             plt.close(fig)
     if return_plot:
         return plot_list
     else:
-        return
+        return plot_filenames
 
 def find_anchor_points_2d(
         model: structures.Seekr_model, 
-        cv_indices: tuple[int, int] = (0,1)):
+        cv_indices: tuple[int, int] = (0,1)
+        ) -> dict:
     anchor_values = {}
     num_variables = len(model.collective_variables)
     for alpha, anchor in enumerate(model.anchors):
@@ -1058,7 +1062,8 @@ def find_anchor_points_2d(
 def find_milestone_points_2d(
         model: structures.Seekr_model, 
         vor: any, 
-        boundaries: list[float]):
+        boundaries: list[float]
+        ) -> dict:
     milestone_points = {}
     min_x = boundaries[0]
     max_x = boundaries[1]
@@ -1141,46 +1146,13 @@ def make_boundaries(
                   max_y + margin]
     return boundaries
 
-def plot_anchors_2d(
-        anchor_values_dict: dict,
-        boundaries: list[float],
-        filename: str,
-        title: str = "Anchor positions",
-        cv_labels: tuple[str, str] = ("CV 0", "CV 1"),
-        return_plot: bool = True
-        ) -> None | tuple:
-    """
-    Plot the anchor positions in 2D space.
-    """
-    import matplotlib.pyplot as plt
-    fig, ax = plt.subplots()
-    x_vals = []
-    y_vals = []
-    for anchor_index, anchor_values in anchor_values_dict.items():
-        x_vals.append(anchor_values[0])
-        y_vals.append(anchor_values[1])
-        ax.text(anchor_values[0], anchor_values[1], str(anchor_index))
-    
-    ax.scatter(x_vals, y_vals, marker="o", s=20, color="r")
-    ax.set_xlim((boundaries[0], boundaries[1]))
-    ax.set_ylim((boundaries[2], boundaries[3]))
-    plt.xlabel(cv_labels[0])
-    plt.ylabel(cv_labels[1])
-    plt.title(title)
-    plt.tight_layout()
-    if return_plot:
-        return fig, ax
-    else:
-        plt.savefig(filename)
-        plt.close()
-        return
-
 def plot_voronoi_tesselation(
         model: structures.Seekr_model, 
         boundaries: list[float], 
         fill_values: np.ndarray | None = None, 
         colorbar_label: str = "Energy (kcal/mol)", 
-        anchor_values: dict | None = None):
+        anchor_values: dict | None = None
+        ) -> tuple:
     """
     Would work for either anchors or milestones
     """
@@ -1241,7 +1213,8 @@ def plot_anchor_voronoi_tesselation(
         boundaries: list[float], 
         anchor_fill_values: dict | None = None,
         colorbar_label: str = "Energy (kcal/mol)", 
-        anchor_values: dict | None = None):
+        anchor_values: dict | None = None
+        ) -> tuple:
     
     fig, ax, vor, points = plot_voronoi_tesselation(
         model, boundaries, fill_values=anchor_fill_values, 
@@ -1262,7 +1235,7 @@ def plot_anchors_2d(
         plot_basename: str = "vt.png",
         plot_dir: str | None = None, 
         return_plot: bool = True,
-        ) -> None | tuple:
+        ) -> None | str | tuple:
     """
     
     """
@@ -1307,8 +1280,7 @@ def plot_anchors_2d(
         plot_filename = os.path.join(plot_dir, plot_basename)
         plt.savefig(plot_filename, dpi=dpi)
         plt.close()
-        
-    return
+        return plot_filename
 
 def plot_milestones_2d(
         model: structures.Seekr_model, 
@@ -1322,7 +1294,7 @@ def plot_milestones_2d(
         plot_basename: str = "vt.png",
         plot_dir: str | None = None, 
         return_plot: bool = True,
-        ) -> None | tuple:
+        ) -> None | str | tuple:
         #model, plot_dir, iteration, boundaries, 
         #         title, x_coordinate_title, y_coordinate_title, 
         #         omit_iter_label=True, dpi=200, file_base="vt", 
@@ -1374,5 +1346,13 @@ def plot_milestones_2d(
         plot_filename = os.path.join(plot_dir, plot_basename)
         plt.savefig(plot_filename, dpi=dpi)
         plt.close()
-        
-    return
+        return plot_filename
+
+def _validate_and_assign_results(value, error, units):
+    val_or_null = value if np.isfinite(value) else None
+    err_or_null = error if np.isfinite(error) else None
+    return {
+        "value": val_or_null,
+        "error": err_or_null,
+        "units": units
+    }

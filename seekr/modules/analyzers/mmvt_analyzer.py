@@ -8,6 +8,7 @@ Analyze the results of a SEEKR MMVT calculation.
 import os
 import io
 import math
+import json
 import logging
 import contextlib
 
@@ -194,33 +195,52 @@ class Mmvt_analyzer:
         for data_window in self.data_window_list:
             data_window.fill_out_errors_from_data_samples()
 
-    def print_results(self):
+    def print_results(
+            self, 
+            print_json: bool = False
+            ) -> dict | None:
         """
         Print all results of the analysis calculation to stdout and write
         the same output to <log_directory>/analyze.out.
         """
+        if print_json:
+            return self._emit_results(print_json=True)
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
-            self._emit_results()
+            self._emit_results(print_json=False)
         text = buf.getvalue()
         print(text, end="")
         log_dir = self.model.get_log_directory(self.model.directory)
         os.makedirs(log_dir, exist_ok=True)
         with open(os.path.join(log_dir, "analyze.out"), "w") as f:
             f.write(text)
-        return
+        return None
 
-    def _emit_results(self):
+    def _emit_results(
+            self, 
+            print_json: bool = False
+            ) -> dict | None:
         """Emit results via print(); used by print_results to tee output."""
+        json_results = {}
         if self.main_data_window is None:
             logging.info("No main data window found.")
-            return
-        print("Printing results from MMVT SEEKR calculation")
+            return None
+        if not print_json:
+            print("Printing results from MMVT SEEKR calculation")
         if self.main_data_window.k_off is not None:
-            print("k_off (1/s):", analyzers_base.pretty_string_value_error(
-                self.main_data_window.k_off, self.main_data_window.k_off_err))
+            if print_json:
+                json_results["k_off"] = analyzers_base.\
+                    _validate_and_assign_results(
+                        self.main_data_window.k_off, self.main_data_window.k_off_err, 
+                        "1/s")
+            else:
+                print("k_off (1/s):", analyzers_base.pretty_string_value_error(
+                    self.main_data_window.k_off, self.main_data_window.k_off_err))
         if len(self.main_data_window.k_ons) > 0:
-            print("k_ons :")
+            if print_json:
+                json_results["k_ons"] = {}
+            else:
+                print("k_ons :")
         for key in self.main_data_window.k_ons:
             k_on = float(self.main_data_window.k_ons[key])
             if k_on > 0.0:
@@ -234,8 +254,13 @@ class Mmvt_analyzer:
                 delta_G = float("inf")
             if key in self.main_data_window.k_ons_err:
                 k_on_err = float(self.main_data_window.k_ons_err[key])
-                print("  k_on (1/s * 1/M) to state", key, ":", 
-                      analyzers_base.pretty_string_value_error(k_on, k_on_err))
+                if print_json:
+                    json_results["k_ons"][str(key)] = \
+                        analyzers_base._validate_and_assign_results(
+                            k_on, k_on_err, "1/s * 1/M")
+                else:
+                    print("  k_on (1/s * 1/M) to state", key, ":", 
+                        analyzers_base.pretty_string_value_error(k_on, k_on_err))
                 if k_on > 0.0 and self.main_data_window.k_off > 0.0:
                     diss_constant_err = diss_constant \
                         * analyzers_base.quadriture(
@@ -247,54 +272,105 @@ class Mmvt_analyzer:
                     diss_constant_err = None
                     delta_G_err = None
             else:
-                print("  k_on (1/s * 1/M) to state", key, ":", 
+                if print_json:
+                    json_results["k_ons"][str(key)] = \
+                        analyzers_base._validate_and_assign_results(
+                            k_on, None, "1/s * 1/M")
+                else:
+                    print("  k_on (1/s * 1/M) to state", key, ":", 
                       analyzers_base.pretty_string_value_error(k_on, None))
                 diss_constant_err = None
                 delta_G_err = None
             
-            print("  Dissociation constant (M) to state", key, ":", 
+            if print_json:
+                json_results["diss_constant"] = \
+                    analyzers_base._validate_and_assign_results(
+                        diss_constant, diss_constant_err, "M")
+            else:
+                print("  Dissociation constant (M) to state", key, ":", 
                   analyzers_base.pretty_string_value_error(
                       diss_constant, diss_constant_err))
             if key in self.main_data_window.k_ons_err:
-                print("  \u0394G (kcal/mol) to state", key, ":", 
+                if print_json:
+                    json_results["delta_G"] = \
+                        analyzers_base._validate_and_assign_results(
+                            delta_G, delta_G_err, "kcal/mol")
+                else:
+                    print("  \u0394G (kcal/mol) to state", key, ":", 
                       analyzers_base.pretty_string_value_error(
                           delta_G, delta_G_err))
         
-        print("Mean first passage times (s):")
+        if print_json:
+            json_results["anchor_to_anchor_MFPTs"] = {}
+        else:
+            print("Mean first passage times (s):")
         for key in self.main_data_window.anchor_to_anchor_MFPTs:
             state1 = key[0]
             state2 = key[1]
             if key in self.main_data_window.anchor_to_anchor_MFPTs_err:
-                print("  MFPT from", state1, "to", state2, ":",
+                if print_json:
+                    json_results["anchor_to_anchor_MFPTs"][str(key)] = \
+                        analyzers_base._validate_and_assign_results(
+                            float(self.main_data_window.\
+                                anchor_to_anchor_MFPTs[key]*1.0e-12),
+                            float(self.main_data_window.\
+                                anchor_to_anchor_MFPTs_err[key]*1.0e-12),
+                            "s")
+                else:
+                    print("  MFPT from", state1, "to", state2, ":",
                       analyzers_base.pretty_string_value_error(
                           float(self.main_data_window.\
                                 anchor_to_anchor_MFPTs[key]*1.0e-12), 
                           float(self.main_data_window.\
                                 anchor_to_anchor_MFPTs_err[key]*1.0e-12)))
             else:
-                print("  MFPT from", state1, "to", state2, ":",
+                if print_json:
+                    json_results["anchor_to_anchor_MFPTs"][str(key)] = \
+                        analyzers_base._validate_and_assign_results(
+                            float(self.main_data_window.\
+                                anchor_to_anchor_MFPTs[key]*1.0e-12),
+                            None, "s")
+                else:
+                    print("  MFPT from", state1, "to", state2, ":",
                       analyzers_base.pretty_string_value_error(
                           float(self.main_data_window.\
                                 anchor_to_anchor_MFPTs[key]*1.0e-12), None))
 
         if len(self.main_data_window.anchor_to_anchor_energies) > 0:
-            print("Free energy differences (kcal/mol):")
+            if print_json:
+                json_results["anchor_to_anchor_energies"] = {}
+            else:
+                print("Free energy differences (kcal/mol):")
             for key in self.main_data_window.anchor_to_anchor_energies:
                 state1 = key[0]
                 state2 = key[1]
                 if key in self.main_data_window.anchor_to_anchor_energies_err:
-                    print("  Energy from", state1, "to", state2, ":",
+                    if print_json:
+                        json_results["anchor_to_anchor_energies"][str(key)] = \
+                            analyzers_base._validate_and_assign_results(
+                                float(self.main_data_window.\
+                                    anchor_to_anchor_energies[key]),
+                                0.0, "kcal/mol")
+                    else:
+                        print("  Energy from", state1, "to", state2, ":",
                           analyzers_base.pretty_string_value_error(
                               float(self.main_data_window\
                                     .anchor_to_anchor_energies[key]), 
                               float(self.main_data_window\
                                     .anchor_to_anchor_energies_err[key])))
                 else:
-                    print("  Energy from", state1, "to", state2, ":",
+                    if print_json:
+                        json_results["anchor_to_anchor_energies"][str(key)] = \
+                            analyzers_base._validate_and_assign_results(
+                                float(self.main_data_window.\
+                                    anchor_to_anchor_energies[key]),
+                                0.0, "kcal/mol")
+                    else:
+                        print("  Energy from", state1, "to", state2, ":",
                           analyzers_base.pretty_string_value_error(
                               float(self.main_data_window\
                                     .anchor_to_anchor_energies[key]), None))
-        return
+        return json_results
     
     def get_statistics_message(
             self,
@@ -381,7 +457,7 @@ class Mmvt_analyzer:
             self,
             image_directory: str | None = None,
             return_plot=True
-            ) -> tuple | None:
+            ) -> tuple | str | None:
         """
         Plot the pi_alpha values for each anchor.
         """
@@ -412,16 +488,17 @@ class Mmvt_analyzer:
         if return_plot:
             return pi_fig, ax
         else:
-            pi_fig.savefig(os.path.join(image_directory, "pi_alpha.png"))
+            filename = os.path.join(image_directory, "pi_alpha.png")
+            pi_fig.savefig(filename)
             plt.close(pi_fig)
-            return
+            return filename
         
     def plot_pi_alpha_2d(
             self,
             cv_indices: tuple[int, int] = (0, 1),
             image_directory: str | None = None,
             return_plot=True
-            ) -> tuple | None:
+            ) -> tuple | str | None:
         """
         Plot the pi_alpha values for each anchor in 2D.
         """
@@ -465,7 +542,7 @@ class Mmvt_analyzer:
             self, 
             image_directory: str | None = None,
             return_plot=True
-            ) -> tuple | None:
+            ) -> tuple | str | None:
         """
         Plot the p_i values for each milestone.
         """
@@ -503,16 +580,17 @@ class Mmvt_analyzer:
         if return_plot:
             return p_i_fig, ax
         else:
-            p_i_fig.savefig(os.path.join(image_directory, "p_i.png"))
+            filename = os.path.join(image_directory, "p_i.png")
+            p_i_fig.savefig(filename)
             plt.close(p_i_fig)
-            return
+            return filename
         
     def plot_p_i_2d(
             self,
             cv_indices: tuple[int, int] = (0, 1),
             image_directory: str | None = None,
             return_plot=True
-            ) -> tuple | None:
+            ) -> tuple | str | None:
         """
         Plot the p_i values for each milestone in 2D.
         """
@@ -554,7 +632,7 @@ class Mmvt_analyzer:
             self, 
             image_directory: str | None = None,
             return_plot=True
-            ) -> tuple | None:
+            ) -> tuple | str | None:
         """
         Plot the free energy profile by milestone.
         """
@@ -590,17 +668,18 @@ class Mmvt_analyzer:
         if return_plot:
             return free_energy_milestones_fig, ax
         else:
-            free_energy_milestones_fig.savefig(os.path.join(
-                image_directory, "free_energy_profile_milestones.png"))
+            filename = os.path.join(
+                image_directory, "free_energy_profile_milestones.png")
+            free_energy_milestones_fig.savefig(filename)
             plt.close(free_energy_milestones_fig)
-            return
+            return filename
         
     def plot_free_energy_milestones_2d(
             self,
             cv_indices: tuple[int, int] = (0, 1),
             image_directory: str | None = None,
             return_plot=True
-            ) -> tuple | None:
+            ) -> tuple | str | None:
         """
         Plot the free energy profile by milestone in 2D.
         """
@@ -645,7 +724,7 @@ class Mmvt_analyzer:
             self, 
             image_directory: str | None = None,
             return_plot=True
-            ) -> tuple | None:
+            ) -> tuple | str | None:
         """
         Plot the free energy profile by anchor.
         """
@@ -676,17 +755,18 @@ class Mmvt_analyzer:
         if return_plot:
             return free_energy_anchors_fig, ax
         else:
-            free_energy_anchors_fig.savefig(os.path.join(
-                image_directory, "free_energy_profile_anchor.png"))
+            filename = os.path.join(
+                image_directory, "free_energy_profile_anchor.png")
+            free_energy_anchors_fig.savefig(filename)
             plt.close(free_energy_anchors_fig)
-            return
+            return filename
         
     def plot_free_energy_anchors_2d(
             self,
             cv_indices: tuple[int, int] = (0, 1),
             image_directory: str | None = None,
             return_plot=True
-            ) -> tuple | None:
+            ) -> tuple | str | None:
         """
         Plot the free energy values for each anchor in 2D.
         """
@@ -730,8 +810,9 @@ class Mmvt_analyzer:
     
     def save_plots(
             self, 
-            image_directory: str
-            ) -> None:
+            image_directory: str,
+            silent: bool = False
+            ) -> dict | None:
         """
         Save a potentially useful series of plots of some quantities
         obtained during the analysis.
@@ -742,30 +823,44 @@ class Mmvt_analyzer:
         # TODO: modify these plot functions to be individual for calling
         # from a jupyter notebook. But also pass an arg to save to file
         # and then close to save memory.
-        print("All plots being saved to:", analyzers_base.DEFAULT_IMAGE_DIR)
+        if not silent:
+            print("All plots being saved to:", analyzers_base.DEFAULT_IMAGE_DIR)
+        plot_filenames = []
         if len(self.model.anchors[0].variables) == 1:
-            self.plot_pi_alpha_1d(
+            filename_pi_alpha = self.plot_pi_alpha_1d(
                 image_directory, return_plot=False)
-            self.plot_p_i_1d(
+            filename_p_i = self.plot_p_i_1d(
                 image_directory, return_plot=False)
-            self.plot_free_energy_milestones_1d(
-                image_directory, return_plot=False)
-            self.plot_free_energy_anchors_1d(
-                image_directory, return_plot=False)
-
+            filename_free_energy_milestones \
+                = self.plot_free_energy_milestones_1d(
+                    image_directory, return_plot=False)
+            filename_free_energy_anchors \
+                = self.plot_free_energy_anchors_1d(
+                    image_directory, return_plot=False)
+            plot_filenames.append(filename_pi_alpha)
+            plot_filenames.append(filename_p_i)
+            plot_filenames.append(filename_free_energy_milestones)
+            plot_filenames.append(filename_free_energy_anchors)
         elif len(self.model.anchors[0].variables) > 1:
-            self.plot_pi_alpha_2d(
+            filename_pi_alpha = self.plot_pi_alpha_2d(
                 image_directory=image_directory, return_plot=False)
-            self.plot_p_i_2d(
+            filename_p_i = self.plot_p_i_2d(
                 image_directory=image_directory, return_plot=False)
-            self.plot_free_energy_milestones_2d(
-                image_directory=image_directory, return_plot=False)
-            self.plot_free_energy_anchors_2d(
-                image_directory=image_directory, return_plot=False)
+            filename_free_energy_milestones \
+                = self.plot_free_energy_milestones_2d(
+                    image_directory=image_directory, return_plot=False)
+            filename_free_energy_anchors \
+                = self.plot_free_energy_anchors_2d(
+                    image_directory=image_directory, return_plot=False)
+            plot_filenames.append(filename_pi_alpha)
+            plot_filenames.append(filename_p_i)
+            plot_filenames.append(filename_free_energy_milestones)
+            plot_filenames.append(filename_free_energy_anchors)
 
-        mmvt_convergence.write_convergence_plots(
+        filenames_convergence = mmvt_convergence.write_convergence_plots(
             image_directory, self.data_window_list)
-        return
+        plot_filenames.extend(filenames_convergence)
+        return plot_filenames
             
 def analyze_mmvt(
         model: structures.Seekr_model,

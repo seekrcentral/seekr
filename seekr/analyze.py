@@ -7,9 +7,19 @@ free energies, convergence, and other properties and plots.
 """
 
 import os
+import sys
+import json
 import typing
 import logging
 import argparse
+import warnings
+
+if "-j" in sys.argv or "--json" in sys.argv:
+    warnings.filterwarnings(
+        "ignore",
+        message=r"pkg_resources is deprecated",
+        category=UserWarning,
+    )
 
 import seekr._version as seekr_version
 import seekr.modules.base as base
@@ -17,7 +27,6 @@ import seekr.modules.structures as structures
 import seekr.modules.check as check
 import seekr.modules.analyzers.base as analyzer_base
 import seekr.modules.analyzers.analyzer as analyzer
-import seekr.modules.analyzers.mmvt_analyzer as mmvt_analyzer
 import seekr.run as run
 
 logger = logging.getLogger(__name__)
@@ -28,21 +37,20 @@ def analyze_all(
         model: structures.Seekr_model,
         stage_arg: str | None = None,
         skip_checks: bool = False,
-        min_time_ps: float = 0.0,
-        max_time_ps: float | None = None,
-        error_analysis_method: str = "bootstrap",
-        only_extract_data: bool = False,
-        num_error_samples: int | None = None
-    ) -> typing.Any:
+        extra_arguments: dict | None = None,
+        silent: bool = False,
+        print_json: bool = False
+        ) -> typing.Any:
+    if extra_arguments is None:
+        extra_arguments = {}
     curdir = os.getcwd()
     os.chdir(model.directory)
     synopsis_filename = model.get_synopsis_filename(model.directory)
-    base.configure_logging(synopsis_filename)
-    if not only_extract_data:
+    base.configure_logging(synopsis_filename, console=not print_json)
+    if not silent and not print_json:
         logger.info(
-            f"Analyzing with stage instruction {stage_arg} (error_analysis_method: "
-            f"{error_analysis_method}, num_error_samples: {num_error_samples}, "
-            f"min_time_ps: {min_time_ps}, max_time_ps: {max_time_ps}).")
+            f"Analyzing with stage instruction {stage_arg} and extra "\
+            f"arguments {extra_arguments}")
     base.log_invocation_metadata(__version__)
     if (stage_arg is None) or (stage_arg == "all"):
         stages_to_analyze = [stage.index for stage in model.stages]
@@ -50,29 +58,54 @@ def analyze_all(
         stages_to_analyze = [run.extract_stage_index(model, stage_arg)+1]
     anything_analyzed = False
     last_significant_analysis = None
+    json_results = {}
     for stage_index in stages_to_analyze:
         if not hasattr(model.stages[stage_index-1], "sampling_method"):
             # Logistic stage without a sampling method.
             continue
+        stage = model.stages[stage_index-1]
+        stage_extra_arguments = next(
+            (
+                extra_arguments[key]
+                for key in (str(stage.index), stage.index, stage.name)
+                if key in extra_arguments
+            ),
+            {},
+        )
         analysis = analyzer.analyze(
             model, stage_index=stage_index, skip_checks=skip_checks,
-            min_time_ps=min_time_ps, max_time_ps=max_time_ps,
-            error_analysis_method=error_analysis_method,
-            only_extract_data=only_extract_data,
-            num_error_samples=num_error_samples
+            stage_extra_arguments=stage_extra_arguments
         )
-        stage = model.stages[stage_index-1]
+        only_extract_data = stage_extra_arguments.get("only_extract_data", False)
         if (analysis is not None) and (not only_extract_data):
-            print(f"Analysis for stage index {stage.name} (index: {stage.index})")
-            analysis.print_results()
+            stage_results = analysis.print_results(print_json)
             analysis.make_image_directory(analyzer_base.DEFAULT_IMAGE_DIR)
-            analysis.save_plots(analyzer_base.DEFAULT_IMAGE_DIR)
+            stage_plots = analysis.save_plots(analyzer_base.DEFAULT_IMAGE_DIR, silent=print_json)
+            if print_json:
+                if stage_results or stage_plots:
+                    json_results[stage_index] = {"name": stage.name}
+                    if stage_results:
+                        json_results[stage_index]["results"] = stage_results
+                    else:
+                        json_results[stage_index]["results"] = {}
+                    if stage_plots:
+                        json_results[stage_index]["plots"] = stage_plots
+                    else:
+                        json_results[stage_index]["plots"] = {}
+            else:
+                print(f"Analysis for stage index {stage.name} (index: {stage.index})")
+            
             anything_analyzed = True
         if analysis is not None:
             last_significant_analysis = analysis
+    
     os.chdir(curdir)
+    if print_json:
+        print(json.dumps(json_results, indent=4))
+        
     if (not anything_analyzed) and (not only_extract_data):
-        print("No stages were analyzed.")
+        if not print_json:
+            print("No stages were analyzed.")
     # return the last stage analyzed.
     return last_significant_analysis
     
@@ -94,37 +127,24 @@ if __name__ == "__main__":
         "checks and allows the analysis to proceed anyways.", 
         action="store_true")
     argparser.add_argument(
-        "-t", "--minimum_time", dest="minimum_time", default=0.0, type=float,
-        help="A user may wish to skip an amount of simulation time for each "\
-        "anchor before counting the transitions for milestoning analysis. "\
-        "Enter the time (in ps) to skip a portion of the production "\
-        "simulations when performing analysis.")
+        "-e", "--extra_arguments", dest="extra_arguments", default="{}", type=str,
+        help="Extra arguments to pass to the analyze_all function. This " \
+        "is passed as a JSON string where the extra arguments are provided "\
+        "by stage name/index.")
     argparser.add_argument(
-        "-T", "--maximum_time", dest="maximum_time", default=None, type=float,
-        help="A user may wish to stop the analysis of simulation time for "\
-        "each anchor at a particular time. Enter the time (in ps) at which to "\
-        "end the analysis at a given anchor if the simulation time exceeds it.")
-    argparser.add_argument(
-        "-e", "--error_analysis_method", dest="error_analysis_method", type=str,
-        default="bootstrap", help="The method to use for error analysis. "\
-        "Three options are currently available: 'bootstrap', "\
-        "'resample', and 'montecarlo'. See online manual for explanation. "\
-        "Default: 'bootstrap'.")
-    argparser.add_argument(
-        "-n", "--num_error_samples", dest="num_error_samples", default=None, type=int,
-        help="The number of samples to use for error analysis. If not provided, " \
-        "the default number of samples will be used.")
+        "-j", "--json", dest="json", action="store_true", default=False,
+        help="If specified, the analysis results will be printed in JSON format.")
+        
     args = argparser.parse_args()
     args = vars(args)
     model_file = args["model_file"]
     stage_arg = args["stage"]
     skip_checks = args["skip_checks"]
-    min_time_ps = args["minimum_time"]
-    max_time_ps = args["maximum_time"]
-    error_analysis_method = args["error_analysis_method"]
-    num_error_samples = args["num_error_samples"]
+    extra_arguments_json = args["extra_arguments"]
+    extra_arguments = json.loads(extra_arguments_json)
+    print_json = args["json"]
     model = structures.load_model(model_file)
     if not skip_checks:
-        check.check_post_simulation_all(model)
-    analyze_all(model, stage_arg, skip_checks, min_time_ps, max_time_ps, 
-         error_analysis_method, num_error_samples)
+        check.check_post_simulation_all(model, silent=print_json)
+    analyze_all(model, stage_arg, skip_checks, 
+        extra_arguments=extra_arguments, print_json=print_json)
