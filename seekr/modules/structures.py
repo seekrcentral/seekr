@@ -532,6 +532,9 @@ class Seekr_model:
         Get an engine by its scale type.
         """
         scale = self.get_scale_by_type(scale_type)
+        if scale is None:
+            # Scale was not found
+            return None
         for engine in self.engines:
             if engine.scale_type == scale.type:
                 return engine
@@ -727,6 +730,17 @@ class Seekr_model:
         converter.register_unstructure_hook(cv_base.Base_CV,
                                             cv_structures.unstruct_collective_variable)
         scales_structures.register_unstructure_hooks(converter)
+        for plugin_name in self.plugins:
+            scales_module_str = base.get_plugin_str(
+                plugin_name, submodule_name="scales",
+                require_openmm_interface=False, require_runner=True)
+            if scales_module_str is None:
+                continue
+            scales_module_struct = importlib.import_module(
+                scales_module_str + ".structures")
+            if hasattr(scales_module_struct, "register_unstructure_hooks"):
+                scales_module_struct.register_unstructure_hooks(converter)
+
         seekr_model_dict: dict = converter.unstructure(self)
         seekr_model_dict_noindent: dict = base.wrap_noindent_integers(seekr_model_dict)
         json_dump: str = json.dumps(seekr_model_dict_noindent, indent=4, 

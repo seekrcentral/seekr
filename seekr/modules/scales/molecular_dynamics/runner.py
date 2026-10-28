@@ -268,6 +268,7 @@ def is_finished_md_with_message(
             #   raise an error
             plugin_module_scales_md_runner = importlib.import_module(
                 plugin_name+".modules.scales.molecular_dynamics.runner")
+            
             found, completed, message = plugin_module_scales_md_runner\
                 .is_finished_md_with_message(
                     model, stage, anchor_or_unpartitioned, swarm_id,

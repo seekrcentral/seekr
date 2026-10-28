@@ -18,6 +18,7 @@ import seekr.run as run
 import seekr.analyze as analyze
 
 AVAILABLE_INSTRUCTIONS = ["info", "progress", "statistics", "all"]
+STRUCTURE_SWARM_SCALE_TYPES = ("molecular_dynamics", "logistic")
 
 def status(
         model: structures.Seekr_model, 
@@ -95,8 +96,7 @@ def status(
                 input_scope = input_stage.scope
             if input_scope == "unpartitioned":
                 num_anchors = None
-                if (stage.scale_type == "molecular_dynamics") \
-                        or (stage.scale_type == "logistic"):
+                if stage.scale_type in STRUCTURE_SWARM_SCALE_TYPES:
                     md_engine = model.get_engine_by_scale_type("molecular_dynamics")
                     set_name = getattr(stage, "set_name", None) or getattr(stage, "input_set_name", None)
                     swarm_ids = md_engine.unpartitioned_settings\
@@ -111,10 +111,12 @@ def status(
                 num_anchors = len(model.anchors)
                 if num_anchors == 0:
                     num_swarms = 0
-                else:
+                elif stage.scale_type in STRUCTURE_SWARM_SCALE_TYPES:
                     swarm_ids = model.anchors[0].get_starting_structure_swarm_ids(
                         model.directory, stage.input_stage_index, stage.set_name)
                     num_swarms = len(swarm_ids)
+                else:
+                    num_swarms = 1
             else:
                 raise ValueError(f"Unsupported scope: {scope}")
 
@@ -169,12 +171,15 @@ def status(
             else:
                 message += f"  Stage {stage.index} ({stage.name}):\n" \
                     + f"    Finished: {finished}\n{stage_message}"
-
     if instruction in ["statistics", "all"]:
+        # Construct the extra arguments dictionary
+        extra_arguments = {}
+        for stage_index in stages_to_check:
+            stage = model.stages[stage_index]
+            extra_arguments[str(stage.index)] = {"only_extract_data": True}
         analysis = analyze.analyze_all(
             model, stage_arg=stage_arg, skip_checks=True, 
-            extra_arguments={str(stage_index): {"only_extract_data": True}}, 
-            silent=True)
+            extra_arguments=extra_arguments, silent=True)
         if analysis is None:
             return message
         stats_message = analysis.get_statistics_message(

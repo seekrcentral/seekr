@@ -7,9 +7,6 @@ Base structure for all scales and stages.
 
 import typing
 
-import seekr.modules.structures as structures
-
-
 class Base_scale(typing.Protocol):
     """
     Base class for all scales.
@@ -29,7 +26,7 @@ class Base_input_stage(typing.Protocol):
     type: typing.Literal["base"] = "base"
 
 def construct_anchor_or_unpartitioned_index_list(
-        model: structures.Seekr_model,
+        model: typing.Any,
         stage: Base_stage,
         anchor_index: str
         ) -> list[int | None]:
