@@ -759,7 +759,10 @@ def plot_scalar_conv(
     
     if not np.any(np.isfinite(conv_values)):
         #print("skipping key:", key, "because values aren't finite")
-        return None, None
+        if return_plot:
+            return None, None
+        else:
+            return None
     
     fig, ax = plt.subplots()
     ax.plot(conv_times, conv_values, 

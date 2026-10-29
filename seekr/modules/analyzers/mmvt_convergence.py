@@ -403,7 +403,8 @@ def write_convergence_plots(
         return
     plot_filenames = []
     filename_k_off = converger.plot_k_off(image_directory, return_plot=False)
-    plot_filenames.append(filename_k_off)
+    if filename_k_off is not None:
+        plot_filenames.append(filename_k_off)
     filenames_k_on = converger.plot_k_on(image_directory, return_plot=False)
     plot_filenames.extend(filenames_k_on)
     N_alpha_beta_directory = os.path.join(
