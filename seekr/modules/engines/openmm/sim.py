@@ -36,6 +36,34 @@ _OPENMM_PARTICLE_MASSES_CACHE: dict[
     tuple[str, str, str, float | None], np.ndarray
 ] = {}
 
+def remap_nonpositive_periodic_torsions(system: openmm.System) -> int:
+    """Turn Amber periodicity-0 dihedrals into a legal, force-free torsion.
+    ff99SB-disp writes Fourier terms with periodicity 0. Those same prmtop
+    records own the 1-4 exceptions, which createSystem has already copied
+    onto the nonbonded force. OpenMM rejects periodicity <= 0 when the
+    Context is created. Periodicity 1 with a zero barrier keeps the term
+    and drops only the constant energy of the original n=0 term.
+    """
+    n_remapped = 0
+    zero_k = 0.0 * unit.kilojoules_per_mole
+    for force in system.getForces():
+        if not isinstance(force, openmm.PeriodicTorsionForce):
+            continue
+        for index in range(force.getNumTorsions()):
+            p1, p2, p3, p4, periodicity, phase, k = (
+                force.getTorsionParameters(index))
+            if periodicity > 0:
+                continue
+            force.setTorsionParameters(
+                index, p1, p2, p3, p4, 1, phase, zero_k)
+            n_remapped += 1
+    if n_remapped:
+        logger.info(
+            "Remapped %d periodic torsion terms with non-positive "
+            "periodicity to periodicity 1 and zero barrier.",
+            n_remapped)
+    return n_remapped
+
 def make_topology_system_from_amber(
         amber_parameters_topology: engines_structures.Amber_parameters_topology,
         directory: str,
@@ -56,6 +84,7 @@ def make_topology_system_from_amber(
         nonbondedCutoff=nonbonded_cutoff,
         constraints=constraints,
         hydrogenMass=hydrogenMass)
+    remap_nonpositive_periodic_torsions(system)
     return system, prmtop.topology
 
 def make_topology_system_from_gromacs(

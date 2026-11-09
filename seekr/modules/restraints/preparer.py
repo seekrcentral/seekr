@@ -67,8 +67,10 @@ class Positional_restraint_input(Base_restraint_input):
                 f"in {self.coordinates_filename} does not "\
                 f"match number of atom indices ({len(atom_indices)})"
             coordinates_basename = os.path.basename(self.coordinates_filename)
-            coordinates_destination = os.path.join(root_directory, coordinates_basename)
-            if not os.path.samefile(self.coordinates_filename, coordinates_destination):
+            coordinates_destination = os.path.join(
+                root_directory, coordinates_basename)
+            if not os.path.samefile(self.coordinates_filename, 
+                                    coordinates_destination):
                 shutil.copyfile(self.coordinates_filename, coordinates_destination)
             restraint.coordinates_filename = coordinates_basename
 

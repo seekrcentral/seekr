@@ -100,15 +100,15 @@ def analyze_all(
             last_significant_analysis = analysis
     
     os.chdir(curdir)
-    if print_json:
-        print(json.dumps(json_results, indent=4))
-        
     if (not anything_analyzed) and (not only_extract_data):
         if not print_json:
             print("No stages were analyzed.")
-    # return the last stage analyzed.
-    return last_significant_analysis
     
+    if print_json:
+        return json_results
+    else:
+        return last_significant_analysis
+
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser(description=__doc__)
     argparser.add_argument(
@@ -146,5 +146,9 @@ if __name__ == "__main__":
     model = structures.load_model(model_file)
     if not skip_checks:
         check.check_post_simulation_all(model, silent=print_json)
-    analyze_all(model, stage_arg, skip_checks, 
+    results = analyze_all(model, stage_arg, skip_checks, 
         extra_arguments=extra_arguments, print_json=print_json)
+    if print_json:
+        print(json.dumps(results, indent=4))
+        
+    

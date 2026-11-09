@@ -45,15 +45,8 @@ def prepare(
     logger.info("Preparing new model.")
     base.log_invocation_metadata(__version__)
     file_path = os.path.join(directory, "model.json")
-    if len(seekr_input.partitions) > 0:
-        preparer.prepare_model_cvs_and_anchors(
-            model, seekr_input, force_overwrite)
-    else:
-        # TODO: decide whether to create an empty partition if not are passed,
-        # or make do with no partitions
-        raise Exception("Partition must be defined in input file, "\
-                        "empty partitions are not yet implemented.")
-    
+    preparer.prepare_model_cvs_and_anchors(
+        model, seekr_input, force_overwrite)
     base.configure_logging(synopsis_filename)
     for engine_settings in seekr_input.engine_settings_list:
         assert model.get_engine_by_scale_type(engine_settings.scale_type) is not None, \

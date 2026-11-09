@@ -127,3 +127,16 @@ def test_read_input_then_prepare(tmp_path):
 
     assert isinstance(model, structures.Seekr_model)
     assert os.path.isfile(model_path)
+
+
+def test_prepare_without_partitions(tmp_path):
+    """A conventional unpartitioned stage prepares with no anchors or CVs."""
+    seekr_input = create_seekr_input.create_toy_input(str(tmp_path / "model"))
+    seekr_input.stages = [seekr_input.stages[0]]
+    seekr_input.partitions = []
+    model, _ = prepare.prepare(seekr_input)
+    md_engine = model.get_engine_by_scale_type("molecular_dynamics")
+    assert model.anchors == []
+    assert model.collective_variables == []
+    assert model.num_anchors == 0
+    assert "equilibration" in md_engine.unpartitioned_settings.stage_parameters

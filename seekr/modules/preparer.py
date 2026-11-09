@@ -617,6 +617,16 @@ def prepare_model_cvs_and_anchors(
     Fill out the CV and anchor items within the model based on the 
     input objects.
     """
+    if len(seekr_input.partitions) == 0:
+        for stage in model.stages:
+            assert stage.scope == "unpartitioned", \
+                "All stages must be unpartitioned if no partitions are defined."
+            assert not model.using_scale("brownian_dynamics"), \
+                "Brownian dynamics requires a partition so a bulk anchor can be "\
+                "defined."
+            # TODO: check if the sampling method, reporter, restraint, or 
+            # completion criteria need a CV
+        
     # Wipe the prepare CV set before materializing CVs on disk (RMSD
     # make_cv_object writes reference structures under this set).
     model.clear_cv_set(seekr_input.directory, base.PREPARE_SET_NAME)
