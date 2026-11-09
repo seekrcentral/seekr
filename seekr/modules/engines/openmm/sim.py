@@ -625,6 +625,7 @@ class Sim_openmm:
         self.simulation = None
         self.traj_reporter = openmm_app.DCDReporter
         self.energy_reporter = openmm_app.StateDataReporter
+        self.swarm_id = swarm_id
         if anchor_index is None:
             self.random_seed = 0
         else:
@@ -647,6 +648,7 @@ class Sim_openmm:
             restraint_interface.add_forces_to_system(
                 model=model,
                 anchor_index=anchor_index,
+                swarm_id=self.swarm_id,
                 system=self.system, 
                 positions=positions,
                 periodic_system=periodic_system)

@@ -55,6 +55,7 @@ class Positional_restraint_openmm_interface(Base_restraint_openmm_interface):
         """
         Add force(s) to an OpenMM System object.
         """
+        indices = self._restraint.atom_indices
         system: openmm.System = kwargs["system"]
         if self._restraint.coordinates_filename is None:
             positions: unit.Quantity = kwargs["positions"]
@@ -64,13 +65,21 @@ class Positional_restraint_openmm_interface(Base_restraint_openmm_interface):
                 model.directory, os.path.basename(
                     self._restraint.coordinates_filename)
             )
-            positions = np.loadtxt(full_coordinates_filename, ndmin=2)
+            position_blocks = restraints_structures.load_positional_coordinate_blocks(
+                full_coordinates_filename, len(indices))
+            if len(position_blocks) == 1:
+                positions = position_blocks[0]
+            else:
+                swarm_id = kwargs["swarm_id"]
+                assert 0 <= swarm_id < len(position_blocks), (
+                    f"Swarm {swarm_id} has no coordinate block "
+                    f"({len(position_blocks)} blocks in the file).")
+                positions = position_blocks[swarm_id]
         periodic_system: bool = kwargs["periodic_system"]
         if periodic_system:
             expr = "0.5*positional_force_const*periodicdistance(x, y, z, x0, y0, z0)^2"
         else:
             expr = "0.5*positional_force_const*((x-x0)^2 + (y-y0)^2 + (z-z0)^2)"
-        indices = self._restraint.atom_indices
         restraint_force_constant = self._restraint.force_constant
         force = openmm.CustomExternalForce(expr)
         force.addGlobalParameter("positional_force_const", restraint_force_constant)

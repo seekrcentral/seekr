@@ -6,7 +6,10 @@ Structures for any restraints that are applied to the system.
 """
 
 import typing
+
 from attrs import define, field, validators, Factory
+import numpy as np
+
 
 class Base_restraint:
     """
@@ -14,12 +17,30 @@ class Base_restraint:
     """
     pass
 
+def load_positional_coordinate_blocks(
+        filename: str, 
+        n_atoms: int
+        ) -> np.ndarray:
+    """
+    Load a set of coordinates from a file into a list of blocks, where each
+    block contains the coordinates for a subset of atoms.
+    """
+    positions_all_frames = np.loadtxt(filename, ndmin=2)
+    assert positions_all_frames.shape[1] == 3, \
+        f"Coordinates file {filename} does not have 3 columns."
+    assert positions_all_frames.shape[0] % n_atoms == 0, \
+        f"Number of coordinate sets ({positions_all_frames.shape[0]}) "\
+        f"in {filename} does not divide evenly into number of atom indices ({n_atoms})"
+    return positions_all_frames.reshape(-1, n_atoms, 3)
+
 @define
 class Positional_restraint(Base_restraint):
     """
     Restraint that keeps a subset of atoms close to a set of coordinates,
     if provided. If not provided, the atoms are constrained to starting
-    coordinates.
+    coordinates. If swarms are being used, then the coordinates may define,
+    for each swarm member, a different set of coordinates to restrain the
+    individual swarm member to.
     """
     type: typing.Literal["positional"] = "positional"
     atom_indices: list[int] = field(

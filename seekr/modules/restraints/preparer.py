@@ -59,13 +59,8 @@ class Positional_restraint_input(Base_restraint_input):
         restraint.atom_indices = atom_indices
         restraint.force_constant = self.force_constant
         if self.coordinates_filename is not None:
-            # Check that coordinates and atom_indices align.
-            positions = np.loadtxt(self.coordinates_filename, ndmin=2)
-
-            assert positions.shape[0] == len(atom_indices), \
-                f"Number of coordinate sets ({positions.shape[0]}) "\
-                f"in {self.coordinates_filename} does not "\
-                f"match number of atom indices ({len(atom_indices)})"
+            restraints_structures.load_positional_coordinate_blocks(
+                self.coordinates_filename, len(atom_indices))
             coordinates_basename = os.path.basename(self.coordinates_filename)
             coordinates_destination = os.path.join(
                 root_directory, coordinates_basename)

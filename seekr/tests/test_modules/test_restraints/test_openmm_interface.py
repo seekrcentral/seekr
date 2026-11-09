@@ -83,3 +83,29 @@ def test_assign_restraints_interface_z_and_torsion():
     t_iface = restraints_openmm.assign_restraints_interface(t, engine, [])
     assert isinstance(z_iface, restraints_openmm.Z_restraint_openmm_interface)
     assert isinstance(t_iface, restraints_openmm.Torsion_restraint_openmm_interface)
+
+def test_positional_restraint_uses_swarm_block(tmp_path):
+    coords = tmp_path / "coords.txt"
+    coords.write_text(
+        "0 0 0\n"
+        "1 1 1\n"
+        "2 2 2\n"
+        "3 3 3\n"
+    )
+    restraint = restraints_structures.Positional_restraint(
+        atom_indices=[0, 1],
+        force_constant=400.0,
+        coordinates_filename=coords.name,
+    )
+    iface = restraints_openmm.Positional_restraint_openmm_interface(restraint)
+    model = type("Model", (), {"directory": str(tmp_path)})()
+
+    def targets(swarm_id):
+        system = _system_with_n_particles(2)
+        iface.add_forces_to_system(
+            model=model, system=system, swarm_id=swarm_id, periodic_system=False)
+        force = system.getForce(0)
+        return [list(force.getParticleParameters(i)[1]) for i in range(2)]
+
+    assert targets(0) == [[0.0, 0.0, 0.0], [1.0, 1.0, 1.0]]
+    assert targets(1) == [[2.0, 2.0, 2.0], [3.0, 3.0, 3.0]]
