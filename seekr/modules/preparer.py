@@ -46,6 +46,8 @@ import seekr.modules.scales.logistic\
         as anch_start_struct_rpt_stage
 import seekr.modules.scales.logistic.reassign_anchors_logistic_stage \
     as reassign_anchors_logistic_stage
+import seekr.modules.scales.logistic.swarm_structure_to_reporter_logistic_stage \
+    as swarm_structure_to_reporter_logistic_stage
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +62,10 @@ stage_inputs: typing.Dict[str, typing.Type[scales_base.Base_input_stage]] \
                 anch_start_struct_rpt_stage\
                     .Input_stage_anchor_starting_structures_from_reporter,
             "reassign_anchors_stage": reassign_anchors_logistic_stage\
-                .Input_stage_reassign_anchors}
+                .Input_stage_reassign_anchors,
+            "swarm_structure_to_reporter_stage": swarm_structure_to_reporter_logistic_stage\
+                .Input_stage_swarm_structure_to_reporter,
+            }
 restraint_inputs: typing.Dict[str, typing.Type[restraints_preparer.Base_restraint_input]] \
         = {"positional": restraints_preparer.Positional_restraint_input,
            "z": restraints_preparer.Z_restraint_input,
@@ -70,6 +75,8 @@ restraint_inputs: typing.Dict[str, typing.Type[restraints_preparer.Base_restrain
            "cylinder": restraints_preparer.Cylinder_restraint_input,}
 reporter_inputs: typing.Dict[str, typing.Type[reporters_preparer.Base_reporter_input]] \
         = {"position": reporters_preparer.Position_reporter_input,
+           "velocity": reporters_preparer.Velocity_reporter_input,
+           "force": reporters_preparer.Force_reporter_input,
            "state": reporters_preparer.State_reporter_input,
            "cv_value": reporters_preparer.CV_value_reporter_input,
            "anchor": reporters_preparer.Anchor_reporter_input

@@ -27,7 +27,7 @@ class Base_reporter(typing.Protocol):
 @define
 class Position_reporter(Base_reporter):
     """
-    A position reporter for SEEKR - either a PDB or DCD file.
+    A position reporter for SEEKR - either a PDB, XTC, or DCD file.
     """
     type: typing.Literal["position"] = "position"
     name: str | None = field(
@@ -40,6 +40,70 @@ class Position_reporter(Base_reporter):
     enforce_periodic_box: bool = field(
         default=True,
         validator=validators.instance_of(bool))
+    atom_subset: typing.Optional[typing.List[int]] = field(
+        default=None,
+        validator=validators.optional(
+            validators.deep_iterable(
+                member_validator=validators.instance_of(int),
+                iterable_validator=validators.instance_of(list))))
+    make_topology: bool = field(
+        default=True, 
+        validator=validators.instance_of(bool))
+    extension: str = field(
+        default="dcd",
+        validator=validators.instance_of(str))
+    
+    def get_reporter_extension(self) -> str:
+        """
+        Get the file extension for the reporter.
+        """
+        return self.extension
+
+@define
+class Velocity_reporter(Base_reporter):
+    """
+    A velocity reporter for SEEKR - either a PDB, XTC, or DCD file.
+    """
+    type: typing.Literal["velocity"] = "velocity"
+    name: str | None = field(
+        default=None,
+        validator=validators.optional(validators.instance_of(str)))
+    interval: int = field(
+        default=1000,
+        validator=[validators.instance_of(int),
+                   validators.gt(0)])
+    atom_subset: typing.Optional[typing.List[int]] = field(
+        default=None,
+        validator=validators.optional(
+            validators.deep_iterable(
+                member_validator=validators.instance_of(int),
+                iterable_validator=validators.instance_of(list))))
+    make_topology: bool = field(
+        default=True, 
+        validator=validators.instance_of(bool))
+    extension: str = field(
+        default="dcd",
+        validator=validators.instance_of(str))
+    
+    def get_reporter_extension(self) -> str:
+        """
+        Get the file extension for the reporter.
+        """
+        return self.extension
+
+@define
+class Force_reporter(Base_reporter):
+    """
+    A force reporter for SEEKR - either a PDB, XTC, or DCD file.
+    """
+    type: typing.Literal["force"] = "force"
+    name: str | None = field(
+        default=None,
+        validator=validators.optional(validators.instance_of(str)))
+    interval: int = field(
+        default=1000,
+        validator=[validators.instance_of(int),
+                   validators.gt(0)])
     atom_subset: typing.Optional[typing.List[int]] = field(
         default=None,
         validator=validators.optional(

@@ -55,12 +55,17 @@ class Position_reporter_input(Base_reporter_input):
         Make the reporter object for the model file.
         """
         reporter = reporters_structures.Position_reporter()
-        if self.extension not in ["pdb", "dcd"]:
-            raise ValueError(f"Unsupported extension {self.extension} for position reporter.")
-        if (self.atom_subset is not None) and (self.extension == "dcd"):
-            atom_indices = unpartitioned_settings.get_atom_indices_by_selection_name(
-                self.atom_subset)
-            reporter.make_topology = True
+        if self.extension not in ["pdb", "xtc", "dcd"]:
+            raise ValueError(f"Unsupported extension {self.extension} "\
+                "for position reporter.")
+        if self.atom_subset is not None:
+            atom_indices = sorted(set(
+                unpartitioned_settings.get_atom_indices_by_selection_name(
+                    self.atom_subset)))
+            if self.extension in ["dcd", "xtc"]:
+                reporter.make_topology = True
+            else: # PDB
+                reporter.make_topology = False
         else:
             atom_indices = None
             reporter.make_topology = False
@@ -68,6 +73,106 @@ class Position_reporter_input(Base_reporter_input):
         reporter.name = self.name
         reporter.interval = self.interval
         reporter.enforce_periodic_box = self.enforce_periodic_box
+        reporter.atom_subset = atom_indices
+        reporter.extension = self.extension
+        return reporter
+
+@define
+class Velocity_reporter_input(Base_reporter_input):
+    """
+    Input for velocity reporter - DCD, XTC, or PDB format.
+    """
+    type: typing.Literal["velocity"] = "velocity"
+    name: str | None = field(
+        default=None,
+        validator=validators.optional(validators.instance_of(str)))
+    interval: int = field(default=1000,
+                          validator=[validators.instance_of(int),
+                                     validators.gt(0)])
+    atom_subset: str | None = field(default=None,
+                                     validator=validators.optional(
+                                         validators.instance_of(str)))
+    extension: str = field(default="dcd",
+                          validator=validators.instance_of(str))
+
+    def make_reporter(
+            self,
+            unpartitioned_settings: engines_preparer.MD_unpartitioned_settings_input
+        ) -> reporters_structures.Velocity_reporter:
+        """
+        Make the reporter object for the model file.
+        """
+        reporter = reporters_structures.Velocity_reporter()
+        if self.extension not in ["pdb", "xtc", "dcd"]:
+            raise ValueError(f"Unsupported extension {self.extension} "\
+                "for velocity reporter.")
+        if self.atom_subset is not None and self.extension in ("dcd", "xtc"):
+            raise ValueError(
+                "atom_subset is not supported yet for DCD or XTC reporters.")
+        if self.atom_subset is not None:
+            atom_indices = sorted(set(
+                unpartitioned_settings.get_atom_indices_by_selection_name(
+                    self.atom_subset)))
+            if self.extension in ["dcd", "xtc"]:
+                reporter.make_topology = True
+            else: # PDB
+                reporter.make_topology = False
+        else:
+            atom_indices = None
+            reporter.make_topology = False
+
+        reporter.name = self.name
+        reporter.interval = self.interval
+        reporter.atom_subset = atom_indices
+        reporter.extension = self.extension
+        return reporter
+
+@define
+class Force_reporter_input(Base_reporter_input):
+    """
+    Input for force reporter - DCD, XTC, or PDB format.
+    """
+    type: typing.Literal["force"] = "force"
+    name: str | None = field(
+        default=None,
+        validator=validators.optional(validators.instance_of(str)))
+    interval: int = field(default=1000,
+                          validator=[validators.instance_of(int),
+                                     validators.gt(0)])
+    atom_subset: str | None = field(default=None,
+                                     validator=validators.optional(
+                                         validators.instance_of(str)))
+    extension: str = field(default="dcd",
+                          validator=validators.instance_of(str))
+
+    def make_reporter(
+            self,
+            unpartitioned_settings: engines_preparer.MD_unpartitioned_settings_input
+        ) -> reporters_structures.Force_reporter:
+        """
+        Make the reporter object for the model file.
+        """
+        reporter = reporters_structures.Force_reporter()
+        if self.extension not in ["pdb", "xtc", "dcd"]:
+            raise ValueError(f"Unsupported extension {self.extension} "\
+                "for force reporter.")
+        if self.atom_subset is not None and self.extension in ("dcd", "xtc"):
+            raise ValueError(
+                "atom_subset is not supported yet for DCD or XTC reporters.")
+        if self.atom_subset is not None:
+            atom_indices = sorted(set(
+                unpartitioned_settings.get_atom_indices_by_selection_name(
+                    self.atom_subset)))
+            if self.extension in ["dcd", "xtc"]:
+                reporter.make_topology = True
+            else: # PDB
+                reporter.make_topology = False
+        else:
+            atom_indices = None
+            reporter.make_topology = False
+
+        reporter.name = self.name
+        reporter.interval = self.interval
         reporter.atom_subset = atom_indices
         reporter.extension = self.extension
         return reporter

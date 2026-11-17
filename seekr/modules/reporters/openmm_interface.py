@@ -104,6 +104,140 @@ class Base_reporter_openmm_interface(typing.Protocol):
         """
         ...
 
+def _subset_topology(topology, atom_subset: list[int]) -> openmm_app.Topology:
+    if len(atom_subset) == 0:
+        raise ValueError("atomSubset cannot be an empty list")
+    if sorted(set(atom_subset)) != list(atom_subset):
+        raise ValueError(
+            "atomSubset must be strictly increasing unique indices")
+    if atom_subset[0] < 0 or atom_subset[-1] >= topology.getNumAtoms():
+        raise ValueError(
+            "atomSubset indices must lie in [0, number of atoms)")
+    subset = openmm_app.Topology()
+    chosen = set(atom_subset)
+    index_to_atom = {}
+    for chain in topology.chains():
+        new_chain = None
+        for res in chain.residues():
+            chosen_atoms = [a for a in res.atoms() if a.index in chosen]
+            if not chosen_atoms:
+                continue
+            if new_chain is None:
+                new_chain = subset.addChain(chain.id)
+            new_res = subset.addResidue(
+                res.name, new_chain, res.id, res.insertionCode)
+            for atom in chosen_atoms:
+                index_to_atom[atom.index] = subset.addAtom(
+                    atom.name, atom.element, new_res, atom.id)
+    subset.setPeriodicBoxVectors(topology.getPeriodicBoxVectors())
+    for bond in topology.bonds():
+        if bond[0].index in chosen and bond[1].index in chosen:
+            subset.addBond(
+                index_to_atom[bond[0].index],
+                index_to_atom[bond[1].index],
+                bond.type, bond.order)
+    return subset
+
+class _ArrayTrajectoryReporter:
+    """Write a per-atom array into a DCD, XTC, or PDB file.
+    The writers accept lengths only. ``native_unit`` is stripped and the
+    numbers are stored as nanometers, so a reader that loads positions in
+    nanometers recovers the original values. For a subset DCD or XTC,
+    ``make_topology`` writes ``<stem>.topology.pdb`` beside the trajectory.
+    """
+    def __init__(self, file_path, reportInterval, native_unit, include,
+                 append=False, extension="dcd", atomSubset=None,
+                 make_topology=False, enforcePeriodicBox=True):
+        if extension not in ("dcd", "xtc", "pdb"):
+            raise ValueError(f"Unsupported extension {extension}.")
+        if extension == "pdb" and append:
+            raise ValueError("append must be False for a PDB file.")
+        self._file_path = file_path
+        self._reportInterval = reportInterval
+        self._native_unit = native_unit
+        self._include = include
+        self._append = append
+        self._extension = extension
+        self._atomSubset = atomSubset
+        self._make_topology = make_topology and atomSubset is not None
+        self._enforcePeriodicBox = enforcePeriodicBox
+        self._subsetTopology = None
+        self._topology_written = False
+        self._traj = None
+        self._topology = None
+        self._nextModel = 0
+        self._out = None
+        if extension == "dcd":
+            self._out = open(file_path, "r+b" if append else "wb")
+        elif extension == "pdb":
+            self._out = open(file_path, "w")
+        elif not append:
+            open(file_path, "wb").close()
+    def describeNextReport(self, simulation):
+        steps = self._reportInterval - (
+            simulation.currentStep % self._reportInterval)
+        return {"steps": steps, "periodic": self._enforcePeriodicBox, 
+                "include": [self._include]}
+    def _frame(self, simulation, raw_values):
+        arr = np.asarray(
+            raw_values.value_in_unit(self._native_unit), dtype=float)
+        topology = simulation.topology
+        if self._atomSubset is not None:
+            if self._subsetTopology is None:
+                self._subsetTopology = _subset_topology(
+                    topology, self._atomSubset)
+            arr = arr[self._atomSubset]
+            topology = self._subsetTopology
+            if self._make_topology and not self._topology_written:
+                zeros = unit.Quantity(
+                    np.zeros((topology.getNumAtoms(), 3)), unit.nanometer)
+                topo_path = os.path.splitext(self._file_path)[0] + ".topology.pdb"
+                with open(topo_path, "w") as fh:
+                    openmm_app.PDBFile.writeFile(topology, zeros, fh)
+                self._topology_written = True
+        return topology, unit.Quantity(arr, unit.nanometer)
+    def _write(self, simulation, raw_values):
+        topology, values = self._frame(simulation, raw_values)
+        if self._extension == "dcd":
+            if self._traj is None:
+                self._traj = openmm_app.DCDFile(
+                    self._out, topology, simulation.integrator.getStepSize(),
+                    simulation.currentStep, self._reportInterval, self._append)
+            self._traj.writeModel(values)
+        elif self._extension == "xtc":
+            if self._traj is None:
+                self._traj = openmm_app.XTCFile(
+                    self._file_path, topology,
+                    simulation.integrator.getStepSize(),
+                    simulation.currentStep, self._reportInterval, self._append)
+            self._traj.writeModel(values)
+        else:
+            if self._nextModel == 0:
+                openmm_app.PDBFile.writeHeader(topology, self._out)
+                self._topology = topology
+            self._nextModel += 1
+            openmm_app.PDBFile.writeModel(
+                topology, values, self._out, self._nextModel)
+            self._out.flush()
+    def __del__(self):
+        if self._extension == "pdb" and self._topology is not None:
+            openmm_app.PDBFile.writeFooter(self._topology, self._out)
+        if self._out is not None and not self._out.closed:
+            self._out.close()
+
+class PositionOpenMMReporter(_ArrayTrajectoryReporter):
+    def __init__(self, file_path, reportInterval, append=False,
+                 extension="dcd", atomSubset=None, make_topology=False,
+                 enforcePeriodicBox=True):
+        super().__init__(
+            file_path, reportInterval,
+            native_unit=unit.nanometer,
+            include="positions", append=append, extension=extension,
+            atomSubset=atomSubset, make_topology=make_topology,
+            enforcePeriodicBox=enforcePeriodicBox)
+    def report(self, simulation, state):
+        self._write(simulation, state.getPositions(asNumpy=True))
+
 @define
 class Position_reporter_openmm_interface(Base_reporter_openmm_interface):
     """
@@ -126,17 +260,12 @@ class Position_reporter_openmm_interface(Base_reporter_openmm_interface):
             enforce_periodic_box = False
         else:
             enforce_periodic_box = self._reporter.enforce_periodic_box
-        if self._reporter.extension == "dcd":
-            openmm_reporter = openmm_app.DCDReporter(
-                file=filename, reportInterval=self._reporter.interval, append=False,
-                enforcePeriodicBox=enforce_periodic_box,)
-                # TODO: implement this one day when available for the standard OpenMM version.
-                #atomSubset=self._reporter.atom_subset)
-        elif self._reporter.extension == "pdb":
-            openmm_reporter = openmm_app.PDBReporter(
-                file=filename, reportInterval=self._reporter.interval,
-                enforcePeriodicBox=enforce_periodic_box,
-                atomSubset=self._reporter.atom_subset)
+        openmm_reporter = PositionOpenMMReporter(
+            file_path=filename, reportInterval=self._reporter.interval, append=False,
+            extension=self._reporter.extension,
+            atomSubset=self._reporter.atom_subset,
+            make_topology=self._reporter.make_topology,
+            enforcePeriodicBox=enforce_periodic_box)
         simulation.reporters.append(openmm_reporter)
         return
     
@@ -158,7 +287,117 @@ class Position_reporter_openmm_interface(Base_reporter_openmm_interface):
             ) -> None:
         self._sampling_method_interface = sampling_method_interface
         return
+
+class VelocityOpenMMReporter(_ArrayTrajectoryReporter):
+    def __init__(self, file_path, reportInterval, append=False,
+                 extension="dcd", atomSubset=None, make_topology=False):
+        super().__init__(
+            file_path, reportInterval,
+            native_unit=unit.nanometer / unit.picosecond,
+            include="velocities", append=append, extension=extension,
+            atomSubset=atomSubset, make_topology=make_topology)
+    def report(self, simulation, state):
+        self._write(simulation, state.getVelocities(asNumpy=True))
+
+@define
+class Velocity_reporter_openmm_interface(Base_reporter_openmm_interface):
+    """
+    A velocity reporter for SEEKR.
+    """
+    _reporter: reporters_structures.Velocity_reporter = field()
+    _sampling_method_interface: sampl_meth_omm_int.Base_md_openmm_interface | None \
+        = field(default=None)
+    def add_reporter_to_simulation(
+            self, 
+            **kwargs: typing.Any
+            ) -> None:
+        """
+        Add the reporter to the OpenMM simulation object.
+        """
+        simulation = kwargs["simulation"]
+        filename = kwargs["filename"]
+        openmm_reporter = VelocityOpenMMReporter(
+            file_path=filename, reportInterval=self._reporter.interval, append=False,
+            extension=self._reporter.extension,
+            atomSubset=self._reporter.atom_subset,
+            make_topology=self._reporter.make_topology)
+        simulation.reporters.append(openmm_reporter)
+        return
     
+    def get_reporter_extension(self) -> str:
+        """
+        Get the file extension for the reporter.
+        """
+        return self._reporter.get_reporter_extension()
+
+    def get_progress(self) -> float:
+        """
+        Position reporters have no notion of partial progress.
+        """
+        return 1.0
+
+    def add_sampling_method_interface(
+            self,
+            sampling_method_interface
+            ) -> None:
+        self._sampling_method_interface = sampling_method_interface
+        return
+
+class ForceOpenMMReporter(_ArrayTrajectoryReporter):
+    def __init__(self, file_path, reportInterval, append=False,
+                 extension="dcd", atomSubset=None, make_topology=False):
+        super().__init__(
+            file_path, reportInterval,
+            native_unit=unit.kilojoules_per_mole / unit.nanometer,
+            include="forces", append=append, extension=extension,
+            atomSubset=atomSubset, make_topology=make_topology)
+    def report(self, simulation, state):
+        self._write(simulation, state.getForces(asNumpy=True))
+
+@define
+class Force_reporter_openmm_interface(Base_reporter_openmm_interface):
+    """
+    A force reporter for SEEKR.
+    """
+    _reporter: reporters_structures.Force_reporter = field()
+    _sampling_method_interface: sampl_meth_omm_int.Base_md_openmm_interface | None \
+        = field(default=None)
+    def add_reporter_to_simulation(
+            self, 
+            **kwargs: typing.Any
+            ) -> None:
+        """
+        Add the reporter to the OpenMM simulation object.
+        """
+        simulation = kwargs["simulation"]
+        filename = kwargs["filename"]
+        openmm_reporter = ForceOpenMMReporter(
+            file_path=filename, reportInterval=self._reporter.interval, append=False,
+            extension=self._reporter.extension,
+            atomSubset=self._reporter.atom_subset,
+            make_topology=self._reporter.make_topology)
+        simulation.reporters.append(openmm_reporter)
+        return
+    
+    def get_reporter_extension(self) -> str:
+        """
+        Get the file extension for the reporter.
+        """
+        return self._reporter.get_reporter_extension()
+
+    def get_progress(self) -> float:
+        """
+        Position reporters have no notion of partial progress.
+        """
+        return 1.0
+
+    def add_sampling_method_interface(
+            self,
+            sampling_method_interface
+            ) -> None:
+        self._sampling_method_interface = sampling_method_interface
+        return
+
 @define
 class State_reporter_openmm_interface(Base_reporter_openmm_interface):
     """
@@ -845,6 +1084,10 @@ def assign_reporter_interface(
         "Only OpenMM engines can be used in the openmm_interface module."
     if reporter.type == "position":
         return Position_reporter_openmm_interface(reporter)
+    elif reporter.type == "velocity":
+        return Velocity_reporter_openmm_interface(reporter)
+    elif reporter.type == "force":
+        return Force_reporter_openmm_interface(reporter)
     elif reporter.type == "state":
         return State_reporter_openmm_interface(reporter)
     elif reporter.type == "cv_value":

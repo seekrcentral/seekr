@@ -17,13 +17,18 @@ import seekr.modules.scales.logistic.reassign_anchors_logistic_stage \
 import seekr.modules.scales.logistic\
         .anchor_starting_structures_from_reporter_logistic_stage \
     as anchor_starting_structures_from_reporter_logistic_stage
+import seekr.modules.scales.logistic.swarm_structure_to_reporter_logistic_stage \
+    as swarm_structure_to_reporter_logistic_stage
 
 stage_types_logistic \
         = {"reassign_anchors_stage": 
                 reassign_anchors_logistic_stage.Stage_reassign_anchors,
             "anchor_starting_structures_from_reporter_stage":
                 anchor_starting_structures_from_reporter_logistic_stage\
-                    .Stage_anchor_starting_structures_from_reporter
+                    .Stage_anchor_starting_structures_from_reporter,
+            "swarm_structure_to_reporter_stage":
+                swarm_structure_to_reporter_logistic_stage\
+                    .Stage_swarm_structure_to_reporter
            }
 
 def struct_logistic_sampling_method(

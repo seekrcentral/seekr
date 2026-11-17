@@ -19,6 +19,8 @@ import seekr.modules.scales.logistic\
         .anchor_starting_structures_from_reporter_logistic_stage \
     as anchor_starting_structures_from_reporter_logistic_stage
 import seekr.modules.anchor_schemes.preparer as anchor_schemes_preparer
+import seekr.modules.scales.logistic.swarm_structure_to_reporter_logistic_stage \
+    as swarm_structure_to_reporter_logistic_stage
 
 anchor_scheme_types = {
     "voronoi_cells": anchor_schemes_preparer.Anchors_as_voronoi_cells_anchor_scheme,
@@ -40,6 +42,10 @@ def is_finished_logistic_with_message(
     elif stage.type == "anchor_starting_structures_from_reporter_stage":
         return anchor_starting_structures_from_reporter_logistic_stage\
             .is_finished_anchor_starting_structures_from_reporter_logistic_with_message(
+                model, stage, anchor_or_unpartitioned, use_json=use_json)
+    elif stage.type == "swarm_structure_to_reporter_stage":
+        return swarm_structure_to_reporter_logistic_stage\
+            .is_finished_swarm_structure_to_reporter_logistic_with_message(
                 model, stage, anchor_or_unpartitioned, use_json=use_json)
     else:
         # Run through plugins
@@ -76,6 +82,10 @@ def choose_next_simulation_logistic(
     elif stage.type == "anchor_starting_structures_from_reporter_stage":
         instructions = anchor_starting_structures_from_reporter_logistic_stage\
             .choose_next_simulation_anchor_starting_structures_from_reporter_logistic(
+                model, stage, force_overwrite, use_json, silent=silent)
+    elif stage.type == "swarm_structure_to_reporter_stage":
+        instructions = swarm_structure_to_reporter_logistic_stage\
+            .choose_next_simulation_swarm_structure_to_reporter_logistic(
                 model, stage, force_overwrite, use_json, silent=silent)
     else:
         # Run through plugins
@@ -123,6 +133,11 @@ def do_run_instruction_logistic(
     elif stage.type == "anchor_starting_structures_from_reporter_stage":
         anchor_starting_structures_from_reporter_logistic_stage\
             .do_run_instruction_anchor_starting_structures_from_reporter_logistic(
+                model, force_overwrite, stage_index=stage_index,
+                instruction=instruction)
+    elif stage.type == "swarm_structure_to_reporter_stage":
+        swarm_structure_to_reporter_logistic_stage\
+            .do_run_instruction_swarm_structure_to_reporter_logistic(
                 model, force_overwrite, stage_index=stage_index,
                 instruction=instruction)
     else:

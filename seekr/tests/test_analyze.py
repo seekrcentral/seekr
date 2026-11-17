@@ -154,8 +154,9 @@ def test_analyze_returns_result(seekr_run):
     if ("hg_metad_dist" in scenario_name) or ("hg_smd_dist" in scenario_name)\
             or ("hg_encounters_bd" in scenario_name) \
             or ("hg_trajectories_bd" in scenario_name):
+        extra_arguments = {"only_extract_data": True}
         result = analyze.analyze_all(model, skip_checks=True,
-                                 only_extract_data=True)
+                                 extra_arguments=extra_arguments)
     else:
         result = analyze.analyze_all(model, skip_checks=True)
     assert result is not None, (
@@ -224,8 +225,9 @@ def _toy_metad_1cv_analysis_state(tmp_path_factory):
 def test_error_analysis_resample(_toy_metad_1cv_analysis_state):
     """error_analysis_method='resample' runs without exception."""
     model = _toy_metad_1cv_analysis_state
-    result = analyze.analyze_all(model, skip_checks=False,
-                             error_analysis_method="resample")
+    extra_arguments = {"error_analysis_method": "resample"}
+    result = analyze.analyze_all(
+        model, skip_checks=False, extra_arguments=extra_arguments)
     assert result is not None
     assert result.main_data_window is not None
 
@@ -233,8 +235,9 @@ def test_error_analysis_resample(_toy_metad_1cv_analysis_state):
 def test_error_analysis_montecarlo(_toy_metad_1cv_analysis_state):
     """error_analysis_method='montecarlo' runs without exception."""
     model = _toy_metad_1cv_analysis_state
-    result = analyze.analyze_all(model, skip_checks=False,
-                             error_analysis_method="montecarlo")
+    extra_arguments = {"error_analysis_method": "montecarlo"}
+    result = analyze.analyze_all(
+        model, skip_checks=False, extra_arguments=extra_arguments)
     assert result is not None
     assert result.main_data_window is not None
 

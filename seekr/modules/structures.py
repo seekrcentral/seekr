@@ -39,6 +39,8 @@ import seekr.modules.scales.logistic\
         as anch_start_struct_rpt_stage
 import seekr.modules.scales.logistic.reassign_anchors_logistic_stage \
     as reassign_anchors_logistic_stage
+import seekr.modules.scales.logistic.swarm_structure_to_reporter_logistic_stage \
+    as swarm_structure_to_reporter_logistic_stage
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +68,10 @@ stages: typing.Dict[str, typing.Type[scales_base.Base_stage]] \
                 anch_start_struct_rpt_stage\
                     .Stage_anchor_starting_structures_from_reporter,
             "reassign_anchors_stage": reassign_anchors_logistic_stage\
-                .Stage_reassign_anchors}
+                .Stage_reassign_anchors,
+            "swarm_structure_to_reporter_stage": swarm_structure_to_reporter_logistic_stage\
+                .Stage_swarm_structure_to_reporter,
+            }
 
 restraints: typing.Dict[str, typing.Type[restraints_structures.Base_restraint]] \
         = {"positional": restraints_structures.Positional_restraint,
@@ -78,6 +83,8 @@ restraints: typing.Dict[str, typing.Type[restraints_structures.Base_restraint]] 
 
 reporters: typing.Dict[str, typing.Type[reporters_structures.Base_reporter]] \
         = {"position": reporters_structures.Position_reporter,
+           "velocity": reporters_structures.Velocity_reporter,
+           "force": reporters_structures.Force_reporter,
            "state": reporters_structures.State_reporter,
            "cv_value": reporters_structures.CV_value_reporter,
            "anchor": reporters_structures.Anchor_reporter,
@@ -298,7 +305,7 @@ class Anchor:
         else:
             glob_base = [f"{positions_base_noext}*.swarm_{swarm_id}.pdb",
                          f"{positions_base_noext}*.swarm_{swarm_id}.txt",
-                         f"{positions_base_noext}*.swarm_{swarm_id:06d}.state"]
+                         f"{positions_base_noext}*.swarm_{swarm_id}.state"]
         glob_path = os.path.join(
             root_directory, "anchor_sets", set_name, self.directory, 
             input_stage_dir)

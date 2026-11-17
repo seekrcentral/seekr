@@ -52,7 +52,7 @@ be installed separately, before seekr.
 
 OpenMM is strongly recommended when using the molecular dynamics scale of seekr.
 OpenMM is also required for the use of "toy systems". While not strictly
-required, any normal use of seekr will require OpenMM.
+required, any normal use of seekr will require OpenMM (version 8.3.0 or greater).
 
 ```
 mamba install openmm

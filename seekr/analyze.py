@@ -43,6 +43,10 @@ def analyze_all(
         ) -> typing.Any:
     if extra_arguments is None:
         extra_arguments = {}
+    global_kwargs = {
+        key: value for key, value in extra_arguments.items()
+        if not isinstance(value, dict)
+    }
     curdir = os.getcwd()
     os.chdir(model.directory)
     synopsis_filename = model.get_synopsis_filename(model.directory)
@@ -56,7 +60,6 @@ def analyze_all(
         stages_to_analyze = [stage.index for stage in model.stages]
     else:
         stages_to_analyze = [run.extract_stage_index(model, stage_arg)+1]
-    anything_analyzed = False
     last_significant_analysis = None
     json_results = {}
     for stage_index in stages_to_analyze:
@@ -64,20 +67,21 @@ def analyze_all(
             # Logistic stage without a sampling method.
             continue
         stage = model.stages[stage_index-1]
-        stage_extra_arguments = next(
+        stage_overrides = next(
             (
                 extra_arguments[key]
                 for key in (str(stage.index), stage.index, stage.name)
-                if key in extra_arguments
+                if isinstance(extra_arguments.get(key), dict)
             ),
             {},
         )
+        stage_extra_arguments = {**global_kwargs, **stage_overrides}
+        only_extract_data = stage_extra_arguments.get("only_extract_data", False)
         analysis = analyzer.analyze(
             model, stage_index=stage_index, skip_checks=skip_checks,
             stage_extra_arguments=stage_extra_arguments
         )
-        only_extract_data = stage_extra_arguments.get("only_extract_data", False)
-        if (analysis is not None) and (not only_extract_data):
+        if (analysis is not None) and (not stage_extra_arguments["only_extract_data"]):
             stage_results = analysis.print_results(print_json)
             analysis.make_image_directory(analyzer_base.DEFAULT_IMAGE_DIR)
             stage_plots = analysis.save_plots(analyzer_base.DEFAULT_IMAGE_DIR, silent=print_json)
@@ -95,14 +99,12 @@ def analyze_all(
             else:
                 print(f"Analysis for stage index {stage.name} (index: {stage.index})")
             
-            anything_analyzed = True
         if analysis is not None:
             last_significant_analysis = analysis
     
     os.chdir(curdir)
-    if (not anything_analyzed) and (not only_extract_data):
-        if not print_json:
-            print("No stages were analyzed.")
+    if last_significant_analysis is None and not print_json:
+        print("No stages were analyzed.")
     
     if print_json:
         return json_results
