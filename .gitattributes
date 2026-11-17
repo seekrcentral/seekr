@@ -1,1 +1,2 @@
+pyproject.toml export-subst
 seekr/_version.py export-subst
