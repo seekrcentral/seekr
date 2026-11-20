@@ -431,7 +431,8 @@ def run_simulation(
         swarm_id: int, 
         device_index: str | None = None,
         force_overwrite: bool = False,
-        benchmark: bool = False
+        benchmark: bool = False,
+        use_cuPotential: bool = False
         ) -> None:
     """
     Run an OpenMM simulation.
@@ -471,7 +472,8 @@ def run_simulation(
             restraints_interfaces=runner.restraints_interfaces,
             swarm_id=swarm_id,
             restart=restart,
-            timestep=runner.timestep
+            timestep=runner.timestep,
+            use_cuPotential=use_cuPotential
             )
             
     runner.run(sim_openmm_obj, restart, restart_index)

@@ -479,7 +479,8 @@ def do_run_instruction_md(
         stage_index: int,
         instruction: Run_instruction_md,
         device_index: str | None,
-        benchmark: bool = False
+        benchmark: bool = False,
+        use_cuPotential: bool = False
     ) -> None:
     """
     Execute the run instructions for molecular dynamics.
@@ -509,4 +510,5 @@ def do_run_instruction_md(
     engines_runner.run_simulation(
         model, stage_index, restart, anchor_index=anchor_index, 
         swarm_id=swarm_id, device_index=device_index, 
-        force_overwrite=force_overwrite, benchmark=benchmark)
+        force_overwrite=force_overwrite, benchmark=benchmark,
+        use_cuPotential=use_cuPotential)

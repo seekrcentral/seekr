@@ -65,7 +65,8 @@ def run(
         device_index: str | None = None, 
         force_overwrite: bool = False,
         swarm_id: int | None = None,
-        benchmark: bool = False
+        benchmark: bool = False,
+        use_cuPotential: bool = False
         ) -> None:
     stage_index = extract_stage_index(model, stage_arg)
     assert stage_index is not None, \
@@ -95,7 +96,8 @@ def run(
             benchmark=benchmark)
         for instruction in run_instructions:
             scales_runner.do_run_instruction(
-                model, force_overwrite, stage_index, instruction, device_index, benchmark)
+                model, force_overwrite, stage_index, instruction, device_index, benchmark, 
+                use_cuPotential)
             
         if len(run_instructions) > 0:
             complete = False
@@ -166,6 +168,12 @@ if __name__ == "__main__":
             "run with the --anchor set to 'any', the benchmark mode will be "\
             "applied to all anchors, and adequate inputs may not be "\
             "generated for later stages.", action="store_true")
+    argparser.add_argument(
+        "-C", "--use_cuPotential", dest="use_cuPotential", default=False,
+        help="Toggle whether to use the cuPotential plugin. If available, this "\
+            "should dramatically increase the speed of the simulation."
+            "Default: False.", action="store_true")
+    
     argspace = argparser.parse_args()
     args = vars(argspace)
     model_file = args["model_file"]
@@ -176,6 +184,7 @@ if __name__ == "__main__":
     force_overwrite = args["force_overwrite"]
     restart_attempts = args["restart_attempts"]
     benchmark = args["benchmark"]
+    use_cuPotential = args["use_cuPotential"]
     model = structures.load_model(model_file)
     num_restart_attempts = 0
     success = False
@@ -185,11 +194,13 @@ if __name__ == "__main__":
     logger.info(
         f"Running stage {stage} (anchor: {anchor}, device: {device_index}, "
         f"swarm: {swarm_id}, force_overwrite: {force_overwrite}, "
-        f"restart_attempts: {restart_attempts}, benchmark: {benchmark}).")
+        f"restart_attempts: {restart_attempts}, benchmark: {benchmark}, "
+        f"use_cuPotential: {use_cuPotential}).")
     base.log_invocation_metadata(__version__)
     while not success:
         try:
-            run(model, stage, anchor, device_index, force_overwrite, swarm_id, benchmark)
+            run(model, stage, anchor, device_index, force_overwrite, swarm_id, benchmark,
+                use_cuPotential)
             success = True
         except Exception:
             if num_restart_attempts < restart_attempts:

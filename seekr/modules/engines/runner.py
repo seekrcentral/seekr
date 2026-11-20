@@ -47,7 +47,8 @@ def run_simulation(
         device_index: str | None = None,
         n_trajectories: int = 0,
         force_overwrite: bool = False,
-        benchmark: bool = False
+        benchmark: bool = False,
+        use_cuPotential: bool = False
         ) -> None:
     """
     Determine which md engine to run and run it
@@ -59,7 +60,7 @@ def run_simulation(
         runner_openmm.run_simulation(
             model, stage_index, anchor_index, 
             restart, swarm_id, device_index, 
-            force_overwrite, benchmark)
+            force_overwrite, benchmark, use_cuPotential)
     elif engine.type == "browndye":
         runner_browndye.run_simulation(
             model, n_trajectories, restart, stage.set_name, force_overwrite)

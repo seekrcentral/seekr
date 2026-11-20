@@ -252,7 +252,8 @@ def do_run_instruction(
         stage_index: int,
         instruction: list,
         device_index: str | None,
-        benchmark: bool = False
+        benchmark: bool = False,
+        use_cuPotential: bool = False
     ) -> None:
     """
     Execute the run instructions for a given scale type.
@@ -266,7 +267,7 @@ def do_run_instruction(
         md_runner.do_run_instruction_md(
             model, force_overwrite, stage_index=stage_index, 
             instruction=instruction, device_index=device_index, 
-            benchmark=benchmark)
+            benchmark=benchmark, use_cuPotential=use_cuPotential)
     elif stage.scale_type == "brownian_dynamics":
         bd_runner.do_run_instruction_bd(
             model, force_overwrite, stage_index=stage_index, 
@@ -285,7 +286,8 @@ def do_run_instruction(
                 scales_module_run = importlib.import_module(scales_module_str+".runner")
                 this_module_found = scales_module_run.do_run_instruction(
                     model, force_overwrite, stage_index, instruction, device_index,
-                    benchmark=benchmark)
+                    benchmark=benchmark) # TODO: add use_cuPotential? Not for now because
+                    # only necessary for openmm engine, which is here, not in a plugin.
                 if this_module_found:
                     found = True
                     break

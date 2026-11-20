@@ -358,6 +358,7 @@ def create_openmm_system(
         positions_basename: str,
         md_parameters_directory: str,
         md_parameters_topology: engines_structures.Parameters_topology,
+        use_cuPotential: bool = False
         ) -> openmm.System:
     """
     Create an OpenMM system object for the given frame.
@@ -510,6 +511,44 @@ def create_openmm_system(
     # set all non-milestoning force groups to zero
     for force in system.getForces():
         force.setForceGroup(0)
+
+    if use_cuPotential:
+        import nv_openmm_plugin as nv
+        # replace OpenMM NonbondedForce instance with the plugin's NonbondedForce
+        for index, force in enumerate(system.getForces()):
+            if isinstance(force, openmm.NonbondedForce):
+                if force.getNonbondedMethod() not in (
+                        openmm.NonbondedForce.PME, openmm.NonbondedForce.LJPME):
+                    raise Exception(
+                        "cuPotential only accepts PME or LJPME NonbondedForce, "
+                        f"got method {force.getNonbondedMethod()}.")
+                if abs(force.getEwaldErrorTolerance() - 5e-4) > 1e-12:
+                    raise Exception(
+                        "cuPotential requires Ewald error tolerance 5e-4, "
+                        f"got {force.getEwaldErrorTolerance()}.")
+                # Check the box size related to nonbonded cutoff distance
+                if box_vectors is None:
+                    raise Exception(
+                        "cuPotential requires a periodic box, and none was found "
+                        "on the positions file.")
+                cutoff_nm = force.getCutoffDistance().value_in_unit(
+                    unit.nanometers)
+                min_edge_nm = 3.0 * cutoff_nm
+                edges_nm = [
+                    float(np.asarray(vector.value_in_unit(unit.nanometers))[i])
+                    for i, vector in enumerate(box_vectors)
+                ]
+                if any(edge < min_edge_nm for edge in edges_nm):
+                    raise Exception(
+                        "cuPotential requires each box dimension to be at least "
+                        f"three cutoff lengths ({min_edge_nm:.4f} nm for cutoff "
+                        f"{cutoff_nm:.4f} nm). Box dimensions are "
+                        f"{edges_nm} nm.")
+                system.setDefaultPeriodicBoxVectors(*box_vectors)
+                # Replace the OpenMM NonbondedForce instance with the plugin's NonbondedForce
+                system.addForce(nv.NonbondedForce(force))
+                system.removeForce(index)
+                break
 
     return system, topology, positions, box_vectors, num_frames, velocities
 
@@ -666,6 +705,7 @@ class Sim_openmm:
             restart: bool,
             system: openmm.System,
             timestep: float | None = None,
+            use_cuPotential: bool = False
             ) -> None:
         """
         Assign the proper integrator to this OpenMM simulation.
@@ -686,280 +726,296 @@ class Sim_openmm:
             timestep = model.get_timestep_by_type("molecular_dynamics")
         rigid_constraint_tolerance = integrator_settings.rigid_tolerance
         self.timestep = timestep
-        integrator = openmm.CustomIntegrator(timestep * unit.picoseconds)
         integrator_type = integrator_settings.type
-        if integrator_type == "langevinMiddle":
-            if ensemble is not None:
-                assert ensemble.type in ["NVT", "NPT", "NPT_membrane"], \
-                    "Ensemble type not allowed or recognized for Langevin "\
-                    f"middle integrator: {ensemble.type}"
-            temperature = integrator_settings.target_temperature * unit.kelvin
-            friction = integrator_settings.friction
-            integrator.addGlobalVariable("a", np.exp(-friction*timestep))
-            integrator.addGlobalVariable("b", np.sqrt(1-np.exp(-2*friction*timestep)))
-            integrator.addGlobalVariable("thermal_energy", kB*temperature)
-            sampling_method_interface.add_global_variables_integrator(
-                integrator=integrator, anchor=anchor)
-            integrator.addPerDofVariable("x1", 0)
-            integrator.addPerDofVariable("old_x", 0)
-            integrator.addPerDofVariable("old_v", 0)
-            sampling_method_interface.add_per_DOF_variables_integrator(
-                integrator=integrator)
-            sampling_method_interface.pre_integration_instructions(
-                integrator=integrator)
-            integrator.addComputePerDof("old_x", "x")
-            integrator.addUpdateContextState()
-            integrator.addComputePerDof("v", "v + dt*f/m")
-            integrator.addConstrainVelocities()
-            integrator.addComputePerDof("old_v", "v")
-            integrator.addComputePerDof("x", "x + 0.5*dt*v")
-            integrator.addComputePerDof("v", "a*v + b*sqrt(thermal_energy/m)*gaussian")
-            integrator.addComputePerDof("x", "x + 0.5*dt*v")
-            integrator.addComputePerDof("x1", "x")
-            integrator.addConstrainPositions()
-            integrator.addComputePerDof("v", "v + (x-x1)/dt")
-            sampling_method_interface.post_integration_instructions(
-                integrator=integrator, anchor=anchor)
-            #completion_criteria_interface.post_integration_instructions(
-            #    integrator=integrator)
+        if use_cuPotential and integrator_type == "langevinMiddle" \
+               and sampling_method_interface.is_safe_for_cuPotential():
+            import nv_openmm_plugin as nv
+            integrator = nv.LangevinMiddleIntegrator(
+                integrator_settings.target_temperature * unit.kelvin, 
+                integrator_settings.friction / unit.picosecond, 
+                timestep * unit.picoseconds
+            )
             random_seed = integrator_settings.random_seed + self.random_seed
             integrator.setRandomNumberSeed(random_seed)
-
-        elif integrator_type == "langevin":
-            if ensemble is not None:
-                assert ensemble.type in ["NVT", "NPT", "NPT_membrane"], \
-                    "Ensemble type not allowed or recognized for Langevin "\
-                    f"integrator: {ensemble.type}"
-            temperature = integrator_settings.target_temperature * unit.kelvin
-            friction = integrator_settings.friction
-            integrator.addGlobalVariable("thermal_energy", kB*temperature)
-            integrator.addGlobalVariable("friction_coeff", friction)
-            integrator.addGlobalVariable("vscale", 0.0)
-            integrator.addGlobalVariable("fscale", 0.0)
-            integrator.addGlobalVariable("noisescale", 0.0)
-            sampling_method_interface.add_global_variables_integrator(
-                integrator=integrator, anchor=anchor, is_restart=restart)
-            integrator.addPerDofVariable("old_x", 0)
-            integrator.addPerDofVariable("old_v", 0)
-            sampling_method_interface.add_per_DOF_variables_integrator(
-                integrator=integrator)
-            sampling_method_interface.pre_integration_instructions(
-                integrator=integrator)
-            integrator.addComputeGlobal("vscale", "exp(-dt*friction_coeff)")
-            integrator.addComputeGlobal("fscale", "(1-vscale)/friction_coeff")
-            integrator.addComputeGlobal("noisescale", 
-                                        "sqrt(thermal_energy*(1-vscale*vscale))")
-            integrator.addUpdateContextState()
-            integrator.addComputePerDof("old_x", "x")
-            integrator.addComputePerDof("v", 
-                              "vscale*v + fscale*f/m "\
-                              "+ noisescale*gaussian/sqrt(m)")
-            integrator.addComputePerDof("x", "x + dt*v")
-            integrator.addComputePerDof("old_v", "v")
-            integrator.addConstrainPositions()
-            integrator.addComputePerDof("v", "(x-old_x)/dt")
-            sampling_method_interface.post_integration_instructions(
-                integrator=integrator, anchor=anchor)
-            random_seed = integrator_settings.random_seed + self.random_seed
-            integrator.setRandomNumberSeed(random_seed)
-
-        elif integrator_type == "brownian":
-            if ensemble is not None:
-                assert ensemble.type in ["NVT", "NPT", "NPT_membrane"], \
-                    "Ensemble type not allowed or recognized for Brownian "\
-                    f"integrator: {ensemble.type}"
-            temperature = integrator_settings.target_temperature * unit.kelvin
-            friction = integrator_settings.friction
-            integrator.addGlobalVariable("thermal_energy", kB*temperature)
-            integrator.addGlobalVariable("friction_coeff", friction)
-            integrator.addGlobalVariable("fscale", 0.0)
-            integrator.addGlobalVariable("noiseAmplitude", 0.0)
-            sampling_method_interface.add_global_variables_integrator(
-                integrator=integrator, anchor=anchor)
-            integrator.addPerDofVariable("old_x", 0)
-            integrator.addPerDofVariable("old_v", 0)
-            sampling_method_interface.add_per_DOF_variables_integrator(
-                integrator=integrator)
-            sampling_method_interface.pre_integration_instructions(
-                integrator=integrator)
-            integrator.addUpdateContextState()
-            integrator.addComputeGlobal("fscale", "dt/friction_coeff")
-            integrator.addComputeGlobal("noiseAmplitude", 
-                                        "sqrt(2*thermal_energy*dt/friction_coeff)")
-            integrator.addComputePerDof("old_x", "x")
-            integrator.addComputePerDof("x", "x + fscale*f/m + noiseAmplitude*gaussian/sqrt(m)")
-            integrator.addComputePerDof("old_v", "v")
-            integrator.addConstrainPositions()
-            integrator.addComputePerDof("v", "(x-old_x)/dt")
-            sampling_method_interface.post_integration_instructions(
-                integrator=integrator, anchor=anchor)
-            random_seed = integrator_settings.random_seed + self.random_seed
-            integrator.setRandomNumberSeed(random_seed)
-        elif integrator_type == "verlet":
-            #integrator_object = openmm.VerletIntegrator
-            if ensemble is not None:
-                assert ensemble.type in ["NVE"], \
-                    "Ensemble type not allowed or recognized for Verlet "\
-                    f"integrator: {ensemble.type}"
-            sampling_method_interface.add_global_variables_integrator(
-                integrator=integrator, anchor=anchor)
-            integrator.addPerDofVariable("old_x", 0)
-            integrator.addPerDofVariable("old_v", 0)
-            sampling_method_interface.add_per_DOF_variables_integrator(
-                integrator=integrator)
-            sampling_method_interface.pre_integration_instructions(
-                integrator=integrator)
-            integrator.addUpdateContextState()
-            integrator.addComputePerDof("old_x", "x")
-            integrator.addComputePerDof("v", "v+dt*f/m")
-            integrator.addComputePerDof("old_v", "v")
-            integrator.addComputePerDof("x", "x+dt*v")
-            integrator.addConstrainPositions()
-            integrator.addComputePerDof("v", "(x-old_x)/dt")
-            sampling_method_interface.post_integration_instructions(
-                integrator=integrator, anchor=anchor)
-        elif integrator_type == "nose_hoover":
-            if ensemble is not None:
-                assert ensemble.type in ["NVT", "NPT", "NPT_membrane"], \
-                    "Ensemble type not allowed or recognized for Langevin "\
-                    f"middle integrator: {ensemble.type}"
-            temperature = integrator_settings.target_temperature * unit.kelvin
-            collision_frequency = integrator_settings.collision_frequency
-            chain_length = integrator_settings.chain_length
-            num_mts = integrator_settings.num_mts
-            num_yoshida_suzuki = integrator_settings.num_yoshida_suzuki
-            num_dofs = _compute_full_system_run_dofs(system)
-            
-            # Thermostat parameters shared by the full Nose-Hoover chain.
-            integrator.addGlobalVariable("thermal_energy", kB*temperature)
-            integrator.addGlobalVariable("collision_frequency", collision_frequency)
-            integrator.addGlobalVariable("num_dofs", num_dofs)
-            
-            # Work variables for particle kinetic energy and the accumulated
-            # velocity scale returned by the chain propagation.
-            integrator.addGlobalVariable("kinetic_energy", 0)
-            integrator.addGlobalVariable("twice_kinetic_energy", 0)
-            integrator.addGlobalVariable("scale", 1)
-            
-            # Temporary scalars used inside the Yoshida-Suzuki/MTS loop, plus the
-            # reported total heat bath energy.
-            integrator.addGlobalVariable("wdt", 0)
-            integrator.addGlobalVariable("aa", 0)
-            integrator.addGlobalVariable("heat_bath_energy", 0)
-            
-            # Persistent state for each chain bead: position, velocity, mass, and
-            # force.  These correspond to chainData, chainMasses, and chainForces
-            # in OpenMM's native kernels.
-            for bead in range(chain_length):
-                integrator.addGlobalVariable(f"chain_pos_{bead}", 0)
-                integrator.addGlobalVariable(f"chain_vel_{bead}", 0)
-                integrator.addGlobalVariable(f"chain_mass_{bead}", 0)
-                integrator.addGlobalVariable(f"chain_force_{bead}", 0)
-                
-            sampling_method_interface.add_global_variables_integrator(
-                integrator=integrator, anchor=anchor)
-            integrator.addPerDofVariable("x1", 0)
-            integrator.addPerDofVariable("old_x", 0)
-            integrator.addPerDofVariable("old_v", 0)
-            sampling_method_interface.add_per_DOF_variables_integrator(
-                integrator=integrator)
-                
-            sampling_method_interface.pre_integration_instructions(
-                integrator=integrator)
-                
-            # Update chain masses
-            frequency_sq = "collision_frequency*collision_frequency"
-            integrator.addComputeGlobal(
-                "chain_mass_0",
-                f"num_dofs*thermal_energy/({frequency_sq})")
-            for bead in range(1, chain_length):
-                integrator.addComputeGlobal(
-                    f"chain_mass_{bead}",
-                    f"thermal_energy/({frequency_sq})")
-                
-            integrator.addComputePerDof("old_x", "x")
-            integrator.addUpdateContextState()
-            integrator.addComputePerDof("v", "v + dt*f/m")
-            integrator.addConstrainVelocities()
-            integrator.addComputePerDof("old_v", "v")
-            integrator.addComputePerDof("x", "x + 0.5*dt*v")
-            integrator.addComputeSum("kinetic_energy", "0.5*m*v*v")
-            integrator.addComputeGlobal("twice_kinetic_energy", "2*kinetic_energy")
-            integrator.addComputeGlobal("scale", "1")
-            integrator.beginIfBlock("kinetic_energy >= 1e-8")
-            # Add initial chain forces
-            integrator.addComputeGlobal(
-                "chain_force_0",
-                "(twice_kinetic_energy - num_dofs*thermal_energy)"
-                "/chain_mass_0")
-            for bead in range(chain_length - 1):
-                integrator.addComputeGlobal(
-                    f"chain_force_{bead+1}", f"(chain_mass_{bead}*chain_vel_{bead}"
-                    f"*chain_vel_{bead} - thermal_energy)/chain_mass_{bead+1}")
-            # Propagate chain
-            last_bead = chain_length - 1
-            for mts in range(num_mts):
-                for weight in _get_yoshida_suzuki_weights(num_yoshida_suzuki):
-                    integrator.addComputeGlobal(
-                        "wdt", f"{weight}*dt/{num_mts}")
-                    integrator.addComputeGlobal(
-                        f"chain_vel_{last_bead}",
-                        f"chain_vel_{last_bead} + 0.5*wdt*chain_force_{last_bead}")
-                    for bead in range(chain_length - 2, -1, -1):
-                        integrator.addComputeGlobal(
-                            "aa", f"exp(-0.25*wdt*chain_vel_{bead+1})")
-                        integrator.addComputeGlobal(
-                            f"chain_vel_{bead}",
-                            f"aa*(chain_vel_{bead}*aa + 0.5*wdt*chain_force_{bead})")
-                    integrator.addComputeGlobal(
-                        "scale", "scale*exp(-wdt*chain_vel_0)")
-                    for bead in range(chain_length):
-                        integrator.addComputeGlobal(
-                            f"chain_pos_{bead}",
-                            f"chain_pos_{bead} + chain_vel_{bead}*wdt")
-                    integrator.addComputeGlobal(
-                        "chain_force_0",
-                        "(scale*scale*twice_kinetic_energy"
-                        " - num_dofs*thermal_energy)/chain_mass_0")
-                    for bead in range(chain_length - 1):
-                        integrator.addComputeGlobal(
-                            "aa", f"exp(-0.25*wdt*chain_vel_{bead+1})")
-                        integrator.addComputeGlobal(
-                            f"chain_vel_{bead}",
-                            f"aa*(aa*chain_vel_{bead}"
-                            f" + 0.5*wdt*chain_force_{bead})")
-                        integrator.addComputeGlobal(
-                            f"chain_force_{bead+1}",
-                            f"(chain_mass_{bead}*chain_vel_{bead}"
-                            f"*chain_vel_{bead} - thermal_energy)"
-                            f"/chain_mass_{bead+1}")
-                    integrator.addComputeGlobal(
-                        f"chain_vel_{last_bead}",
-                        f"chain_vel_{last_bead}"
-                        f" + 0.5*wdt*chain_force_{last_bead}")
-            integrator.endBlock()
-            integrator.addComputePerDof("v", "scale*v")
-            
-            integrator.addComputePerDof("x", "x + 0.5*dt*v")
-            integrator.addComputePerDof("x1", "x")
-            integrator.addConstrainPositions()
-            integrator.addComputePerDof("v", "v + (x-x1)/dt")
-            # Compute heat bath energies
-            energy_terms = []
-            for bead in range(chain_length):
-                prefac = "num_dofs" if bead == 0 else "1"
-                energy_terms.append(
-                    f"0.5*chain_mass_{bead}*chain_vel_{bead}"
-                    f"*chain_vel_{bead}"
-                    f" + {prefac}*thermal_energy*chain_pos_{bead}")
-            integrator.addComputeGlobal("heat_bath_energy", " + ".join(energy_terms))
-            
-            sampling_method_interface.post_integration_instructions(
-                integrator=integrator, anchor=anchor)
-            
+            # The cuPotential integrator handles center-of-mass motion removal.
+            for index, force in enumerate(system.getForces()):
+                if isinstance(force, openmm.CMMotionRemover):
+                    system.removeForce(index)
+                    break
         else:
-            raise Exception("Integrator type not available: "\
-                            f"{integrator_type}")
+            integrator = openmm.CustomIntegrator(timestep * unit.picoseconds)
+            if integrator_type == "langevinMiddle":
+                if ensemble is not None:
+                    assert ensemble.type in ["NVT", "NPT", "NPT_membrane"], \
+                        "Ensemble type not allowed or recognized for Langevin "\
+                        f"middle integrator: {ensemble.type}"
+                temperature = integrator_settings.target_temperature * unit.kelvin
+                friction = integrator_settings.friction
+                integrator.addGlobalVariable("a", np.exp(-friction*timestep))
+                integrator.addGlobalVariable("b", np.sqrt(1-np.exp(-2*friction*timestep)))
+                integrator.addGlobalVariable("thermal_energy", kB*temperature)
+                sampling_method_interface.add_global_variables_integrator(
+                    integrator=integrator, anchor=anchor)
+                integrator.addPerDofVariable("x1", 0)
+                integrator.addPerDofVariable("old_x", 0)
+                integrator.addPerDofVariable("old_v", 0)
+                sampling_method_interface.add_per_DOF_variables_integrator(
+                    integrator=integrator)
+                sampling_method_interface.pre_integration_instructions(
+                    integrator=integrator)
+                integrator.addComputePerDof("old_x", "x")
+                integrator.addUpdateContextState()
+                integrator.addComputePerDof("v", "v + dt*f/m")
+                integrator.addConstrainVelocities()
+                integrator.addComputePerDof("old_v", "v")
+                integrator.addComputePerDof("x", "x + 0.5*dt*v")
+                integrator.addComputePerDof("v", "a*v + b*sqrt(thermal_energy/m)*gaussian")
+                integrator.addComputePerDof("x", "x + 0.5*dt*v")
+                integrator.addComputePerDof("x1", "x")
+                integrator.addConstrainPositions()
+                integrator.addComputePerDof("v", "v + (x-x1)/dt")
+                sampling_method_interface.post_integration_instructions(
+                    integrator=integrator, anchor=anchor)
+                #completion_criteria_interface.post_integration_instructions(
+                #    integrator=integrator)
+                random_seed = integrator_settings.random_seed + self.random_seed
+                integrator.setRandomNumberSeed(random_seed)
+
+            elif integrator_type == "langevin":
+                if ensemble is not None:
+                    assert ensemble.type in ["NVT", "NPT", "NPT_membrane"], \
+                        "Ensemble type not allowed or recognized for Langevin "\
+                        f"integrator: {ensemble.type}"
+                temperature = integrator_settings.target_temperature * unit.kelvin
+                friction = integrator_settings.friction
+                integrator.addGlobalVariable("thermal_energy", kB*temperature)
+                integrator.addGlobalVariable("friction_coeff", friction)
+                integrator.addGlobalVariable("vscale", 0.0)
+                integrator.addGlobalVariable("fscale", 0.0)
+                integrator.addGlobalVariable("noisescale", 0.0)
+                sampling_method_interface.add_global_variables_integrator(
+                    integrator=integrator, anchor=anchor, is_restart=restart)
+                integrator.addPerDofVariable("old_x", 0)
+                integrator.addPerDofVariable("old_v", 0)
+                sampling_method_interface.add_per_DOF_variables_integrator(
+                    integrator=integrator)
+                sampling_method_interface.pre_integration_instructions(
+                    integrator=integrator)
+                integrator.addComputeGlobal("vscale", "exp(-dt*friction_coeff)")
+                integrator.addComputeGlobal("fscale", "(1-vscale)/friction_coeff")
+                integrator.addComputeGlobal("noisescale", 
+                                            "sqrt(thermal_energy*(1-vscale*vscale))")
+                integrator.addUpdateContextState()
+                integrator.addComputePerDof("old_x", "x")
+                integrator.addComputePerDof("v", 
+                                "vscale*v + fscale*f/m "\
+                                "+ noisescale*gaussian/sqrt(m)")
+                integrator.addComputePerDof("x", "x + dt*v")
+                integrator.addComputePerDof("old_v", "v")
+                integrator.addConstrainPositions()
+                integrator.addComputePerDof("v", "(x-old_x)/dt")
+                sampling_method_interface.post_integration_instructions(
+                    integrator=integrator, anchor=anchor)
+                random_seed = integrator_settings.random_seed + self.random_seed
+                integrator.setRandomNumberSeed(random_seed)
+
+            elif integrator_type == "brownian":
+                if ensemble is not None:
+                    assert ensemble.type in ["NVT", "NPT", "NPT_membrane"], \
+                        "Ensemble type not allowed or recognized for Brownian "\
+                        f"integrator: {ensemble.type}"
+                temperature = integrator_settings.target_temperature * unit.kelvin
+                friction = integrator_settings.friction
+                integrator.addGlobalVariable("thermal_energy", kB*temperature)
+                integrator.addGlobalVariable("friction_coeff", friction)
+                integrator.addGlobalVariable("fscale", 0.0)
+                integrator.addGlobalVariable("noiseAmplitude", 0.0)
+                sampling_method_interface.add_global_variables_integrator(
+                    integrator=integrator, anchor=anchor)
+                integrator.addPerDofVariable("old_x", 0)
+                integrator.addPerDofVariable("old_v", 0)
+                sampling_method_interface.add_per_DOF_variables_integrator(
+                    integrator=integrator)
+                sampling_method_interface.pre_integration_instructions(
+                    integrator=integrator)
+                integrator.addUpdateContextState()
+                integrator.addComputeGlobal("fscale", "dt/friction_coeff")
+                integrator.addComputeGlobal("noiseAmplitude", 
+                                            "sqrt(2*thermal_energy*dt/friction_coeff)")
+                integrator.addComputePerDof("old_x", "x")
+                integrator.addComputePerDof("x", "x + fscale*f/m + noiseAmplitude*gaussian/sqrt(m)")
+                integrator.addComputePerDof("old_v", "v")
+                integrator.addConstrainPositions()
+                integrator.addComputePerDof("v", "(x-old_x)/dt")
+                sampling_method_interface.post_integration_instructions(
+                    integrator=integrator, anchor=anchor)
+                random_seed = integrator_settings.random_seed + self.random_seed
+                integrator.setRandomNumberSeed(random_seed)
+            elif integrator_type == "verlet":
+                #integrator_object = openmm.VerletIntegrator
+                if ensemble is not None:
+                    assert ensemble.type in ["NVE"], \
+                        "Ensemble type not allowed or recognized for Verlet "\
+                        f"integrator: {ensemble.type}"
+                sampling_method_interface.add_global_variables_integrator(
+                    integrator=integrator, anchor=anchor)
+                integrator.addPerDofVariable("old_x", 0)
+                integrator.addPerDofVariable("old_v", 0)
+                sampling_method_interface.add_per_DOF_variables_integrator(
+                    integrator=integrator)
+                sampling_method_interface.pre_integration_instructions(
+                    integrator=integrator)
+                integrator.addUpdateContextState()
+                integrator.addComputePerDof("old_x", "x")
+                integrator.addComputePerDof("v", "v+dt*f/m")
+                integrator.addComputePerDof("old_v", "v")
+                integrator.addComputePerDof("x", "x+dt*v")
+                integrator.addConstrainPositions()
+                integrator.addComputePerDof("v", "(x-old_x)/dt")
+                sampling_method_interface.post_integration_instructions(
+                    integrator=integrator, anchor=anchor)
+            elif integrator_type == "nose_hoover":
+                if ensemble is not None:
+                    assert ensemble.type in ["NVT", "NPT", "NPT_membrane"], \
+                        "Ensemble type not allowed or recognized for Langevin "\
+                        f"middle integrator: {ensemble.type}"
+                temperature = integrator_settings.target_temperature * unit.kelvin
+                collision_frequency = integrator_settings.collision_frequency
+                chain_length = integrator_settings.chain_length
+                num_mts = integrator_settings.num_mts
+                num_yoshida_suzuki = integrator_settings.num_yoshida_suzuki
+                num_dofs = _compute_full_system_run_dofs(system)
+                
+                # Thermostat parameters shared by the full Nose-Hoover chain.
+                integrator.addGlobalVariable("thermal_energy", kB*temperature)
+                integrator.addGlobalVariable("collision_frequency", collision_frequency)
+                integrator.addGlobalVariable("num_dofs", num_dofs)
+                
+                # Work variables for particle kinetic energy and the accumulated
+                # velocity scale returned by the chain propagation.
+                integrator.addGlobalVariable("kinetic_energy", 0)
+                integrator.addGlobalVariable("twice_kinetic_energy", 0)
+                integrator.addGlobalVariable("scale", 1)
+                
+                # Temporary scalars used inside the Yoshida-Suzuki/MTS loop, plus the
+                # reported total heat bath energy.
+                integrator.addGlobalVariable("wdt", 0)
+                integrator.addGlobalVariable("aa", 0)
+                integrator.addGlobalVariable("heat_bath_energy", 0)
+                
+                # Persistent state for each chain bead: position, velocity, mass, and
+                # force.  These correspond to chainData, chainMasses, and chainForces
+                # in OpenMM's native kernels.
+                for bead in range(chain_length):
+                    integrator.addGlobalVariable(f"chain_pos_{bead}", 0)
+                    integrator.addGlobalVariable(f"chain_vel_{bead}", 0)
+                    integrator.addGlobalVariable(f"chain_mass_{bead}", 0)
+                    integrator.addGlobalVariable(f"chain_force_{bead}", 0)
+                    
+                sampling_method_interface.add_global_variables_integrator(
+                    integrator=integrator, anchor=anchor)
+                integrator.addPerDofVariable("x1", 0)
+                integrator.addPerDofVariable("old_x", 0)
+                integrator.addPerDofVariable("old_v", 0)
+                sampling_method_interface.add_per_DOF_variables_integrator(
+                    integrator=integrator)
+                    
+                sampling_method_interface.pre_integration_instructions(
+                    integrator=integrator)
+                    
+                # Update chain masses
+                frequency_sq = "collision_frequency*collision_frequency"
+                integrator.addComputeGlobal(
+                    "chain_mass_0",
+                    f"num_dofs*thermal_energy/({frequency_sq})")
+                for bead in range(1, chain_length):
+                    integrator.addComputeGlobal(
+                        f"chain_mass_{bead}",
+                        f"thermal_energy/({frequency_sq})")
+                    
+                integrator.addComputePerDof("old_x", "x")
+                integrator.addUpdateContextState()
+                integrator.addComputePerDof("v", "v + dt*f/m")
+                integrator.addConstrainVelocities()
+                integrator.addComputePerDof("old_v", "v")
+                integrator.addComputePerDof("x", "x + 0.5*dt*v")
+                integrator.addComputeSum("kinetic_energy", "0.5*m*v*v")
+                integrator.addComputeGlobal("twice_kinetic_energy", "2*kinetic_energy")
+                integrator.addComputeGlobal("scale", "1")
+                integrator.beginIfBlock("kinetic_energy >= 1e-8")
+                # Add initial chain forces
+                integrator.addComputeGlobal(
+                    "chain_force_0",
+                    "(twice_kinetic_energy - num_dofs*thermal_energy)"
+                    "/chain_mass_0")
+                for bead in range(chain_length - 1):
+                    integrator.addComputeGlobal(
+                        f"chain_force_{bead+1}", f"(chain_mass_{bead}*chain_vel_{bead}"
+                        f"*chain_vel_{bead} - thermal_energy)/chain_mass_{bead+1}")
+                # Propagate chain
+                last_bead = chain_length - 1
+                for mts in range(num_mts):
+                    for weight in _get_yoshida_suzuki_weights(num_yoshida_suzuki):
+                        integrator.addComputeGlobal(
+                            "wdt", f"{weight}*dt/{num_mts}")
+                        integrator.addComputeGlobal(
+                            f"chain_vel_{last_bead}",
+                            f"chain_vel_{last_bead} + 0.5*wdt*chain_force_{last_bead}")
+                        for bead in range(chain_length - 2, -1, -1):
+                            integrator.addComputeGlobal(
+                                "aa", f"exp(-0.25*wdt*chain_vel_{bead+1})")
+                            integrator.addComputeGlobal(
+                                f"chain_vel_{bead}",
+                                f"aa*(chain_vel_{bead}*aa + 0.5*wdt*chain_force_{bead})")
+                        integrator.addComputeGlobal(
+                            "scale", "scale*exp(-wdt*chain_vel_0)")
+                        for bead in range(chain_length):
+                            integrator.addComputeGlobal(
+                                f"chain_pos_{bead}",
+                                f"chain_pos_{bead} + chain_vel_{bead}*wdt")
+                        integrator.addComputeGlobal(
+                            "chain_force_0",
+                            "(scale*scale*twice_kinetic_energy"
+                            " - num_dofs*thermal_energy)/chain_mass_0")
+                        for bead in range(chain_length - 1):
+                            integrator.addComputeGlobal(
+                                "aa", f"exp(-0.25*wdt*chain_vel_{bead+1})")
+                            integrator.addComputeGlobal(
+                                f"chain_vel_{bead}",
+                                f"aa*(aa*chain_vel_{bead}"
+                                f" + 0.5*wdt*chain_force_{bead})")
+                            integrator.addComputeGlobal(
+                                f"chain_force_{bead+1}",
+                                f"(chain_mass_{bead}*chain_vel_{bead}"
+                                f"*chain_vel_{bead} - thermal_energy)"
+                                f"/chain_mass_{bead+1}")
+                        integrator.addComputeGlobal(
+                            f"chain_vel_{last_bead}",
+                            f"chain_vel_{last_bead}"
+                            f" + 0.5*wdt*chain_force_{last_bead}")
+                integrator.endBlock()
+                integrator.addComputePerDof("v", "scale*v")
+                
+                integrator.addComputePerDof("x", "x + 0.5*dt*v")
+                integrator.addComputePerDof("x1", "x")
+                integrator.addConstrainPositions()
+                integrator.addComputePerDof("v", "v + (x-x1)/dt")
+                # Compute heat bath energies
+                energy_terms = []
+                for bead in range(chain_length):
+                    prefac = "num_dofs" if bead == 0 else "1"
+                    energy_terms.append(
+                        f"0.5*chain_mass_{bead}*chain_vel_{bead}"
+                        f"*chain_vel_{bead}"
+                        f" + {prefac}*thermal_energy*chain_pos_{bead}")
+                integrator.addComputeGlobal("heat_bath_energy", " + ".join(energy_terms))
+            
+                sampling_method_interface.post_integration_instructions(
+                    integrator=integrator, anchor=anchor)
+            
+            else:
+                raise Exception("Integrator type not available: "\
+                                f"{integrator_type}")
         
         if rigid_constraint_tolerance is not None:
             integrator.setConstraintTolerance(
@@ -971,6 +1027,7 @@ class Sim_openmm:
             self, 
             model: structures.Seekr_model,
             ensemble: base.Ensemble,
+            use_cuPotential: bool = False
             ) -> typing.Any:
         """
         Add a barostat to the simulation.
@@ -985,10 +1042,17 @@ class Sim_openmm:
             integrator_settings = md_engine.integrator_settings
             target_temperature = integrator_settings.target_temperature
             if ensemble.type == "NPT":
-                barostat = openmm.MonteCarloBarostat(
-                    ensemble.pressure*unit.bar,
-                    target_temperature*unit.kelvin,
-                    DEFAULT_BAROSTAT_FREQUENCY)
+                if use_cuPotential:
+                    import nv_openmm_plugin as nv
+                    barostat = nv.MonteCarloBarostat(
+                        ensemble.pressure*unit.bar,
+                        target_temperature*unit.kelvin,
+                        DEFAULT_BAROSTAT_FREQUENCY)
+                else:
+                    barostat = openmm.MonteCarloBarostat(
+                        ensemble.pressure*unit.bar,
+                        target_temperature*unit.kelvin,
+                        DEFAULT_BAROSTAT_FREQUENCY)
                 self.system.addForce(barostat)
             elif ensemble.type == "NPT_membrane":
                 barostat = openmm.MonteCarloMembraneBarostat(
@@ -1006,6 +1070,7 @@ class Sim_openmm:
     def add_platform(
             self, 
             model: structures.Seekr_model,
+            use_cuPotential: bool = False
             ) -> None:
         """
         Add the platform to the simulation.
@@ -1013,6 +1078,14 @@ class Sim_openmm:
         md_engine = model.get_engine_by_scale_type("molecular_dynamics")
         assert md_engine.type == "openmm"
         platform_settings = md_engine.platform_settings
+        if use_cuPotential:
+            if platform_settings is None or platform_settings.type != "cuda":
+                raise Exception("cuPotential requires the CUDA platform.")
+            if platform_settings.precision not in ("single", "mixed"):
+                raise Exception(
+                    "cuPotential requires CUDA precision 'single' or 'mixed', "
+                    f"got {platform_settings.precision!r}.")
+
         if platform_settings is None:
             self.platform = openmm.Platform.getPlatformByName("Reference")
             self.properties = {}
@@ -1119,7 +1192,8 @@ def create_sim_openmm(
         restraints_interfaces: list[restraints_openmm_interface.Base_restraint_openmm_interface],
         swarm_id: int,
         restart: bool,
-        timestep: float | None = None
+        timestep: float | None = None,
+        use_cuPotential: bool = False
         ) -> Sim_openmm:
     """
     Generate an OpenMM simulation and other objects for a given
@@ -1129,7 +1203,7 @@ def create_sim_openmm(
     system, topology, positions, box_vectors, _, velocities \
         = create_openmm_system(
             model, positions_directory, positions_basename, 
-            md_parameters_directory, md_parameters_topology)
+            md_parameters_directory, md_parameters_topology, use_cuPotential)
     sim_openmm.system = system
     sim_openmm.topology = topology
     sim_openmm.box_vectors = box_vectors
@@ -1144,10 +1218,11 @@ def create_sim_openmm(
     # A sampling method of None will be conventional MD.
     sim_openmm.add_integrator(
         model, anchor_index, ensemble, sampling_method_interface,
-        completion_criteria_interface, restart, system, timestep)
+        completion_criteria_interface, restart, system, timestep,
+        use_cuPotential)
     if ensemble is not None:
-        sim_openmm.add_barostat(model, ensemble)
-    sim_openmm.add_platform(model)
+        sim_openmm.add_barostat(model, ensemble, use_cuPotential)
+    sim_openmm.add_platform(model, use_cuPotential)
     # TODO: add forces here based on sampling method
     sim_openmm.add_restraints(
         model, anchor_index, restraints_interfaces, positions, 

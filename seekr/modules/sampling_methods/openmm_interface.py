@@ -574,6 +574,14 @@ class Base_md_openmm_interface:
         Perform a check to make sure that the restart was properly loaded.
         """
         return
+
+    def is_safe_for_cuPotential(self) -> bool:
+        """
+        Check if the sampling method is safe to use with the cuPotential plugin.
+        """
+        # Generally, this will be true for all sampling methods except, for example,
+        # MMVT.
+        return True
             
 
 @define
@@ -607,8 +615,14 @@ class Conventional_md_openmm_interface(Base_md_openmm_interface):
         self._model = model
         self._barostat = None
         if self._system_obj is not None:
+            barostat_types = _BAROSTAT_TYPES
+            try:
+                import nv_openmm_plugin as nv
+                barostat_types = _BAROSTAT_TYPES + (nv.MonteCarloBarostat,)
+            except ImportError:
+                pass
             for force in self._system_obj.getForces():
-                if isinstance(force, _BAROSTAT_TYPES):
+                if isinstance(force, barostat_types):
                     self._barostat = force
                     break
         return
@@ -623,13 +637,15 @@ class Conventional_md_openmm_interface(Base_md_openmm_interface):
         """
         assert self._simulation_obj is not None
         integrator = self._simulation_obj.context.getIntegrator()
-        try:
-            thermal_energy = kB * new_temperature * unit.kelvin
-            integrator.setGlobalVariableByName(
-                "thermal_energy", thermal_energy)
-        except Exception:
-            # It's probably a Verlet integrator or something.
-            pass
+        if hasattr(integrator, "setTemperature"):
+            integrator.setTemperature(new_temperature * unit.kelvin)
+        else:
+            try:
+                integrator.setGlobalVariableByName(
+                    "thermal_energy", kB * new_temperature * unit.kelvin)
+            except Exception:
+                # It's probably a Verlet integrator or something.
+                pass
         if self._barostat is not None:
             self._simulation_obj.context.setParameter(
                 self._barostat.Temperature(), new_temperature * unit.kelvin)
@@ -1328,6 +1344,8 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
         Some steps to do for milestoning.
         """
         integrator: openmm.Integrator = kwargs["integrator"]
+        assert isinstance(integrator, openmm.CustomIntegrator), \
+            "The integrator must be a CustomIntegrator for MMVT."
         anchor = self._anchor_obj
         assert anchor is not None
         integrator.addComputeGlobal("encounter_this_step", "0")
@@ -1631,6 +1649,13 @@ class MMVT_md_openmm_interface(Base_md_openmm_interface):
             raise RuntimeError(
                 f"last_milestone_alias_touched={last_ms} not in {sorted(valid)}"
             )
+
+    def is_safe_for_cuPotential(self) -> bool:
+        """
+        Check if the sampling method is safe to use with the cuPotential plugin.
+        """
+        # Not true for MMVT.
+        return False
     
 Sampling_md_openmm_interface = typing.Union[Conventional_md_openmm_interface,
                                             Metadynamics_md_openmm_interface,
