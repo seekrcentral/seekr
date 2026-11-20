@@ -618,7 +618,8 @@ class Conventional_md_openmm_interface(Base_md_openmm_interface):
             barostat_types = _BAROSTAT_TYPES
             try:
                 import nv_openmm_plugin as nv
-                barostat_types = _BAROSTAT_TYPES + (nv.MonteCarloBarostat,)
+                barostat_types = _BAROSTAT_TYPES \
+                    + (nv._load().MonteCarloBarostat,)
             except ImportError:
                 pass
             for force in self._system_obj.getForces():
