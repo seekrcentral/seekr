@@ -72,7 +72,9 @@ restraint_inputs: typing.Dict[str, typing.Type[restraints_preparer.Base_restrain
            "torsion": restraints_preparer.Torsion_restraint_input,
            "pairwise": restraints_preparer.Pairwise_restraint_input,
            "proximity": restraints_preparer.Proximity_restraint_input,
-           "cylinder": restraints_preparer.Cylinder_restraint_input,}
+           "cylinder": restraints_preparer.Cylinder_restraint_input,
+           "center_of_mass": restraints_preparer\
+                .Center_of_mass_restraint_input,}
 reporter_inputs: typing.Dict[str, typing.Type[reporters_preparer.Base_reporter_input]] \
         = {"position": reporters_preparer.Position_reporter_input,
            "velocity": reporters_preparer.Velocity_reporter_input,

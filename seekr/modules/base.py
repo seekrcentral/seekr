@@ -303,14 +303,24 @@ def mdtraj_center_of_mass(
         traj: mdtraj.Trajectory
         ) -> typing.Union[nptyping.ArrayLike]:
     """
-    Returns a center of mass array by frames for a traj. Avoids NaN
-    errors that come when using mdtraj's .
+    Center of mass for each frame, shape ``(n_frames, 3)``.
+    One atom returns its coordinate. Atoms with no element mass contribute
+    nothing when other atoms have mass. A group whose masses sum to zero
+    uses equal weights.
     """
-    if traj.xyz.shape[1] == 1:
-        com_array = traj.xyz[:,0,:]
-    else:
-        com_array = mdtraj.compute_center_of_mass(traj)
-    return com_array
+    if traj.n_atoms < 1:
+        raise ValueError("Trajectory has no atoms.")
+    if traj.n_atoms == 1:
+        return traj.xyz[:, 0, :]
+    masses = np.empty(traj.n_atoms, dtype=float)
+    for i, atom in enumerate(traj.topology.atoms):
+        element = atom.element
+        mass = None if element is None else element.mass
+        masses[i] = 0.0 if mass is None else float(mass)
+    if masses.sum() <= 0.0:
+        masses[:] = 1.0
+    masses /= masses.sum()
+    return np.einsum("fai,a->fi", traj.xyz.astype(np.float64), masses)
 
 def particle_masses_from_mdtraj_topology(
         topology: mdtraj.Topology

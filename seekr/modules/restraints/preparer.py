@@ -263,3 +263,49 @@ class Cylinder_restraint_input(Base_restraint_input):
         restraint.radius = self.radius
         restraint.force_constant = self.force_constant
         return restraint
+
+@define
+class Center_of_mass_restraint_input(Base_restraint_input):
+    """
+    Input for center of mass restraints.
+    """
+    type: typing.Literal["center_of_mass"] = "center_of_mass"
+    selection_names: list[str] = field(default=Factory(list),
+        validator=validators.deep_iterable(
+            member_validator=[validators.instance_of(str)],
+            iterable_validator=validators.instance_of(list),))
+    force_constant: float = field(default=400.0, validator=[
+        validators.instance_of(float), validators.gt(0)
+    ])
+    coordinates_filename: typing.Optional[str] = field(
+        default=None,
+        validator=validators.optional(validators.instance_of(str)))
+
+    def make_restraint(
+            self, 
+            unpartitioned_settings: engines_preparer.MD_unpartitioned_settings_input,
+            root_directory: str
+            ) -> restraints_structures.Center_of_mass_restraint:
+        """
+        Make the restraint object for the model.
+        """
+        atom_indices_list = []
+        for selection_name in self.selection_names:
+            atom_indices_list.append(
+                unpartitioned_settings.get_atom_indices_by_selection_name(
+                    selection_name))
+        restraint = restraints_structures.Center_of_mass_restraint()
+        restraint.atom_indices_list = atom_indices_list
+        restraint.force_constant = self.force_constant
+        if self.coordinates_filename is not None:
+            restraints_structures.load_positional_coordinate_blocks(
+                self.coordinates_filename, len(atom_indices_list))
+            coordinates_basename = os.path.basename(self.coordinates_filename)
+            coordinates_destination = os.path.join(
+                root_directory, coordinates_basename)
+            if not os.path.samefile(self.coordinates_filename, 
+                                    coordinates_destination):
+                shutil.copyfile(self.coordinates_filename, coordinates_destination)
+            restraint.coordinates_filename = coordinates_basename
+
+        return restraint

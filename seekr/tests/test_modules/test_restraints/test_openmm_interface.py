@@ -109,3 +109,43 @@ def test_positional_restraint_uses_swarm_block(tmp_path):
 
     assert targets(0) == [[0.0, 0.0, 0.0], [1.0, 1.0, 1.0]]
     assert targets(1) == [[2.0, 2.0, 2.0], [3.0, 3.0, 3.0]]
+
+def test_center_of_mass_restraint_uses_swarm_block(tmp_path):
+    coords = tmp_path / "coords.txt"
+    coords.write_text(
+        "0 0 0\n"
+        "1 1 1\n"
+        "2 2 2\n"
+        "3 3 3\n"
+    )
+    restraint = restraints_structures.Center_of_mass_restraint(
+        atom_indices_list=[[0, 1], [2, 3]],
+        force_constant=400.0,
+        coordinates_filename=coords.name,
+    )
+    iface = restraints_openmm.Center_of_mass_restraint_openmm_interface(restraint)
+    model = type("Model", (), {"directory": str(tmp_path)})()
+    def bond_targets(swarm_id, periodic_system):
+        system = _system_with_n_particles(4)
+        iface.add_forces_to_system(
+            model=model,
+            system=system,
+            swarm_id=swarm_id,
+            periodic_system=periodic_system,
+        )
+        force = system.getForce(0)
+        assert isinstance(force, openmm.CustomCentroidBondForce)
+        assert "pointdistance" in force.getEnergyFunction()
+        assert force.usesPeriodicBoundaryConditions() is periodic_system
+        assert force.getNumGroups() == 2
+        assert force.getNumBonds() == 2
+        targets = []
+        for i in range(2):
+            groups, params = force.getBondParameters(i)
+            particles, _weights = force.getGroupParameters(groups[0])
+            assert list(particles) == restraint.atom_indices_list[i]
+            assert params[0] == 400.0
+            targets.append(list(params[1:]))
+        return targets
+    assert bond_targets(0, False) == [[0.0, 0.0, 0.0], [1.0, 1.0, 1.0]]
+    assert bond_targets(1, True) == [[2.0, 2.0, 2.0], [3.0, 3.0, 3.0]]

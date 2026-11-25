@@ -316,6 +316,87 @@ class Cylinder_restraint_openmm_interface(Base_restraint_openmm_interface):
         system.addForce(proximityForce)
         return None
 
+@define
+class Center_of_mass_restraint_openmm_interface(
+    Base_restraint_openmm_interface):
+    """
+    A center-of-mass restraint using the OpenMM engine. Each entry in
+    atom_indices_list is one group, restrained to its own point. With a
+    coordinates file, each swarm block holds one x y z row per group, in
+    nanometers, in that same order. Without a file, each group is restrained
+    to the mass-weighted center of mass of its starting positions.
+    """
+    _restraint: restraints_structures.Center_of_mass_restraint = field()
+
+    @staticmethod
+    def _mass_weighted_center(
+            system: openmm.System,
+            positions: unit.Quantity,
+            atom_indices: list[int],
+            ) -> np.ndarray:
+        """
+        Center of mass in nanometers, weighted by the masses on the System.
+        """
+        assert len(atom_indices) > 0, "Center of mass group has no atoms."
+        masses = np.array([
+            system.getParticleMass(index).value_in_unit(unit.dalton)
+            for index in atom_indices])
+        coords = np.array([
+            positions[index].value_in_unit(unit.nanometer)
+            for index in atom_indices])
+        total_mass = float(masses.sum())
+        assert total_mass > 0.0, "Center of mass group has zero total mass."
+        return (masses[:, None] * coords).sum(axis=0) / total_mass
+
+    def add_forces_to_system(
+            self, 
+            **kwargs: typing.Any
+            ) -> None:
+        """
+        Add one CustomCentroidBondForce to an OpenMM System.
+        """
+        atom_indices_list = self._restraint.atom_indices_list
+        system: openmm.System = kwargs["system"]
+        if self._restraint.coordinates_filename is None:
+            positions: unit.Quantity = kwargs["positions"]
+            targets = [
+                self._mass_weighted_center(system, positions, atom_indices)
+                for atom_indices in atom_indices_list]
+        else:
+            model = kwargs["model"]
+            full_coordinates_filename = os.path.join(
+                model.directory, os.path.basename(
+                    self._restraint.coordinates_filename)
+            )
+            position_blocks = restraints_structures\
+                .load_positional_coordinate_blocks(
+                    full_coordinates_filename, len(atom_indices_list))
+            if len(position_blocks) == 1:
+                targets = position_blocks[0]
+            else:
+                swarm_id = kwargs["swarm_id"]
+                assert 0 <= swarm_id < len(position_blocks), (
+                    f"Swarm {swarm_id} has no coordinate block "
+                    f"({len(position_blocks)} blocks in the file).")
+                targets = position_blocks[swarm_id]
+
+        periodic_system: bool = kwargs["periodic_system"]
+        expr = "0.5*com_force_const*pointdistance(x1, y1, z1, x0, y0, z0)^2"
+        force = openmm.CustomCentroidBondForce(1, expr)
+        force.setForceGroup(0)
+        force.setUsesPeriodicBoundaryConditions(periodic_system)
+        force.addPerBondParameter("com_force_const")
+        force.addPerBondParameter("x0")
+        force.addPerBondParameter("y0")
+        force.addPerBondParameter("z0")
+        force_constant = self._restraint.force_constant
+        for atom_indices, target in zip(atom_indices_list, targets):
+            group = force.addGroup(list(atom_indices))
+            force.addBond(
+                [group], [force_constant, target[0], target[1], target[2]])
+        system.addForce(force)
+        return None
+
 def assign_restraints_interface(
         restraint: restraints_structures.Base_restraint, 
         md_engine: engines_structures.Base_engine,
@@ -339,6 +420,8 @@ def assign_restraints_interface(
         return Proximity_restraint_openmm_interface(restraint)
     elif restraint.type == "cylinder":
         return Cylinder_restraint_openmm_interface(restraint)
+    elif restraint.type == "center_of_mass":
+        return Center_of_mass_restraint_openmm_interface(restraint)
     else:
         # Run through plugins
         for plugin_name in plugin_list:

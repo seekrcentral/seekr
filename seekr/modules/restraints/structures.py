@@ -183,4 +183,29 @@ class Cylinder_restraint(Base_restraint):
         default=10000.0,
         validator=[validators.instance_of(float),
                    validators.ge(0)])
-    
+
+@define
+class Center_of_mass_restraint(Base_restraint):
+    """
+    Restraint that keeps a list of subsets of atoms close to a set of 
+    coordinates, if provided. If not provided, the atoms are constrained 
+    to starting center of mass coordinates. If swarms are being used, 
+    then the coordinates may define, for each swarm member, a different 
+    set of coordinates to restrain the individual swarm member to.
+    """
+    type: typing.Literal["center_of_mass"] = "center_of_mass"
+    atom_indices_list: list[list[int]] = field(
+        default=Factory(list),
+        validator=validators.deep_iterable(
+            member_validator=[validators.deep_iterable(
+                member_validator=[validators.instance_of(int),
+                                  validators.ge(0)],
+                iterable_validator=validators.instance_of(list),)],
+            iterable_validator=validators.instance_of(list),))
+    force_constant: float = field(
+        default=400.0, validator=[
+            validators.instance_of(float),
+            validators.ge(0)])
+    coordinates_filename: typing.Optional[str] = field(
+        default=None, 
+        validator=validators.optional(validators.instance_of(str)))

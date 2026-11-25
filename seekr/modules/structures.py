@@ -79,7 +79,9 @@ restraints: typing.Dict[str, typing.Type[restraints_structures.Base_restraint]] 
            "torsion": restraints_structures.Torsion_restraint,
            "pairwise": restraints_structures.Pairwise_restraint,
            "proximity": restraints_structures.Proximity_restraint,
-           "cylinder": restraints_structures.Cylinder_restraint}
+           "cylinder": restraints_structures.Cylinder_restraint,
+           "center_of_mass": restraints_structures\
+                .Center_of_mass_restraint}
 
 reporters: typing.Dict[str, typing.Type[reporters_structures.Base_reporter]] \
         = {"position": reporters_structures.Position_reporter,
