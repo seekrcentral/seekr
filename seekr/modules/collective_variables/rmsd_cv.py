@@ -84,9 +84,10 @@ class RMSD_CV(cv_base.Base_CV):
         """
         Determine the current CV value for an mdtraj object.
         """
-        group_rmsd_atom_indices = model.md_engine.get_atom_indices_by_selection_name(
+        md_engine = model.get_engine_by_scale_type("molecular_dynamics")
+        group_rmsd_atom_indices = md_engine.get_atom_indices_by_selection_name(
             self.group_rmsd_name)
-        group_align_atom_indices = model.md_engine.get_atom_indices_by_selection_name(
+        group_align_atom_indices = md_engine.get_atom_indices_by_selection_name(
             self.group_align_name)
         #if ref_positions is None:
         # TODO: need to correct this path.
