@@ -246,10 +246,7 @@ class Voronoi_cell:
                 if (self.positions is not None) and (self.positions != ""):
                     assert isinstance(self.positions, str), \
                         "anchor.positions must be a filename str if not in Toy mode."
-                    pdb_basename: str = os.path.basename(self.positions)
-                    anchor_pdb_full_path: str = os.path.join(anchor_initial_directory,
-                                                            pdb_basename)
-                    mdtraj_obj = mdtraj.load(anchor_pdb_full_path)
+                    mdtraj_obj = mdtraj.load(self.positions)
                     num_frames = mdtraj_obj.n_frames
                     for frame_id in range(num_frames):
                         output_pdb_full_path = os.path.join(
